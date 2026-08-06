@@ -3,15 +3,69 @@ import {
   corsHeaders,
   errorResponse,
   jsonResponse,
-  openaiChat,
   requireUser,
 } from '../_shared/cors.ts'
+import {
+  applyTemplate,
+  DEFAULT_EMAIL_BODY_TEMPLATE,
+  DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+  formatEmploymentTypes,
+  formatRemotePref,
+  stripRemainingPlaceholders,
+  type TemplateVars,
+} from '../_shared/emailTemplate.ts'
 
-function stripBracketPlaceholders(text: string): string {
-  return text
-    .replace(/\[[^\]]{2,60}\]/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+function buildVars(
+  contact: {
+    full_name?: string | null
+    first_name?: string | null
+    title?: string | null
+    filter_match_reason?: string | null
+  },
+  company: {
+    name?: string
+    hiring_signal_title?: string | null
+  } | null,
+  sender: {
+    full_name: string
+    linkedin_url?: string | null
+    github_url?: string | null
+    portfolio_url?: string | null
+    website_url?: string | null
+  },
+  profile: {
+    roles?: string[]
+    industries?: string[]
+    employment_types?: string[]
+    remote_preference?: string
+  },
+): TemplateVars {
+  const recipient =
+    contact.full_name?.trim() ||
+    contact.first_name?.trim() ||
+    'there'
+  return {
+    recipient,
+    first_name: contact.first_name?.trim() || recipient.split(/\s+/)[0] || '',
+    name: sender.full_name,
+    date: new Date().toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    }),
+    job: contact.title?.trim() || 'your team',
+    target_role: profile.roles?.[0]?.trim() || 'opportunities',
+    company: company?.name?.trim() || 'your company',
+    industry: profile.industries?.[0]?.trim() || 'your field',
+    hiring_signal:
+      company?.hiring_signal_title?.trim() || 'your open roles',
+    employment_type: formatEmploymentTypes(profile.employment_types),
+    remote: formatRemotePref(profile.remote_preference),
+    linkedin: sender.linkedin_url?.trim() || '',
+    github: sender.github_url?.trim() || '',
+    portfolio: sender.portfolio_url?.trim() || '',
+    website: sender.website_url?.trim() || '',
+  }
 }
 
 Deno.serve(async (req) => {
@@ -65,13 +119,17 @@ Deno.serve(async (req) => {
     if (error) return errorResponse(error.message, 500)
     if (!contacts?.length) return errorResponse('No contacts with emails found')
 
-    const { data: resume } = await admin
-      .from('resumes')
-      .select('extracted_text, file_name')
+    const { data: sentRows } = await admin
+      .from('outreach_drafts')
+      .select('contact_id')
       .eq('user_id', user.id)
-      .order('uploaded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .eq('status', 'sent')
+
+    const sentContactIds = new Set(
+      (sentRows || []).map((r) => r.contact_id as string),
+    )
+    const skippedAlreadySent: Array<{ contact_id: string; name: string | null }> =
+      []
 
     const { data: profileRow } = await admin
       .from('search_profiles')
@@ -82,7 +140,7 @@ Deno.serve(async (req) => {
     const { data: senderRow } = await admin
       .from('profiles')
       .select(
-        'full_name, linkedin_url, github_url, portfolio_url, website_url, profile_setup_complete',
+        'full_name, linkedin_url, github_url, portfolio_url, website_url, profile_setup_complete, email_subject_template, email_body_template',
       )
       .eq('id', user.id)
       .maybeSingle()
@@ -95,80 +153,48 @@ Deno.serve(async (req) => {
       )
     }
 
-    const senderForPrompt: Record<string, string> = { full_name: senderFullName }
-    if (senderRow?.linkedin_url?.trim()) {
-      senderForPrompt.linkedin_url = senderRow.linkedin_url.trim()
-    }
-    if (senderRow?.github_url?.trim()) {
-      senderForPrompt.github_url = senderRow.github_url.trim()
-    }
-    if (senderRow?.portfolio_url?.trim()) {
-      senderForPrompt.portfolio_url = senderRow.portfolio_url.trim()
-    }
-    if (senderRow?.website_url?.trim()) {
-      senderForPrompt.website_url = senderRow.website_url.trim()
+    const sender = {
+      full_name: senderFullName,
+      linkedin_url: senderRow?.linkedin_url,
+      github_url: senderRow?.github_url,
+      portfolio_url: senderRow?.portfolio_url,
+      website_url: senderRow?.website_url,
     }
 
-    const profile = profileRow?.profile || {}
-    const resumeSnippet = (resume?.extracted_text || '').slice(0, 4000)
+    const profile = (profileRow?.profile || {}) as {
+      roles?: string[]
+      industries?: string[]
+      employment_types?: string[]
+      remote_preference?: string
+    }
+
+    const subjectTemplate =
+      senderRow?.email_subject_template?.trim() ||
+      DEFAULT_EMAIL_SUBJECT_TEMPLATE
+    const bodyTemplate =
+      senderRow?.email_body_template?.trim() || DEFAULT_EMAIL_BODY_TEMPLATE
     const drafts = []
 
     for (const contact of contacts) {
+      if (!replaceDraftId && sentContactIds.has(contact.id)) {
+        skippedAlreadySent.push({
+          contact_id: contact.id,
+          name: contact.full_name || contact.first_name || null,
+        })
+        continue
+      }
+
       const company = Array.isArray(contact.companies)
         ? contact.companies[0]
         : contact.companies
 
-      const prompt = `Write a short cold outreach email from a job seeker to a hiring manager.
-Return JSON only: {"subject":"...","body":"..."}
-
-SENDER (only these fields exist — use in signature; omit anything not listed):
-${JSON.stringify(senderForPrompt)}
-
-Rules:
-- Body plain text, under 180 words.
-- Mention hiring signal when present.
-- Ask for a brief conversation; do not beg.
-- Tone: ${(profile as { tone?: string }).tone || 'professional and concise'}
-- Reference resume skills only when natural and supported by resume text.
-- Do not invent employer history not in the resume.
-- NEVER use bracket placeholders ([Your Name], [LinkedIn], [Portfolio], etc.).
-- NEVER write "insert your …" or placeholder links.
-- Signature: sign with sender full_name. Include ONLY URLs that appear in SENDER JSON (e.g. if github_url is missing, do not mention GitHub).
-
-Recipient: ${contact.full_name || contact.first_name || 'there'} (${contact.title || 'manager'})
-Company: ${(company as { name?: string })?.name || 'the company'}
-Hiring signal: ${(company as { hiring_signal_title?: string })?.hiring_signal_title || 'open roles'}
-Why selected: ${contact.filter_match_reason || ''}
-Candidate search profile JSON: ${JSON.stringify(profile)}
-Resume excerpt:
-${resumeSnippet}`
-
-      const raw = await openaiChat(
-        [
-          {
-            role: 'system',
-            content:
-              'You draft concise hiring-manager outreach emails. Output JSON only. Never use placeholder brackets or fake links.',
-          },
-          { role: 'user', content: prompt },
-        ],
-        {
-          temperature: replaceDraftId ? 0.75 : 0.6,
-          response_format: { type: 'json_object' },
-        },
+      const vars = buildVars(contact, company, sender, profile)
+      const subject = stripRemainingPlaceholders(
+        applyTemplate(subjectTemplate, vars),
       )
-
-      let subject = `Exploring opportunities at ${(company as { name?: string })?.name || 'your team'}`
-      let emailBody = raw
-      try {
-        const parsed = JSON.parse(raw)
-        subject = parsed.subject || subject
-        emailBody = parsed.body || raw
-      } catch {
-        // keep defaults
-      }
-
-      emailBody = stripBracketPlaceholders(emailBody)
+      const emailBody = stripRemainingPlaceholders(
+        applyTemplate(bodyTemplate, vars),
+      )
 
       if (replaceDraftId) {
         const { data: draft, error: draftErr } = await admin
@@ -204,7 +230,7 @@ ${resumeSnippet}`
       if (!draftErr && draft) drafts.push(draft)
     }
 
-    return jsonResponse({ drafts })
+    return jsonResponse({ drafts, skipped_already_sent: skippedAlreadySent })
   } catch (e) {
     return errorResponse(e instanceof Error ? e.message : 'Unexpected error', 500)
   }

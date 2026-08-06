@@ -22,6 +22,10 @@ type Profile = {
   locations: string[]
   /** Seniority level of the job they want. */
   seniority: string
+  /** Level they want (internship, full-time, part-time, contract). */
+  employment_types: string[]
+  /** remote | hybrid | onsite | flexible */
+  remote_preference: string
   must_haves: string[]
   tone: string
   notes?: string
@@ -36,6 +40,8 @@ const EMPTY_PROFILE: Profile = {
   skills: [],
   locations: [],
   seniority: '',
+  employment_types: [],
+  remote_preference: '',
   must_haves: [],
   tone: 'professional and concise',
   notes: '',
@@ -48,6 +54,8 @@ const TOPIC_ORDER = [
   'company_types',
   'outreach_targets',
   'locations',
+  'employment_types',
+  'remote_preference',
   'seniority',
   'must_haves',
   'tone',
@@ -55,7 +63,15 @@ const TOPIC_ORDER = [
 
 function nextMissingTopic(profile: Profile): string | null {
   for (const key of TOPIC_ORDER) {
-    const val = profile[key]
+    if (key === 'employment_types') {
+      if (!profile.employment_types?.length) return key
+      continue
+    }
+    if (key === 'remote_preference') {
+      if (!profile.remote_preference?.trim()) return key
+      continue
+    }
+    const val = profile[key as keyof Profile]
     if (Array.isArray(val) && val.length === 0) return key
     if (typeof val === 'string' && !val.trim()) return key
   }
@@ -76,6 +92,12 @@ function mergeProfile(base: Profile, patch: Partial<Profile> | null | undefined)
     skills: patch.skills?.length ? patch.skills : base.skills,
     locations: patch.locations?.length ? patch.locations : base.locations,
     seniority: patch.seniority?.trim() ? patch.seniority : base.seniority,
+    employment_types: patch.employment_types?.length
+      ? patch.employment_types
+      : base.employment_types,
+    remote_preference: patch.remote_preference?.trim()
+      ? patch.remote_preference
+      : base.remote_preference,
     must_haves: patch.must_haves?.length ? patch.must_haves : base.must_haves,
     tone: patch.tone?.trim() ? patch.tone : base.tone,
     notes: patch.notes ?? base.notes ?? '',
@@ -211,6 +233,8 @@ Return JSON only:
     "outreach_targets": [], // 4–10 TYPES OF PEOPLE to email at those companies (e.g. "Engineering Manager", "Director of Quantum", "Principal Scientist", "Staff Engineer who refers")
     "skills": [],          // optional background from resume for context only (max 12) — not the main focus
     "locations": [],
+    "employment_types": [],  // e.g. full-time, internship, part-time, contract
+    "remote_preference": "", // remote | hybrid | onsite | flexible
     "seniority": "",       // level they are targeting for their next job
     "must_haves": [],
     "tone": "professional and concise",
@@ -335,7 +359,7 @@ Rules:
 - NEVER more than one question.
 
 Return JSON only:
-{"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":true},"next_topic":"industries|null","ready":false}`
+{"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":true},"next_topic":"industries|null","ready":false}`
       : `You are FollowUp's profile builder. Clarify what jobs/industries they want and WHO to email at target companies.
 
 Current profile JSON:
@@ -356,7 +380,7 @@ Rules:
 - NEVER more than one question.
 
 Return JSON only:
-{"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":true},"next_topic":"company_types|null","ready":false}`
+{"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":true},"next_topic":"company_types|null","ready":false}`
 
     const historyMsgs = [
       { role: 'system', content: 'Return valid JSON only. One question max per reply.' },
@@ -434,6 +458,10 @@ function questionForTopic(topic: string): string {
       return 'Who should we email at those companies — e.g. Engineering Manager, Director, Principal Scientist, Staff Engineer who refers?'
     case 'locations':
       return 'Where do you want to work (cities or remote)?'
+    case 'employment_types':
+      return 'What are you looking for — full-time, internship, part-time, contract, or a mix?'
+    case 'remote_preference':
+      return 'Do you want remote, hybrid, onsite, or are you flexible?'
     case 'seniority':
       return 'What seniority are you targeting for your next role?'
     case 'must_haves':

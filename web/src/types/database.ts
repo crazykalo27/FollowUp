@@ -16,6 +16,8 @@ export interface SearchProfileData {
   skills: string[]
   locations: string[]
   seniority: string
+  employment_types?: string[]
+  remote_preference?: string
   must_haves: string[]
   tone: string
   notes?: string
@@ -74,6 +76,8 @@ export interface Database {
           github_url: string | null
           portfolio_url: string | null
           website_url: string | null
+          email_subject_template: string | null
+          email_body_template: string | null
           profile_setup_complete: boolean
           onboarding_complete: boolean
           created_at: string
@@ -87,6 +91,8 @@ export interface Database {
           github_url?: string | null
           portfolio_url?: string | null
           website_url?: string | null
+          email_subject_template?: string | null
+          email_body_template?: string | null
           profile_setup_complete?: boolean
           onboarding_complete?: boolean
           created_at?: string
@@ -99,6 +105,8 @@ export interface Database {
           github_url?: string | null
           portfolio_url?: string | null
           website_url?: string | null
+          email_subject_template?: string | null
+          email_body_template?: string | null
           profile_setup_complete?: boolean
           onboarding_complete?: boolean
           updated_at?: string

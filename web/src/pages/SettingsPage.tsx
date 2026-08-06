@@ -1,8 +1,35 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
+import type { SearchProfileData } from '../types/database'
+
+const EMPLOYMENT_TYPE_OPTIONS = [
+  'full-time',
+  'part-time',
+  'internship',
+  'contract',
+] as const
+
+const REMOTE_OPTIONS = [
+  { value: 'remote', label: 'Remote only' },
+  { value: 'hybrid', label: 'Hybrid' },
+  { value: 'onsite', label: 'Onsite' },
+  { value: 'flexible', label: 'Flexible' },
+] as const
+
+const EMPTY_PROFILE: SearchProfileData = {
+  roles: [],
+  industries: [],
+  employment_types: [],
+  remote_preference: '',
+  skills: [],
+  locations: [],
+  seniority: '',
+  must_haves: [],
+  tone: '',
+}
 
 export function SettingsPage() {
   const { user } = useAuth()
@@ -16,6 +43,9 @@ export function SettingsPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
+  const [employmentTypes, setEmploymentTypes] = useState<string[]>([])
+  const [remotePreference, setRemotePreference] = useState('')
+  const [savingEmployment, setSavingEmployment] = useState(false)
 
   useEffect(() => {
     const g = params.get('gmail')
@@ -28,7 +58,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (!user) return
     void (async () => {
-      const [{ data: gmail }, { data: prof }] = await Promise.all([
+      const [{ data: gmail }, { data: prof }, { data: sp }] = await Promise.all([
         supabase
           .from('gmail_connection')
           .select('email')
@@ -40,6 +70,11 @@ export function SettingsPage() {
             'full_name, linkedin_url, github_url, portfolio_url, website_url, display_name',
           )
           .eq('id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('search_profiles')
+          .select('profile')
+          .eq('user_id', user.id)
           .maybeSingle(),
       ])
       if (gmail?.email) {
@@ -59,8 +94,50 @@ export function SettingsPage() {
         setPortfolioUrl(prof.portfolio_url || '')
         setWebsiteUrl(prof.website_url || '')
       }
+      const p = (sp?.profile as SearchProfileData | undefined) || EMPTY_PROFILE
+      setEmploymentTypes(p.employment_types || [])
+      setRemotePreference(p.remote_preference || '')
     })()
   }, [user])
+
+  async function saveEmploymentPrefs() {
+    if (!user) return
+    if (employmentTypes.length === 0) {
+      setMsg('Select at least one employment type.')
+      return
+    }
+    if (!remotePreference) {
+      setMsg('Select a remote / location preference.')
+      return
+    }
+    setSavingEmployment(true)
+    setMsg(null)
+    const { data: existing } = await supabase
+      .from('search_profiles')
+      .select('profile')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    const base = {
+      ...EMPTY_PROFILE,
+      ...(existing?.profile as SearchProfileData | undefined),
+    }
+    const next: SearchProfileData = {
+      ...base,
+      employment_types: employmentTypes,
+      remote_preference: remotePreference,
+    }
+    const { error } = await supabase.from('search_profiles').upsert(
+      {
+        user_id: user.id,
+        profile: next,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    )
+    setSavingEmployment(false)
+    if (error) setMsg(error.message)
+    else setMsg('Job search preferences saved — used in drafts and profile chat.')
+  }
 
   async function saveSenderProfile() {
     if (!user) return
@@ -169,6 +246,54 @@ export function SettingsPage() {
           onClick={() => void saveSenderProfile()}
         >
           {savingProfile ? 'Saving…' : 'Save sender profile'}
+        </button>
+      </div>
+
+      <div className="settings-block">
+        <h2>What you’re looking for</h2>
+        <p className="muted small">
+          Used in outreach templates (<code>[employment_type]</code>,{' '}
+          <code>[remote]</code>) and profile chat. Target job titles stay under{' '}
+          <Link to="/app/filters">Filters</Link>.
+        </p>
+        <fieldset className="check-group">
+          <legend className="small">Employment type</legend>
+          {EMPLOYMENT_TYPE_OPTIONS.map((opt) => (
+            <label key={opt} className="check">
+              <input
+                type="checkbox"
+                checked={employmentTypes.includes(opt)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setEmploymentTypes((t) => [...t, opt])
+                  } else {
+                    setEmploymentTypes((t) => t.filter((x) => x !== opt))
+                  }
+                }}
+              />
+              {opt}
+            </label>
+          ))}
+        </fieldset>
+        <label>
+          Remote / location preference
+          <select
+            value={remotePreference}
+            onChange={(e) => setRemotePreference(e.target.value)}
+          >
+            <option value="">Select…</option>
+            {REMOTE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="btn primary"
+          disabled={savingEmployment}
+          onClick={() => void saveEmploymentPrefs()}
+        >
+          {savingEmployment ? 'Saving…' : 'Save job preferences'}
         </button>
       </div>
 

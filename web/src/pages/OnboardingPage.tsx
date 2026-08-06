@@ -344,6 +344,15 @@ export function OnboardingPage() {
                   {profile.outreach_targets.join(', ')}
                 </p>
               )}
+              {profile.employment_types?.length > 0 && (
+                <p>
+                  <strong>Looking for:</strong>{' '}
+                  {profile.employment_types.join(', ')}
+                  {profile.remote_preference
+                    ? ` · ${profile.remote_preference}`
+                    : ''}
+                </p>
+              )}
               {profile.notes && (
                 <p className="muted small">{profile.notes}</p>
               )}

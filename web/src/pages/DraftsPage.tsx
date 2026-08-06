@@ -1,16 +1,39 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import type { DraftStatus } from '../types/database'
+import {
+  applyTemplate,
+  DEFAULT_EMAIL_BODY_TEMPLATE,
+  DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+  SAMPLE_PREVIEW_VARS,
+  TEMPLATE_PLACEHOLDER_HELP,
+} from '../lib/emailTemplate'
+import { EMAIL_TEMPLATE_PRESETS } from '../lib/emailTemplatePresets'
 
 type DraftRow = {
   id: string
+  contact_id: string
   subject: string
   body: string
   status: DraftStatus
+  sent_at: string | null
   error_message: string | null
   contacts: { full_name: string | null; email: string | null } | null
+}
+
+function formatSentDate(sentAt: string | null) {
+  if (!sentAt) return 'Sent'
+  try {
+    return `Sent ${new Date(sentAt).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })}`
+  } catch {
+    return 'Sent'
+  }
 }
 
 export function DraftsPage() {
@@ -20,12 +43,47 @@ export function DraftsPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [resumeFileName, setResumeFileName] = useState<string | null>(null)
+  const [subjectTemplate, setSubjectTemplate] = useState(
+    DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+  )
+  const [bodyTemplate, setBodyTemplate] = useState(DEFAULT_EMAIL_BODY_TEMPLATE)
+  const [savingTemplate, setSavingTemplate] = useState(false)
+
+  const templatePreview = useMemo(() => {
+    return {
+      subject: applyTemplate(subjectTemplate, SAMPLE_PREVIEW_VARS),
+      body: applyTemplate(bodyTemplate, SAMPLE_PREVIEW_VARS),
+    }
+  }, [subjectTemplate, bodyTemplate])
+
+  const sentContactIds = useMemo(
+    () =>
+      new Set(
+        drafts.filter((d) => d.status === 'sent').map((d) => d.contact_id),
+      ),
+    [drafts],
+  )
+
+  const outreachLocked = active
+    ? active.status === 'sent' || sentContactIds.has(active.contact_id)
+    : false
+
+  function importPreset(presetId: string) {
+    const preset = EMAIL_TEMPLATE_PRESETS.find((p) => p.id === presetId)
+    if (!preset) return
+    setSubjectTemplate(preset.subjectTemplate)
+    setBodyTemplate(preset.bodyTemplate)
+    setMsg(`Imported “${preset.label}” — click Save template to keep it.`)
+  }
 
   async function load() {
     if (!user) return
     const { data } = await supabase
       .from('outreach_drafts')
-      .select('id, subject, body, status, error_message, contacts(full_name, email)')
+      .select(
+        'id, contact_id, subject, body, status, sent_at, error_message, contacts(full_name, email)',
+      )
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
@@ -41,8 +99,49 @@ export function DraftsPage() {
   }
 
   useEffect(() => {
+    if (!user) return
+    void (async () => {
+      const [{ data: prof }, { data: resume }] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('email_subject_template, email_body_template')
+          .eq('id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('resumes')
+          .select('file_name')
+          .eq('user_id', user.id)
+          .order('uploaded_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+      if (prof?.email_subject_template?.trim()) {
+        setSubjectTemplate(prof.email_subject_template.trim())
+      }
+      if (prof?.email_body_template?.trim()) {
+        setBodyTemplate(prof.email_body_template.trim())
+      }
+      setResumeFileName(resume?.file_name || null)
+    })()
     void load()
   }, [user])
+
+  async function saveTemplate() {
+    if (!user) return
+    setSavingTemplate(true)
+    setMsg(null)
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        email_subject_template: subjectTemplate.trim(),
+        email_body_template: bodyTemplate.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', user.id)
+    setSavingTemplate(false)
+    if (error) setMsg(error.message)
+    else setMsg('Template saved.')
+  }
 
   async function saveEdits() {
     if (!active) return
@@ -66,8 +165,14 @@ export function DraftsPage() {
     setSending(true)
     setMsg(null)
     try {
-      await invokeFunction('send-outreach', { draft_id: active.id })
-      setMsg('Sent via your Gmail with resume attached.')
+      await invokeFunction<{
+        resume_attached?: string
+        sent_via?: string
+      }>('send-outreach', { draft_id: active.id })
+      const attachNote = resumeFileName
+        ? `Sent via Gmail with ${resumeFileName} attached. Check your Sent folder.`
+        : 'Sent via your Gmail — check your Sent folder.'
+      setMsg(attachNote)
       void load()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Send failed')
@@ -93,7 +198,7 @@ export function DraftsPage() {
           status: 'draft',
           error_message: null,
         })
-        setMsg('Draft regenerated — review before sending.')
+        setMsg('Draft regenerated from your template.')
       } else {
         setMsg('Regenerate finished but no draft was returned.')
       }
@@ -106,89 +211,192 @@ export function DraftsPage() {
   }
 
   return (
-    <div className="panel split">
-      <section>
+    <div className="panel drafts-page">
+      <header className="drafts-header">
         <h1>Drafts</h1>
-        <p className="lede">
-          Review every email before it leaves your inbox. Sending attaches your
-          latest resume.
+        <p className="muted small">
+          Template drives new emails; pick a draft to review and send.
+          Drafts are filled from your saved template only — no AI text.
         </p>
-        <ul className="draft-list">
-          {drafts.map((d) => (
-            <li key={d.id}>
-              <button
-                type="button"
-                className={active?.id === d.id ? 'active' : ''}
-                onClick={() => setActive(d)}
-              >
-                <strong>{d.subject}</strong>
-                <span className="muted small">
-                  {d.contacts?.full_name || d.contacts?.email} · {d.status}
-                </span>
-              </button>
-            </li>
-          ))}
-          {drafts.length === 0 && (
-            <li className="muted">No drafts yet. Generate from Contacts.</li>
-          )}
-        </ul>
-      </section>
+      </header>
 
-      <section>
-        {active ? (
-          <>
-            <p className="muted small">
-              To: {active.contacts?.email} ({active.contacts?.full_name})
-            </p>
-            <label>
-              Subject
-              <input
-                value={active.subject}
-                onChange={(e) =>
-                  setActive({ ...active, subject: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Body
-              <textarea
-                rows={14}
-                value={active.body}
-                onChange={(e) => setActive({ ...active, body: e.target.value })}
-              />
-            </label>
-            <div className="actions">
-              <button
-                type="button"
-                className="btn"
-                disabled={
-                  regenerating || sending || active.status === 'sent'
-                }
-                onClick={() => void regenerateDraft()}
-              >
-                {regenerating ? 'Regenerating…' : 'Regenerate draft'}
-              </button>
-              <button type="button" className="btn" onClick={saveEdits}>
-                Save / approve
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={sending || regenerating || active.status === 'sent'}
-                onClick={send}
-              >
-                {sending ? 'Sending…' : 'Confirm & send via Gmail'}
-              </button>
-            </div>
-            {active.error_message && (
-              <p className="flash error">{active.error_message}</p>
+      {msg && <p className="flash drafts-flash">{msg}</p>}
+
+      <div className="drafts-layout">
+        <aside className="drafts-list-col">
+          <h2 className="drafts-section-title">Drafts</h2>
+          <ul className="draft-list drafts-list-compact">
+            {drafts.map((d) => (
+              <li key={d.id}>
+                <button
+                  type="button"
+                  className={`${active?.id === d.id ? 'active' : ''} ${
+                    d.status === 'sent' ? 'draft-list-sent' : ''
+                  }`}
+                  onClick={() => setActive(d)}
+                >
+                  <span className="draft-list-row-top">
+                    {d.status === 'sent' && (
+                      <span className="draft-sent-check" aria-hidden="true">
+                        ✓
+                      </span>
+                    )}
+                    <span className="draft-list-subject">{d.subject}</span>
+                  </span>
+                  <span className="muted small">
+                    {d.contacts?.full_name || d.contacts?.email}
+                    {d.status === 'sent'
+                      ? ` · ${formatSentDate(d.sent_at)}`
+                      : ` · ${d.status}`}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {drafts.length === 0 && (
+              <li className="muted small">Generate from Contacts.</li>
             )}
-          </>
-        ) : (
-          <p className="muted">Select a draft to edit.</p>
-        )}
-        {msg && <p className="flash">{msg}</p>}
-      </section>
+          </ul>
+        </aside>
+
+        <section className="drafts-template-col">
+          <h2 className="drafts-section-title">Active template</h2>
+          <div className="template-preset-row">
+            {EMAIL_TEMPLATE_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="btn ghost btn-sm"
+                title={preset.blurb}
+                onClick={() => importPreset(preset.id)}
+              >
+                Import: {preset.label}
+              </button>
+            ))}
+          </div>
+          <label>
+            Subject
+            <input
+              type="text"
+              value={subjectTemplate}
+              onChange={(e) => setSubjectTemplate(e.target.value)}
+            />
+          </label>
+          <label>
+            Body
+            <textarea
+              rows={9}
+              value={bodyTemplate}
+              onChange={(e) => setBodyTemplate(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={savingTemplate}
+            onClick={() => void saveTemplate()}
+          >
+            {savingTemplate ? 'Saving…' : 'Save template'}
+          </button>
+
+          <div className="drafts-review">
+            <h2 className="drafts-section-title">Review & send</h2>
+            <p className="muted small drafts-send-note">
+              Sends from your connected Gmail. The message appears in your{' '}
+              <strong>Sent</strong> mail like any email you send yourself.
+              {resumeFileName
+                ? ` Attaches latest resume: ${resumeFileName}.`
+                : ' Upload a resume on Profile before sending.'}
+            </p>
+            {active ? (
+              <>
+                {outreachLocked && (
+                  <p className="draft-sent-banner">
+                    Outreach already sent to this person. Follow up or reply from
+                    your Gmail inbox — FollowUp won&apos;t send again.
+                  </p>
+                )}
+                <p className="muted small">
+                  To: {active.contacts?.email} ({active.contacts?.full_name})
+                </p>
+                <label>
+                  Subject
+                  <input
+                    value={active.subject}
+                    disabled={outreachLocked}
+                    onChange={(e) =>
+                      setActive({ ...active, subject: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Body
+                  <textarea
+                    rows={8}
+                    value={active.body}
+                    disabled={outreachLocked}
+                    onChange={(e) =>
+                      setActive({ ...active, body: e.target.value })
+                    }
+                  />
+                </label>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={regenerating || sending || outreachLocked}
+                    onClick={() => void regenerateDraft()}
+                  >
+                    {regenerating ? '…' : 'Regenerate'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={outreachLocked}
+                    onClick={saveEdits}
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="btn primary btn-sm"
+                    disabled={sending || regenerating || outreachLocked}
+                    onClick={send}
+                  >
+                    {sending ? 'Sending…' : 'Send via Gmail'}
+                  </button>
+                </div>
+                {active.error_message && (
+                  <p className="flash error">{active.error_message}</p>
+                )}
+              </>
+            ) : (
+              <p className="muted small">Select a draft from the list.</p>
+            )}
+          </div>
+        </section>
+
+        <aside className="drafts-tags-col">
+          <h2 className="drafts-section-title">Placeholders</h2>
+          <p className="muted small">
+            Use in subject/body. Empty links are dropped.
+          </p>
+          <ul className="template-tags-static">
+            {TEMPLATE_PLACEHOLDER_HELP.map((h) => (
+              <li key={h.key}>
+                <code>[{h.key}]</code>
+                <span>{h.description}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="template-preview-compact">
+            <h3 className="small">Sample preview</h3>
+            <p className="muted small preview-subject">
+              {templatePreview.subject}
+            </p>
+            <pre className="template-preview-body">{templatePreview.body}</pre>
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }

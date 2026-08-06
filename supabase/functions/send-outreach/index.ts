@@ -41,6 +41,16 @@ function encodeUtf8Base64Url(text: string): string {
   return encodeBase64Url(new TextEncoder().encode(text))
 }
 
+function mimeTypeForFilename(name: string, fallback?: string): string {
+  if (fallback && fallback !== 'application/octet-stream') return fallback
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.pdf')) return 'application/pdf'
+  if (lower.endsWith('.doc')) return 'application/msword'
+  if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  if (lower.endsWith('.txt')) return 'text/plain'
+  return fallback || 'application/pdf'
+}
+
 function buildMime(opts: {
   to: string
   from: string
@@ -98,7 +108,28 @@ Deno.serve(async (req) => {
       .single()
 
     if (draftErr || !draft) return errorResponse('Draft not found', 404)
-    if (draft.status === 'sent') return errorResponse('Draft already sent')
+    if (draft.status === 'sent') {
+      return errorResponse(
+        'This draft was already sent. Follow up or reply in your Gmail inbox.',
+        400,
+      )
+    }
+
+    const contactId = draft.contact_id as string
+    const { data: priorSent } = await admin
+      .from('outreach_drafts')
+      .select('id, sent_at')
+      .eq('user_id', user.id)
+      .eq('contact_id', contactId)
+      .eq('status', 'sent')
+      .maybeSingle()
+
+    if (priorSent) {
+      return errorResponse(
+        'You already sent outreach to this person. Follow up or reply in your Gmail Sent mail — we do not send twice from FollowUp.',
+        400,
+      )
+    }
 
     const contact = Array.isArray(draft.contacts)
       ? draft.contacts[0]
@@ -162,7 +193,7 @@ Deno.serve(async (req) => {
       body: draft.body,
       filename: resume.file_name,
       attachmentBytes: bytes,
-      contentType: fileData.type || 'application/pdf',
+      contentType: mimeTypeForFilename(resume.file_name, fileData.type),
     })
 
     const raw = encodeUtf8Base64Url(mime)
@@ -203,7 +234,12 @@ Deno.serve(async (req) => {
       })
       .eq('id', draft_id)
 
-    return jsonResponse({ ok: true, gmail_id: sendBody.id })
+    return jsonResponse({
+      ok: true,
+      gmail_id: sendBody.id,
+      resume_attached: resume.file_name,
+      sent_via: tokenRow.email,
+    })
   } catch (e) {
     return errorResponse(e instanceof Error ? e.message : 'Unexpected error', 500)
   }

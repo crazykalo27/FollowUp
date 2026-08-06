@@ -10,6 +10,8 @@ const EMPTY_SEARCH_PROFILE: SearchProfileData = {
   industries: [],
   company_types: [],
   outreach_targets: [],
+  employment_types: [],
+  remote_preference: '',
   skills: [],
   locations: [],
   seniority: '',

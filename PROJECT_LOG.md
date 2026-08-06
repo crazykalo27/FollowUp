@@ -61,3 +61,10 @@ Conceptual milestones (not a commit-by-commit diary).
 - Search targets UI moved to Filters tab; Settings is signature + Gmail only.
 - run-search: parallel provider calls, lower deep caps, 125s budget + clearer 546 message; profile/gmail load fallbacks.
 - Overview: Cancel search marks run cancelled (RLS); run-search respects cancel; stuck-search cancel after client errors.
+- Email templates on Drafts (placeholders + save); draft-emails fills tags; Settings job prefs; profile chat asks employment/remote.
+
+## 2026-08-06 — One outreach send per contact
+
+- DB partial unique index on sent outreach per user+contact; send-outreach rejects duplicate sends with Gmail follow-up message.
+- draft-emails skips contacts already sent; returns `skipped_already_sent`.
+- Drafts list: checkmark + sent date; lock send/edit when outreach sent; Contacts kept tab shows sent state.

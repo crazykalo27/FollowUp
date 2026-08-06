@@ -173,16 +173,29 @@ export function ContactsPage() {
   const reviewChainRef = useRef<Promise<void>>(Promise.resolve())
   const [exiting, setExiting] = useState<ContactRow | null>(null)
   const [syncPending, setSyncPending] = useState(0)
+  const [sentOutreachIds, setSentOutreachIds] = useState<Set<string>>(
+    () => new Set(),
+  )
 
   const load = useCallback(async () => {
     if (!user) return
-    const { data } = await supabase
-      .from('contacts')
-      .select(
-        'id, company_id, full_name, title, email, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, source_details, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
-      )
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+    const [{ data }, { data: sentRows }] = await Promise.all([
+      supabase
+        .from('contacts')
+        .select(
+          'id, company_id, full_name, title, email, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, source_details, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
+        )
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('outreach_drafts')
+        .select('contact_id')
+        .eq('user_id', user.id)
+        .eq('status', 'sent'),
+    ])
+    setSentOutreachIds(
+      new Set((sentRows || []).map((r) => r.contact_id as string)),
+    )
     setRows(
       (data || []).map((r) => ({
         ...r,
@@ -572,10 +585,21 @@ export function ContactsPage() {
     setDraftingId(id)
     setMsg(null)
     try {
-      const res = await invokeFunction<{ drafts: unknown[] }>('draft-emails', {
+      const res = await invokeFunction<{
+        drafts: unknown[]
+        skipped_already_sent?: Array<{ contact_id: string; name: string | null }>
+      }>('draft-emails', {
         contact_ids: [id],
       })
+      if (res.skipped_already_sent?.length) {
+        setMsg(
+          'Outreach was already sent to this person. Follow up from your Gmail inbox.',
+        )
+        void load()
+        return
+      }
       setMsg(`Draft ready (${res.drafts.length}). Open Drafts to review.`)
+      void load()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Drafting failed')
     } finally {
@@ -592,10 +616,26 @@ export function ContactsPage() {
         setMsg('No kept contacts with email yet.')
         return
       }
-      const res = await invokeFunction<{ drafts: unknown[] }>('draft-emails', {
+      const res = await invokeFunction<{
+        drafts: unknown[]
+        skipped_already_sent?: Array<{ contact_id: string; name: string | null }>
+      }>('draft-emails', {
         contact_ids: ids,
       })
-      setMsg(`Created ${res.drafts.length} draft(s) from kept contacts.`)
+      const skipped = res.skipped_already_sent?.length ?? 0
+      const created = res.drafts.length
+      if (created === 0 && skipped > 0) {
+        setMsg(
+          'No new drafts — everyone selected already has outreach sent. Follow up in Gmail.',
+        )
+      } else if (skipped > 0) {
+        setMsg(
+          `Created ${created} draft(s). Skipped ${skipped} already sent — follow up in Gmail.`,
+        )
+      } else {
+        setMsg(`Created ${created} draft(s) from kept contacts.`)
+      }
+      void load()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Drafting failed')
     } finally {
@@ -815,14 +855,20 @@ export function ContactsPage() {
               <article key={r.id} className="contact-card">
                 <ContactDetail contact={r} />
                 <div className="actions contact-manage">
-                  <button
-                    type="button"
-                    className="btn primary"
-                    disabled={!r.email || draftingId === r.id}
-                    onClick={() => void draftOne(r.id)}
-                  >
-                    {draftingId === r.id ? 'Drafting…' : 'Draft email'}
-                  </button>
+                  {sentOutreachIds.has(r.id) ? (
+                    <p className="small outreach-sent-note">
+                      ✓ Outreach sent — follow up in Gmail
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={!r.email || draftingId === r.id}
+                      onClick={() => void draftOne(r.id)}
+                    >
+                      {draftingId === r.id ? 'Drafting…' : 'Draft email'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn ghost"

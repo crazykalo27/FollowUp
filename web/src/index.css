@@ -87,6 +87,11 @@ h3,
   cursor: not-allowed;
 }
 
+.btn-sm {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.82rem;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -657,6 +662,203 @@ th {
 .settings-block textarea {
   min-height: 4.5rem;
   resize: vertical;
+}
+
+.drafts-page {
+  max-width: 72rem;
+}
+
+.drafts-header {
+  margin-bottom: 0.75rem;
+}
+
+.drafts-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.75rem;
+}
+
+.drafts-flash {
+  margin: 0 0 0.75rem;
+}
+
+.drafts-layout {
+  display: grid;
+  grid-template-columns: minmax(160px, 200px) minmax(0, 1fr) minmax(220px, 280px);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.drafts-section-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.drafts-list-col {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.65rem;
+  background: var(--bg-2);
+  max-height: calc(100vh - 10rem);
+  overflow: auto;
+}
+
+.drafts-list-compact .draft-list-subject {
+  font-weight: 600;
+  font-size: 0.88rem;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.draft-list-row-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.draft-sent-check {
+  flex-shrink: 0;
+  color: var(--accent, #c4f076);
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.draft-list button.draft-list-sent {
+  border-color: rgba(196, 240, 76, 0.25);
+  background: rgba(196, 240, 76, 0.06);
+}
+
+.draft-sent-banner {
+  margin: 0 0 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 6px;
+  background: rgba(196, 240, 76, 0.1);
+  border: 1px solid rgba(196, 240, 76, 0.35);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.drafts-list-compact button {
+  padding: 0.5rem 0.45rem;
+}
+
+.drafts-template-col label {
+  display: block;
+  margin: 0.5rem 0 0;
+  font-size: 0.88rem;
+}
+
+.drafts-template-col input,
+.drafts-template-col textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  box-sizing: border-box;
+}
+
+.template-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.drafts-send-note {
+  margin: 0 0 0.65rem;
+  line-height: 1.45;
+}
+
+.drafts-review {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.drafts-tags-col {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: var(--bg-2);
+  max-height: calc(100vh - 10rem);
+  overflow: auto;
+}
+
+.template-tags-static {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.template-tags-static li {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.35rem 0.5rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.template-tags-static li:last-child {
+  border-bottom: none;
+}
+
+.template-tags-static code {
+  font-size: 0.75rem;
+  color: var(--accent, #c4f076);
+}
+
+.template-tags-static span {
+  color: var(--muted);
+}
+
+.template-preview-compact {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.template-preview-compact h3 {
+  margin: 0 0 0.35rem;
+}
+
+.preview-subject {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.template-preview-body {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.78rem;
+  font-family: inherit;
+  max-height: 12rem;
+  overflow: auto;
+  opacity: 0.9;
+}
+
+.check-group {
+  border: none;
+  margin: 0.75rem 0;
+  padding: 0;
+}
+
+.check-group legend {
+  margin-bottom: 0.35rem;
+}
+
+.settings-block select {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+  box-sizing: border-box;
 }
 
 .search-report {
@@ -1293,6 +1495,12 @@ th {
   gap: 0.45rem;
 }
 
+.outreach-sent-note {
+  margin: 0;
+  color: var(--accent, #c4f076);
+  font-weight: 600;
+}
+
 .pref-docs {
   margin-top: 2.5rem;
   padding-top: 1.5rem;
@@ -1435,5 +1643,14 @@ th {
   .split,
   .form-row {
     grid-template-columns: 1fr;
+  }
+
+  .drafts-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .drafts-list-col,
+  .drafts-tags-col {
+    max-height: none;
   }
 }
