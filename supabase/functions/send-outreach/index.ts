@@ -1,0 +1,210 @@
+import {
+  adminClient,
+  corsHeaders,
+  errorResponse,
+  jsonResponse,
+  requireUser,
+} from '../_shared/cors.ts'
+
+async function refreshAccessToken(refreshToken: string) {
+  const clientId = Deno.env.get('GOOGLE_GMAIL_CLIENT_ID')!
+  const clientSecret = Deno.env.get('GOOGLE_GMAIL_CLIENT_SECRET')!
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error || 'Failed to refresh Gmail token')
+  return body as { access_token: string; expires_in?: number }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunk = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+function encodeBase64Url(bytes: Uint8Array): string {
+  return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function encodeUtf8Base64Url(text: string): string {
+  return encodeBase64Url(new TextEncoder().encode(text))
+}
+
+function buildMime(opts: {
+  to: string
+  from: string
+  subject: string
+  body: string
+  filename: string
+  attachmentBytes: Uint8Array
+  contentType: string
+}): string {
+  const boundary = `followup_${crypto.randomUUID().replace(/-/g, '')}`
+  const attachmentB64 = bytesToBase64(opts.attachmentBytes).replace(/(.{76})/g, '$1\r\n')
+
+  return [
+    `From: ${opts.from}`,
+    `To: ${opts.to}`,
+    `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(opts.subject)))}?=`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: 7bit',
+    '',
+    opts.body,
+    '',
+    `--${boundary}`,
+    `Content-Type: ${opts.contentType}; name="${opts.filename}"`,
+    'Content-Transfer-Encoding: base64',
+    `Content-Disposition: attachment; filename="${opts.filename}"`,
+    '',
+    attachmentB64,
+    `--${boundary}--`,
+  ].join('\r\n')
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  try {
+    const auth = await requireUser(req)
+    if (auth instanceof Response) return auth
+    const { user } = auth
+    const admin = adminClient()
+
+    const { draft_id } = await req.json()
+    if (!draft_id) return errorResponse('draft_id is required')
+
+    const { data: draft, error: draftErr } = await admin
+      .from('outreach_drafts')
+      .select('*, contacts(email, full_name)')
+      .eq('id', draft_id)
+      .eq('user_id', user.id)
+      .single()
+
+    if (draftErr || !draft) return errorResponse('Draft not found', 404)
+    if (draft.status === 'sent') return errorResponse('Draft already sent')
+
+    const contact = Array.isArray(draft.contacts)
+      ? draft.contacts[0]
+      : draft.contacts
+    const to = contact?.email
+    if (!to) return errorResponse('Contact has no email')
+
+    const { data: tokenRow } = await admin
+      .from('gmail_tokens')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (!tokenRow?.refresh_token) {
+      return errorResponse('Gmail not connected', 400)
+    }
+
+    let accessToken = tokenRow.access_token as string | null
+    const expired =
+      !tokenRow.expires_at ||
+      new Date(tokenRow.expires_at).getTime() < Date.now() + 60_000
+
+    if (!accessToken || expired) {
+      const refreshed = await refreshAccessToken(tokenRow.refresh_token)
+      accessToken = refreshed.access_token
+      await admin
+        .from('gmail_tokens')
+        .update({
+          access_token: accessToken,
+          expires_at: refreshed.expires_in
+            ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
+            : null,
+        })
+        .eq('user_id', user.id)
+    }
+
+    const { data: resume } = await admin
+      .from('resumes')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('uploaded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!resume) return errorResponse('Upload a resume before sending')
+
+    const { data: fileData, error: dlErr } = await admin.storage
+      .from('resumes')
+      .download(resume.storage_path)
+
+    if (dlErr || !fileData) {
+      return errorResponse(dlErr?.message || 'Failed to download resume')
+    }
+
+    const bytes = new Uint8Array(await fileData.arrayBuffer())
+    const from = tokenRow.email || 'me'
+    const mime = buildMime({
+      to,
+      from,
+      subject: draft.subject,
+      body: draft.body,
+      filename: resume.file_name,
+      attachmentBytes: bytes,
+      contentType: fileData.type || 'application/pdf',
+    })
+
+    const raw = encodeUtf8Base64Url(mime)
+    const sendRes = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ raw }),
+      },
+    )
+
+    const sendBody = await sendRes.json()
+    if (!sendRes.ok) {
+      await admin
+        .from('outreach_drafts')
+        .update({
+          status: 'failed',
+          error_message: sendBody.error?.message || 'Gmail send failed',
+        })
+        .eq('id', draft_id)
+
+      return errorResponse(
+        sendBody.error?.message || 'Gmail send failed',
+        502,
+      )
+    }
+
+    await admin
+      .from('outreach_drafts')
+      .update({
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        error_message: null,
+      })
+      .eq('id', draft_id)
+
+    return jsonResponse({ ok: true, gmail_id: sendBody.id })
+  } catch (e) {
+    return errorResponse(e instanceof Error ? e.message : 'Unexpected error', 500)
+  }
+})
