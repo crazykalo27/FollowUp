@@ -133,6 +133,7 @@ export function OverviewPage() {
     companies_done: number
   } | null>(null)
   const pollRef = useRef<number | null>(null)
+  const pollRunIdRef = useRef<string | null>(null)
   const appliedRunRef = useRef<string | null>(null)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
@@ -155,13 +156,16 @@ export function OverviewPage() {
     setSearching(false)
     saveActiveRunId(null)
     setActiveRunId(null)
+    pollRunIdRef.current = null
     stopPoll()
+    setErrorMsg(null)
   }
 
   function dismissStuckRun() {
     stopPoll()
     saveActiveRunId(null)
     setActiveRunId(null)
+    pollRunIdRef.current = null
     setSearching(false)
     setLive(null)
     setErrorMsg(null)
@@ -211,6 +215,12 @@ export function OverviewPage() {
       error?: string | null
     },
   ) {
+    if (pollRunIdRef.current !== runId) return
+
+    if (data.status === 'running') {
+      setErrorMsg(null)
+    }
+
     setLive({
       progress: data.progress ?? 0,
       stage: data.stage || 'running',
@@ -263,6 +273,7 @@ export function OverviewPage() {
 
   function startPolling(runId: string) {
     setActiveRunId(runId)
+    pollRunIdRef.current = runId
     stopPoll()
     pollRef.current = window.setInterval(async () => {
       const { data } = await supabase
@@ -350,6 +361,22 @@ export function OverviewPage() {
   async function runSearch() {
     if (!user || searching) return
 
+    setErrorMsg(null)
+
+    const staleBefore = new Date(Date.now() - 4 * 60 * 1000).toISOString()
+    await supabase
+      .from('search_runs')
+      .update({
+        status: 'failed',
+        stage: 'failed',
+        message: 'Search timed out',
+        error: 'Server time limit — start a new search.',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', user.id)
+      .eq('status', 'running')
+      .lt('updated_at', staleBefore)
+
     // Don't start a second run if one is already going
     const { data: existing } = await supabase
       .from('search_runs')
@@ -369,7 +396,6 @@ export function OverviewPage() {
 
     const preset = depthPreset(depth)
     setSearching(true)
-    setErrorMsg(null)
     setSummary(null)
     setLive({
       progress: 1,
@@ -408,28 +434,35 @@ export function OverviewPage() {
     // Fire-and-forget: search continues on the server if the user navigates away.
     // Polling (resumed on remount) owns UI completion — don't clear poll here.
     void invokeFunction<{
-      summary: SearchSummary
+      summary?: SearchSummary
       run_id: string
+      accepted?: boolean
     }>('run-search', { run_id: run.id, depth })
       .then((res) => {
-        finishWithSummary(run.id, res.summary)
-        setLive({
-          progress: 100,
-          stage: 'done',
-          message:
-            res.summary.contacts_created > 0
-              ? `Done — ${res.summary.contacts_created} contact(s)`
-              : 'Done — no contacts kept',
-          detail: null,
-          current_company: null,
-          companies_total: res.summary.companies_selected,
-          companies_done: res.summary.companies_selected,
-        })
+        if (res.accepted) return
+        if (res.summary) {
+          finishWithSummary(run.id, res.summary)
+          setLive({
+            progress: 100,
+            stage: 'done',
+            message:
+              res.summary.contacts_created > 0
+                ? `Done — ${res.summary.contacts_created} contact(s)`
+                : 'Done — no contacts kept',
+            detail: null,
+            current_company: null,
+            companies_total: res.summary.companies_selected,
+            companies_done: res.summary.companies_selected,
+          })
+        }
       })
       .catch((e) => {
-        setErrorMsg(e instanceof Error ? e.message : 'Search failed')
+        // Background run may still finish — polling owns success/failure.
+        const msg = e instanceof Error ? e.message : 'Search failed'
+        if (!msg.includes('time limit')) {
+          setErrorMsg(msg)
+        }
         setSearching(false)
-        // Server may still be running — keep activeRunId so user can cancel
       })
   }
 

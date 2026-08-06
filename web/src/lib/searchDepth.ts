@@ -36,7 +36,7 @@ export const SEARCH_DEPTHS: DepthPreset[] = [
     perCompany: 4,
     eta: '~3–4 min',
     estimatePeople: 'up to ~32 contacts',
-    blurb: 'More companies; may stop early near the ~2 min server limit.',
+    blurb: 'More companies; may stop early near the server time limit.',
   },
 ]
 

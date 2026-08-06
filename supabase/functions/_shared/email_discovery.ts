@@ -305,14 +305,22 @@ export type CompanyOsintBundle = {
 export async function enrichCompanyOsint(
   domain: string,
   peopleForWorker: Array<{ first_name: string; last_name: string }>,
-  opts?: { useWorker?: boolean },
+  opts?: { useWorker?: boolean; fast?: boolean },
 ): Promise<CompanyOsintBundle> {
   const errors: string[] = []
-  const crawlHits = await crawlSiteEmails(domain)
+  const fast = opts?.fast === true
+  const crawlHits = await crawlSiteEmails(domain, {
+    maxPages: fast ? 4 : 8,
+    timeoutMs: fast ? 4500 : 6500,
+  })
   let workerHits: EmailHit[] = []
   let workerPeople: OsintWorkerPerson[] = []
 
-  if (opts?.useWorker !== false && Deno.env.get('OSINT_WORKER_URL')) {
+  if (
+    !fast &&
+    opts?.useWorker !== false &&
+    Deno.env.get('OSINT_WORKER_URL')
+  ) {
     const w = await fetchOsintWorker(domain, peopleForWorker)
     workerHits = w.hits
     workerPeople = w.people

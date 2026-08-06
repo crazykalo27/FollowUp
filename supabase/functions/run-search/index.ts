@@ -1213,7 +1213,10 @@ Deno.serve(async (req) => {
   let runId: string | null = null
   const admin = adminClient()
   const runStartedMs = Date.now()
-  const RUN_BUDGET_MS = 125_000
+  const RUN_BUDGET_MS = Math.min(
+    400_000,
+    Math.max(60_000, Number(Deno.env.get('RUN_SEARCH_BUDGET_MS')) || 140_000),
+  )
 
   const overRunBudget = () => Date.now() - runStartedMs > RUN_BUDGET_MS
 
@@ -1268,6 +1271,8 @@ Deno.serve(async (req) => {
       })
     }
 
+    const runMain = async () => {
+      try {
     await setProgress(admin, runId, {
       stage: 'loading_profile',
       progress: 8,
@@ -1555,7 +1560,7 @@ Deno.serve(async (req) => {
       }
       if (overRunBudget()) {
         errors.push(
-          'Search time budget reached — try Quick or Standard depth, or run again.',
+          `Search time budget reached (${Math.round(RUN_BUDGET_MS / 1000)}s) — try Quick depth or run again.`,
         )
         await setProgress(admin, runId, {
           message: 'Stopping early to avoid platform timeout…',
@@ -1723,7 +1728,11 @@ Deno.serve(async (req) => {
         }))
 
       source_stats.osint.attempted += 1
-      const osintBundle = await enrichCompanyOsint(domain, peopleForOsint)
+      const osintFast =
+        overRunBudget() || Date.now() - runStartedMs > RUN_BUDGET_MS - 45_000
+      const osintBundle = await enrichCompanyOsint(domain, peopleForOsint, {
+        fast: osintFast,
+      })
       source_stats.osint.people_found += osintBundle.seedEmails.length
       for (const err of osintBundle.errors) {
         if (err) source_stats.osint.errors.push(err)
@@ -2069,8 +2078,30 @@ Deno.serve(async (req) => {
       summary,
       error: null,
     })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Unexpected error'
+        if (runId) {
+          await setProgress(admin, runId, {
+            status: 'failed',
+            stage: 'failed',
+            progress: 100,
+            message: 'Search failed',
+            error: msg,
+          })
+        }
+      }
+    }
 
-    return jsonResponse({ ok: true, run_id: runId, summary })
+    const edgeRuntime = (
+      globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }
+    ).EdgeRuntime
+    if (edgeRuntime?.waitUntil) {
+      edgeRuntime.waitUntil(runMain())
+      return jsonResponse({ ok: true, run_id: runId, accepted: true }, 202)
+    }
+
+    await runMain()
+    return jsonResponse({ ok: true, run_id: runId })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unexpected error'
     if (runId) {

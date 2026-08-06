@@ -26,10 +26,14 @@ export async function invokeFunction<T = unknown>(
     json = {}
   }
 
+  if (res.status === 202) {
+    return json as T
+  }
+
   if (!res.ok) {
     if (res.status === 546) {
       throw new Error(
-        'Search hit the server time limit (~2 min). Use Quick or Standard depth, or run again — partial results may still appear.',
+        'Search hit the server time limit. Progress is saved on the Overview — wait for the report or start a new Quick search.',
       )
     }
     throw new Error(
