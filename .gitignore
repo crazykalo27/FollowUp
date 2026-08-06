@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+web/node_modules/
+web/dist/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+web/.env
+web/.env.*
+!web/.env.example
+supabase/.env
+supabase/functions/.env
+
+# OS / editor
+.DS_Store
+*.log
+.idea/
+.vscode/
+
+# Supabase
+supabase/.temp/
