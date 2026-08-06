@@ -9,6 +9,13 @@ import {
   scoreOutreachTitle,
   titleMatchesFilters,
 } from '../_shared/cors.ts'
+import {
+  discoverPersonEmailOsint,
+  enrichCompanyOsint,
+  finalizeOsintEmail,
+  isHunterQuotaResponse,
+  passesEmailVerification,
+} from '../_shared/email_discovery.ts'
 
 type Filters = {
   include_titles: string[]
@@ -18,6 +25,13 @@ type Filters = {
   max_contacts_per_company: number
   require_verified_email: boolean
   accept_accept_all: boolean
+  /** When false, email find/verify uses OSINT pipeline only. */
+  enable_hunter?: boolean
+}
+
+type HunterRunState = {
+  quotaExhausted: boolean
+  quotaNote: string | null
 }
 
 type JobHit = {
@@ -839,6 +853,7 @@ function slugDomainGuess(company: string): string | null {
 async function searchHunter(
   domain: string,
   stats: SourceStats,
+  state: HunterRunState,
 ): Promise<{ people: Candidate[]; organization: string | null }> {
   stats.attempted += 1
   const key = Deno.env.get('HUNTER_API_KEY')
@@ -854,6 +869,12 @@ async function searchHunter(
       headers: { 'X-API-Key': key },
     })
     const body = await res.json()
+    if (isHunterQuotaResponse(res.status, body)) {
+      state.quotaExhausted = true
+      state.quotaNote = 'Hunter monthly credits exhausted — using OSINT email pipeline'
+      stats.errors.push(state.quotaNote)
+      return { people: [], organization: null }
+    }
     const organization =
       typeof body?.data?.organization === 'string'
         ? body.data.organization.trim()
@@ -903,6 +924,54 @@ async function searchHunter(
   } catch (e) {
     stats.errors.push(e instanceof Error ? e.message : 'Hunter failed')
     return { people: [], organization: null }
+  }
+}
+
+async function hunterEmailFinder(
+  domain: string,
+  first_name: string,
+  last_name: string,
+  state: HunterRunState,
+): Promise<{
+  email: string | null
+  verification_status: string | null
+} | null> {
+  if (state.quotaExhausted) return null
+  const key = Deno.env.get('HUNTER_API_KEY')
+  if (!key) return null
+  const url = new URL('https://api.hunter.io/v2/email-finder')
+  url.searchParams.set('domain', domain)
+  url.searchParams.set('first_name', first_name)
+  url.searchParams.set('last_name', last_name)
+  const res = await fetch(url.toString(), { headers: { 'X-API-Key': key } })
+  const body = await res.json()
+  if (isHunterQuotaResponse(res.status, body)) {
+    state.quotaExhausted = true
+    state.quotaNote = 'Hunter monthly credits exhausted — using OSINT email pipeline'
+    return null
+  }
+  if (!res.ok) return null
+  return {
+    email: body?.data?.email || null,
+    verification_status: body?.data?.verification?.status || null,
+  }
+}
+
+async function hunterEmailVerifier(
+  email: string,
+  state: HunterRunState,
+): Promise<string | null> {
+  if (state.quotaExhausted) return null
+  try {
+    const verified = await hunterGet('email-verifier', { email })
+    return verified?.data?.status || null
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : ''
+    if (/credit|quota|limit|monthly|402|429/i.test(msg)) {
+      state.quotaExhausted = true
+      state.quotaNote = 'Hunter monthly credits exhausted — using OSINT email pipeline'
+    }
+    return null
   }
 }
 
@@ -1249,11 +1318,26 @@ Deno.serve(async (req) => {
     const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
     const serperKey = Deno.env.get('SERPER_API_KEY')
     const webConfigured = Boolean(bingKey || serperKey)
+    const hunterEnabled = filters.enable_hunter !== false
+    const osintWorkerConfigured = Boolean(Deno.env.get('OSINT_WORKER_URL'))
+    const hunterState: HunterRunState = {
+      quotaExhausted: false,
+      quotaNote: null,
+    }
+
+    const hunterNote = !hunterKey
+      ? 'HUNTER_API_KEY missing'
+      : !hunterEnabled
+        ? 'Disabled in Filters — OSINT email pipeline'
+        : 'Domain search (10/domain); finder/verify when credits available'
 
     const source_stats: Record<string, SourceStats> = {
-      hunter: emptyStats(
-        Boolean(hunterKey),
-        hunterKey ? 'Capped at 10 emails/domain (Hunter free plan)' : 'HUNTER_API_KEY missing',
+      hunter: emptyStats(Boolean(hunterKey) && hunterEnabled, hunterNote),
+      osint: emptyStats(
+        true,
+        osintWorkerConfigured
+          ? 'Site crawl + pattern + OSINT worker'
+          : 'Site crawl + pattern (set OSINT_WORKER_URL for theHarvester)',
       ),
       websearch: emptyStats(
         webConfigured,
@@ -1525,8 +1609,8 @@ Deno.serve(async (req) => {
       let hunterOrg: string | null = null
 
       const [hunterResult, webPeople, proxyPeople] = await Promise.all([
-        hunterKey
-          ? searchHunter(domain, source_stats.hunter)
+        hunterKey && hunterEnabled && !hunterState.quotaExhausted
+          ? searchHunter(domain, source_stats.hunter, hunterState)
           : Promise.resolve({ people: [] as Candidate[], organization: null }),
         webConfigured
           ? searchWebLinkedIn(
@@ -1617,7 +1701,9 @@ Deno.serve(async (req) => {
 
       await setProgress(admin, runId, {
         message: `${canonicalName}: scoring & emails…`,
-        detail: `Outreach title score + Hunter email find/verify`,
+        detail: hunterEnabled && !hunterState.quotaExhausted
+          ? 'Outreach title score + Hunter / OSINT emails'
+          : 'Outreach title score + OSINT email pipeline',
         current_company: canonicalName,
       })
 
@@ -1626,6 +1712,21 @@ Deno.serve(async (req) => {
         const key = dedupeKey(c, domain)
         const prev = merged.get(key)
         merged.set(key, prev ? mergeCandidate(prev, c) : c)
+      }
+
+      const peopleForOsint = [...merged.values()]
+        .filter((c) => c.first_name && c.last_name)
+        .slice(0, 20)
+        .map((c) => ({
+          first_name: c.first_name!,
+          last_name: c.last_name!,
+        }))
+
+      source_stats.osint.attempted += 1
+      const osintBundle = await enrichCompanyOsint(domain, peopleForOsint)
+      source_stats.osint.people_found += osintBundle.seedEmails.length
+      for (const err of osintBundle.errors) {
+        if (err) source_stats.osint.errors.push(err)
       }
 
       const rankedPeople: Array<{
@@ -1674,28 +1775,72 @@ Deno.serve(async (req) => {
           if (source_stats[s]) source_stats[s].after_title_filter += 1
         }
 
-        if (!cand.email && cand.first_name && cand.last_name && hunterKey) {
-          try {
-            const found = await hunterGet('email-finder', {
+        if (!cand.email && cand.first_name && cand.last_name) {
+          if (
+            hunterKey &&
+            hunterEnabled &&
+            !hunterState.quotaExhausted
+          ) {
+            const found = await hunterEmailFinder(
               domain,
-              first_name: cand.first_name,
-              last_name: cand.last_name,
-            })
-            cand.email = found?.data?.email || null
-            cand.verification_status =
-              found?.data?.verification?.status || cand.verification_status
-            if (cand.email && !cand.sources.includes('hunter')) {
-              cand.sources.push('hunter')
-              cand.source_details.hunter_email = { via: 'email-finder', domain }
+              cand.first_name,
+              cand.last_name,
+              hunterState,
+            )
+            if (found?.email) {
+              cand.email = found.email
+              cand.verification_status =
+                found.verification_status || cand.verification_status
+              if (!cand.sources.includes('hunter')) {
+                cand.sources.push('hunter')
+              }
+              cand.source_details.hunter_email = {
+                via: 'email-finder',
+                domain,
+              }
             }
-          } catch {
-            // ignore
+          }
+
+          if (!cand.email) {
+            source_stats.osint.after_title_filter += 1
+            const osint = await discoverPersonEmailOsint(
+              domain,
+              cand.first_name,
+              cand.last_name,
+              osintBundle,
+            )
+            if (osint.email) {
+              cand.email = osint.email
+              cand.verification_status =
+                osint.verification_status || cand.verification_status
+              for (const s of osint.sources) {
+                if (!cand.sources.includes(s)) cand.sources.push(s)
+              }
+              cand.source_details = {
+                ...cand.source_details,
+                ...osint.source_details,
+              }
+              for (const s of osint.sources) {
+                if (source_stats[s]) {
+                  source_stats[s].people_found += 1
+                } else if (source_stats.osint) {
+                  source_stats.osint.people_found += 1
+                }
+              }
+            }
           }
         }
 
         if (cand.email) {
           for (const s of cand.sources) {
             if (source_stats[s]) source_stats[s].with_email += 1
+          }
+          if (
+            cand.sources.some((s) =>
+              ['site_crawl', 'pattern', 'verify_mx', 'osint_worker'].includes(s)
+            )
+          ) {
+            source_stats.osint.with_email += 1
           }
         }
 
@@ -1708,24 +1853,53 @@ Deno.serve(async (req) => {
         }
 
         if (filters.require_verified_email !== false) {
-          try {
-            const verified = await hunterGet('email-verifier', { email: cand.email })
-            cand.verification_status =
-              verified?.data?.status || cand.verification_status
-          } catch {
-            // keep
+          const hunterPrimary =
+            hunterEnabled &&
+            !hunterState.quotaExhausted &&
+            cand.sources.includes('hunter') &&
+            Boolean(hunterKey)
+
+          if (hunterPrimary) {
+            const verified = await hunterEmailVerifier(cand.email, hunterState)
+            if (verified) cand.verification_status = verified
           }
-          const acceptAll = filters.accept_accept_all !== false
-          const allowed = acceptAll ? ['valid', 'accept_all'] : ['valid']
           if (
-            !cand.verification_status ||
-            !allowed.includes(cand.verification_status)
+            cand.first_name &&
+            cand.last_name &&
+            (!hunterPrimary ||
+              !passesEmailVerification(
+                cand.verification_status,
+                true,
+                filters.accept_accept_all !== false,
+              ))
+          ) {
+            const fin = await finalizeOsintEmail(
+              cand.email,
+              osintBundle,
+              cand.first_name,
+              cand.last_name,
+            )
+            cand.verification_status =
+              fin.verification_status || cand.verification_status
+            cand.source_details = {
+              ...cand.source_details,
+              osint_verify: fin.source_details,
+            }
+          }
+
+          if (
+            !passesEmailVerification(
+              cand.verification_status,
+              true,
+              filters.accept_accept_all !== false,
+            )
           ) {
             continue
           }
         }
 
-        const primary = cand.sources[0] || 'hunter'
+        const primary =
+          cand.sources.find((s) => s !== 'verify_mx') || cand.sources[0] || 'osint'
         const signal = company.hiring_signal || 'industry-targeted (no public job)'
         const reason = `${
           match.ok
@@ -1763,6 +1937,13 @@ Deno.serve(async (req) => {
           for (const s of cand.sources) {
             if (source_stats[s]) source_stats[s].contacts_kept += 1
           }
+          if (
+            cand.sources.some((s) =>
+              ['site_crawl', 'pattern', 'verify_mx', 'osint_worker'].includes(s)
+            )
+          ) {
+            source_stats.osint.contacts_kept += 1
+          }
         }
       }
 
@@ -1790,9 +1971,13 @@ Deno.serve(async (req) => {
       current_company: null,
     })
 
+    if (hunterState.quotaExhausted && hunterState.quotaNote) {
+      source_stats.hunter.note = hunterState.quotaNote
+    }
+
     const how = {
       method:
-        'Industry company discovery (Serper/Bing) → rank by profile fit → optional job-board signals → Hunter + LinkedIn people (dept keywords + broad titles, scored) → Hunter email verify.',
+        'Industry company discovery (Serper/Bing) → rank by profile fit → optional job-board signals → LinkedIn people (web search) → emails via OSINT (site crawl + pattern) with optional Hunter when enabled.',
       company_queries: companyQueries,
       job_queries: jobQueries,
       location: location || null,
@@ -1817,6 +2002,8 @@ Deno.serve(async (req) => {
       people_search_titles: peopleTitles,
       department_keywords: deptKeywords.slice(0, 8),
       require_verified_email: filters.require_verified_email !== false,
+      enable_hunter: hunterEnabled,
+      hunter_quota_exhausted: hunterState.quotaExhausted,
       max_companies_per_run: maxCompanies,
       max_contacts_per_company: maxPerCompany,
       profile_roles: targetRoles,
@@ -1918,9 +2105,10 @@ function diagnose(
   const after =
     (stats.hunter?.after_title_filter || 0) +
     (stats.websearch?.after_title_filter || 0) +
-    (stats.proxycurl?.after_title_filter || 0)
+    (stats.proxycurl?.after_title_filter || 0) +
+    (stats.osint?.after_title_filter || 0)
   if (after === 0) {
     return `People found, but none scored above outreach threshold (includes: ${include.slice(0, 4).join(', ') || 'none'}). Widen Filters or lower seniority bar.`
   }
-  return 'People matched but emails failed find/verify. See source effectiveness.'
+  return 'People matched but emails failed find/verify. Try disabling "Require verified email" or enable Hunter in Filters.'
 }

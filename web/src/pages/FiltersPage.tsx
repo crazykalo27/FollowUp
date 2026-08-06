@@ -370,6 +370,23 @@ export function FiltersPage() {
         <label className="check">
           <input
             type="checkbox"
+            checked={filters.enable_hunter !== false}
+            onChange={(e) =>
+              setFilters((f) => ({
+                ...f,
+                enable_hunter: e.target.checked,
+              }))
+            }
+          />
+          Use Hunter.io for email lookup (uses monthly API credits)
+        </label>
+        <p className="muted small">
+          When off or credits are exhausted, FollowUp uses the free OSINT pipeline
+          (company site crawl, email patterns, MX checks, optional OSINT worker).
+        </p>
+        <label className="check">
+          <input
+            type="checkbox"
             checked={filters.require_verified_email}
             onChange={(e) =>
               setFilters((f) => ({
@@ -378,7 +395,7 @@ export function FiltersPage() {
               }))
             }
           />
-          Require Hunter-verified email
+          Require verified deliverable email
         </label>
         <label className="check">
           <input

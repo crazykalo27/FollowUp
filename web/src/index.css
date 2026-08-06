@@ -985,6 +985,15 @@ th {
   color: var(--accent);
 }
 
+.pill.source-site_crawl,
+.pill.source-pattern,
+.pill.source-osint_worker,
+.pill.source-verify_mx,
+.pill.source-osint {
+  border-color: rgba(120, 180, 220, 0.45);
+  color: #a8d4f0;
+}
+
 .pill.source-websearch {
   border-color: rgba(180, 220, 160, 0.5);
   color: #c8e6b0;

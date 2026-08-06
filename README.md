@@ -34,6 +34,9 @@ npx supabase functions deploy
 
 ```bash
 npx supabase secrets set HUNTER_API_KEY=your_hunter_key
+# Optional OSINT worker (local or hosted Python service from tools/email-discovery):
+# npx supabase secrets set OSINT_WORKER_URL=http://127.0.0.1:8787
+# npx supabase secrets set OSINT_WORKER_SECRET=your_shared_secret
 npx supabase secrets set OPENAI_API_KEY=your_openai_key
 npx supabase secrets set GOOGLE_GMAIL_CLIENT_ID=your_google_client_id
 npx supabase secrets set GOOGLE_GMAIL_CLIENT_SECRET=your_google_client_secret
@@ -57,8 +60,8 @@ npx supabase secrets set SERPER_API_KEY=your_serper_key
 npx supabase secrets set PROXYCURL_API_KEY=your_proxycurl_key
 ```
 
-Hunter remains required for email find/verify (free plan: **10 emails per domain** — we request exactly 10).  
-We do **not** scrape linkedin.com (ToS / blocks). Web search finds public LinkedIn URLs; Hunter finds emails. Apollo was removed from the default path (people search is paid-only).
+Hunter is **optional** (Filters → “Use Hunter.io”). When enabled, domain search returns up to **10 emails per domain** on the free plan. When Hunter is off or monthly credits are exhausted, email discovery uses the **OSINT pipeline** (site crawl, pattern guess, MX checks; optional `OSINT_WORKER_URL` for theHarvester).  
+We do **not** scrape linkedin.com (ToS / blocks). Web search finds public LinkedIn URLs.
 
 ### 2. Frontend env
 

@@ -1,0 +1,3 @@
+domain,first_name,last_name,expected_email,notes
+example.com,Jane,Doe,,fill after manual labeling
+acme.com,John,Smith,,public careers page only

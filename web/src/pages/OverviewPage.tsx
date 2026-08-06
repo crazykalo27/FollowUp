@@ -43,6 +43,7 @@ type SearchSummary = {
   company_reports: CompanyReport[]
   source_stats: {
     hunter: SourceStats
+    osint: SourceStats
     websearch: SourceStats
     proxycurl: SourceStats
   }
@@ -647,6 +648,20 @@ export function OverviewPage() {
             <h3>Source effectiveness</h3>
             <div className="source-grid">
               <SourceCard name="Hunter" stats={summary.source_stats.hunter} />
+              <SourceCard
+                name="OSINT email"
+                stats={
+                  summary.source_stats.osint ?? {
+                    configured: true,
+                    attempted: 0,
+                    people_found: 0,
+                    after_title_filter: 0,
+                    with_email: 0,
+                    contacts_kept: 0,
+                    errors: [],
+                  }
+                }
+              />
               <SourceCard
                 name="Web → LinkedIn"
                 stats={summary.source_stats.websearch}

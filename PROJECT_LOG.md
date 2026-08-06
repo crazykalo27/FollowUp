@@ -63,6 +63,11 @@ Conceptual milestones (not a commit-by-commit diary).
 - Overview: Cancel search marks run cancelled (RLS); run-search respects cancel; stuck-search cancel after client errors.
 - Email templates on Drafts (placeholders + save); draft-emails fills tags; Settings job prefs; profile chat asks employment/remote.
 
+## 2026-08-06 — In-house email discovery design
+
+- Hunter free tier: keep domain-search (10/domain); plan to replace per-contact email-finder/verifier with public OSINT + MX/SMTP.
+- Hunter optional in Filters (`enable_hunter`); OSINT email pipeline (Edge crawl + pattern + optional worker) when Hunter off or quota exhausted.
+
 ## 2026-08-06 — One outreach send per contact
 
 - DB partial unique index on sent outreach per user+contact; send-outreach rejects duplicate sends with Gmail follow-up message.

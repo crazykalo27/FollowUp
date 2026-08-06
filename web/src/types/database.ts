@@ -35,6 +35,8 @@ export interface SearchFiltersData {
   max_contacts_per_company: number
   require_verified_email: boolean
   accept_accept_all: boolean
+  /** Use Hunter.io for domain search + email find/verify (uses API credits). */
+  enable_hunter?: boolean
 }
 
 export const DEFAULT_FILTERS: SearchFiltersData = {
@@ -62,6 +64,7 @@ export const DEFAULT_FILTERS: SearchFiltersData = {
   max_contacts_per_company: 3,
   require_verified_email: true,
   accept_accept_all: true,
+  enable_hunter: true,
 }
 
 export interface Database {
