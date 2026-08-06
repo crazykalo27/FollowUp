@@ -773,7 +773,7 @@ export function ContactsPage() {
                     type="button"
                     className="btn swipe-discard"
                     disabled={busy}
-                    onClick={openDiscard}
+                    onClick={() => openDiscard()}
                   >
                     Discard
                   </button>
