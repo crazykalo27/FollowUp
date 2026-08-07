@@ -453,14 +453,18 @@ Rules:
 - For industries: set industries[] from their clarification.
 - For roles: set roles[] from their clarification and set roles_confirmed=true.
 - Set orientation_q to ${Math.min(SERIES_DONE, qIndex + 1)}.
-- reply: brief acknowledgment + if orientation_q < ${SERIES_DONE}, ask the NEXT question only (we will inject the exact next question text if needed). If orientation_q >= ${SERIES_DONE}, tell them the profile is complete — they can clarify anything else or press Save profile. No extra questions when complete.
-- NEVER ask more than one question.
+- reply: ONE short acknowledgment sentence only. Do NOT ask any question. Do NOT mention the next topic. No question marks.
+- NEVER ask a question in reply.
 
 Return JSON only:
 {"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","company_size":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":false,"orientation_q":0}}`
 
     const historyMsgs = [
-      { role: 'system', content: 'Return valid JSON only. One question max per reply.' },
+      {
+        role: 'system',
+        content:
+          'Return valid JSON only. Your reply field must be a short acknowledgment with ZERO questions.',
+      },
       ...state.history.slice(-20).map((m) => ({
         role: m.role === 'assistant' ? 'assistant' : 'user',
         content: m.content,
@@ -474,13 +478,12 @@ Return JSON only:
     })
 
     const parsed = stripFences(raw) || {}
-    let profile = mergeProfile(state.profile, parsed.profile || {})
-    const nextQ = Math.min(
-      SERIES_DONE,
-      typeof parsed.profile?.orientation_q === 'number'
-        ? parsed.profile.orientation_q
-        : qIndex + 1,
-    )
+    // Always advance exactly one step — never trust the model to jump or ask ahead
+    const nextQ = Math.min(SERIES_DONE, qIndex + 1)
+    let profile = mergeProfile(state.profile, {
+      ...(parsed.profile || {}),
+      orientation_q: nextQ,
+    })
     profile = {
       ...profile,
       orientation_q: nextQ,
@@ -522,13 +525,12 @@ Return JSON only:
       }
       reply = ensureNoQuestion(reply)
     } else {
+      // Scripted next question only — strip any model questions from the ack
+      const ackClean = ensureNoQuestion(
+        (reply || 'Got it.').replace(/\?/g, '.').trim() || 'Got it.',
+      )
       const nextAsk = QUESTIONS[nextQ].ask(profile)
-      // Prefer our scripted next question for consistency
-      const ack = reply.split(/\?/)[0].replace(/\s+$/, '')
-      const ackClean = ack
-        ? ensureNoQuestion(ack.endsWith('.') || ack.endsWith('!') ? ack : `${ack}.`)
-        : 'Got it.'
-      reply = ensureSingleQuestion(`${ackClean}\n\n${nextAsk}`)
+      reply = `${ackClean}\n\n${nextAsk}`
     }
 
     await admin.from('profile_chat_messages').insert({

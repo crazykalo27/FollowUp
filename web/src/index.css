@@ -1683,6 +1683,15 @@ th {
   min-width: 7rem;
 }
 
+.btn.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: rgba(255, 143, 122, 0.12);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1694,7 +1703,8 @@ th {
   padding: 1rem;
 }
 
-.modal {
+.modal,
+.modal-panel {
   background: #1a1f18;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1706,10 +1716,26 @@ th {
   gap: 0.75rem;
 }
 
-.modal h2 {
+.modal h2,
+.modal-panel h2 {
   margin: 0;
   font-family: var(--font-display);
   font-size: 1.35rem;
+}
+
+.modal-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.modal-panel input {
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ink);
 }
 
 .reason-grid {

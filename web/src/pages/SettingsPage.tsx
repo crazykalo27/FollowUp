@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams, Link } from 'react-router-dom'
+import { useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
@@ -38,7 +38,8 @@ const EMPTY_PROFILE: SearchProfileData = {
 }
 
 export function SettingsPage() {
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
+  const navigate = useNavigate()
   const [params] = useSearchParams()
   const [gmailEmail, setGmailEmail] = useState<string | null>(null)
   const [fullName, setFullName] = useState('')
@@ -56,6 +57,9 @@ export function SettingsPage() {
     DEFAULT_SEARCH_EMAIL_SETTINGS,
   )
   const [savingEmailSettings, setSavingEmailSettings] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     const g = params.get('gmail')
@@ -217,6 +221,24 @@ export function SettingsPage() {
     setMsg('Gmail disconnected.')
   }
 
+  async function deleteProfile() {
+    if (deleteConfirmText.trim().toUpperCase() !== 'DELETE') {
+      setMsg('Type DELETE to confirm.')
+      return
+    }
+    setDeleting(true)
+    setMsg(null)
+    try {
+      await invokeFunction('delete-account', {})
+      setDeleteOpen(false)
+      await signOut()
+      navigate('/', { replace: true })
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Could not delete profile')
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="panel">
       <h1>Settings</h1>
@@ -332,13 +354,13 @@ export function SettingsPage() {
         <h2>Email discovery (search)</h2>
         <p className="muted small">
           Controls how FollowUp finds and keeps contact emails during{' '}
-          <Link to="/app">Overview</Link> searches. Saved to your account — reload
-          safe.
+          <Link to="/app/search">Search</Link>. Defaults: Hunter and verified
+          email are off. Saved to your account — reload safe.
         </p>
         <label className="check">
           <input
             type="checkbox"
-            checked={emailSettings.enable_hunter}
+            checked={emailSettings.enable_hunter === true}
             onChange={(e) =>
               setEmailSettings((s) => ({
                 ...s,
@@ -355,7 +377,7 @@ export function SettingsPage() {
         <label className="check">
           <input
             type="checkbox"
-            checked={emailSettings.require_verified_email}
+            checked={emailSettings.require_verified_email === true}
             onChange={(e) =>
               setEmailSettings((s) => ({
                 ...s,
@@ -368,7 +390,7 @@ export function SettingsPage() {
         <label className="check">
           <input
             type="checkbox"
-            checked={emailSettings.accept_accept_all}
+            checked={emailSettings.accept_accept_all !== false}
             onChange={(e) =>
               setEmailSettings((s) => ({
                 ...s,
@@ -415,7 +437,76 @@ export function SettingsPage() {
       <div className="settings-block">
         <h2>Account</h2>
         <p className="muted">{user?.email}</p>
+        <p className="muted small">
+          Delete your profile to wipe resumes, contacts, drafts, filters, and
+          chat. Signing in again starts orientation from the beginning. Your
+          login account stays so you can return.
+        </p>
+        <button
+          type="button"
+          className="btn danger"
+          onClick={() => {
+            setDeleteConfirmText('')
+            setDeleteOpen(true)
+          }}
+        >
+          Delete profile
+        </button>
       </div>
+
+      {deleteOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => !deleting && setDeleteOpen(false)}
+        >
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-profile-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="delete-profile-title">Delete your profile?</h2>
+            <p>
+              This permanently deletes your FollowUp data (resume, profile chat,
+              filters, contacts, drafts, Gmail connection). You will go through
+              orientation again next time you sign in.
+            </p>
+            <label>
+              Type <strong>DELETE</strong> to confirm
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="DELETE"
+                autoComplete="off"
+                disabled={deleting}
+              />
+            </label>
+            <div className="actions">
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={deleting}
+                onClick={() => setDeleteOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn danger"
+                disabled={
+                  deleting || deleteConfirmText.trim().toUpperCase() !== 'DELETE'
+                }
+                onClick={() => void deleteProfile()}
+              >
+                {deleting ? 'Deleting…' : 'Confirm delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {msg && <p className="flash">{msg}</p>}
     </div>

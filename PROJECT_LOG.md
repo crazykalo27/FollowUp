@@ -103,3 +103,10 @@ Conceptual milestones (not a commit-by-commit diary).
 - Filters simplified to Company targets / Contact targets with Continue during orientation; Overview renamed Search with run coaching.
 - Contacts: discard locked until Keep one; handoff to Drafts to generate first draft and complete orientation.
 - Defaults: Hunter and require verified emails off (client + edge + migration).
+
+## 2026-08-07 — Orientation polish
+
+- Chat asks exactly one scripted question per turn (ack only from model; no double questions).
+- Profile load waits for resume lookup to avoid upload-hero flash.
+- Settings: delete profile (confirm DELETE) wipes data and restarts orientation; verified-email checkbox strictly off by default.
+- After first draft: optional Gmail connect popup + Copy draft button.

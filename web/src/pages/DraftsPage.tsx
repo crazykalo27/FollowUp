@@ -58,6 +58,10 @@ export function DraftsPage() {
   const [bodyTemplate, setBodyTemplate] = useState(DEFAULT_EMAIL_BODY_TEMPLATE)
   const [savingTemplate, setSavingTemplate] = useState(false)
   const orientDraftStarted = useRef(false)
+  const [completeOpen, setCompleteOpen] = useState(false)
+  const [gmailEmail, setGmailEmail] = useState<string | null>(null)
+  const [connectingGmail, setConnectingGmail] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const templatePreview = useMemo(() => {
     return {
@@ -120,6 +124,39 @@ export function DraftsPage() {
     if (orientContactId) {
       searchParams.delete('contact')
       setSearchParams(searchParams, { replace: true })
+    }
+    // Optional Gmail connect prompt (not required)
+    const { data: gmail } = await supabase
+      .from('gmail_connection')
+      .select('email')
+      .eq('user_id', user!.id)
+      .maybeSingle()
+    setGmailEmail(gmail?.email || null)
+    setCompleteOpen(true)
+  }
+
+  async function connectGmail() {
+    setConnectingGmail(true)
+    try {
+      const res = await invokeFunction<{ url: string }>('gmail-oauth')
+      window.location.href = res.url
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Could not start Gmail OAuth')
+      setConnectingGmail(false)
+    }
+  }
+
+  async function copyActiveDraft() {
+    if (!active) return
+    const to = active.contacts?.email ? `To: ${active.contacts.email}\n` : ''
+    const text = `${to}Subject: ${active.subject}\n\n${active.body}`
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setMsg('Draft copied — paste into your email client anytime.')
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setMsg('Could not copy — select the draft text manually.')
     }
   }
 
@@ -441,6 +478,13 @@ export function DraftsPage() {
                   <button
                     type="button"
                     className="btn btn-sm"
+                    onClick={() => void copyActiveDraft()}
+                  >
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
                     disabled={regenerating || sending || outreachLocked}
                     onClick={() => void regenerateDraft()}
                   >
@@ -495,6 +539,59 @@ export function DraftsPage() {
           </div>
         </aside>
       </div>
+
+      {completeOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setCompleteOpen(false)}
+        >
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="orient-complete-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="orient-complete-title">Orientation complete</h2>
+            <p>
+              Your first draft is ready. To send emails straight from FollowUp,
+              connect the Gmail account you want to send from. This is optional —
+              you can also copy the draft and send it yourself.
+            </p>
+            {gmailEmail ? (
+              <p className="muted small">Already connected as {gmailEmail}.</p>
+            ) : null}
+            <div className="actions">
+              {!gmailEmail && (
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={connectingGmail}
+                  onClick={() => void connectGmail()}
+                >
+                  {connectingGmail ? 'Redirecting…' : 'Connect Gmail'}
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn"
+                disabled={!active}
+                onClick={() => void copyActiveDraft()}
+              >
+                {copied ? 'Copied' : 'Copy draft'}
+              </button>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => setCompleteOpen(false)}
+              >
+                Continue without connecting
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
