@@ -37,11 +37,20 @@ Copy `fixtures/eval_set.example.csv` → `fixtures/eval_set.csv`, add known emai
 python -m email_discovery eval --csv fixtures/eval_set.csv --providers site_crawl,pattern_mx
 ```
 
-## Worker (for future Edge integration)
+## Worker (for Edge / Cloud Run)
 
 ```bash
 export OSINT_WORKER_SECRET=dev-secret
 python -m email_discovery serve --port 8787
+```
+
+**Production (Google Cloud Run):** [deploy/cloud-run.md](deploy/cloud-run.md)
+
+```bash
+export OSINT_WORKER_SECRET=$(openssl rand -hex 32)
+export GCP_PROJECT=followup-crazykalo27
+cd tools/email-discovery && ./deploy/cloud-run.sh
+# then run the three npx supabase commands the script prints
 ```
 
 ```bash
