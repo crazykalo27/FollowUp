@@ -121,3 +121,7 @@ Conceptual milestones (not a commit-by-commit diary).
 
 - Returning to Contacts restores the last pending contact under review (sessionStorage).
 - After a search adds newer contacts, review starts on the most recent new pending card.
+
+## 2026-08-07 — Go to drafts from Contacts
+
+- After Draft email succeeds (or if a draft already exists), the button becomes “Go to drafts” and opens Drafts on that contact’s draft.
