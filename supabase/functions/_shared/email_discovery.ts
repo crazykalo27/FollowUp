@@ -3,6 +3,43 @@
  * Optional OSINT_WORKER_URL for theHarvester / heavier crawl.
  */
 
+const DEFAULT_FETCH_MS = 6_000
+const DNS_FETCH_MS = 4_000
+const WORKER_FETCH_MS = 12_000
+const OSINT_BUDGET_MS = 20_000
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal })
+  } finally {
+    clearTimeout(t)
+  }
+}
+
+async function readTextWithLimit(
+  res: Response,
+  maxBytes: number,
+  timeoutMs: number,
+): Promise<string> {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const buf = await res.arrayBuffer()
+    if (buf.byteLength > maxBytes) return ''
+    return new TextDecoder().decode(buf)
+  } catch {
+    return ''
+  } finally {
+    clearTimeout(t)
+  }
+}
+
 const EMAIL_RE =
   /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/gi
 
@@ -29,7 +66,7 @@ const COMMON_PATTERNS = [
 
 export type EmailHit = {
   email: string
-  source: 'site_crawl' | 'osint_worker'
+  source: 'site_crawl' | 'osint_worker' | 'web_snippet'
   url?: string
 }
 
@@ -128,9 +165,11 @@ export async function resolveMxHosts(mailDomain: string): Promise<string[]> {
   const url =
     `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=MX`
   try {
-    const res = await fetch(url, {
-      headers: { Accept: 'application/dns-json' },
-    })
+    const res = await fetchWithTimeout(
+      url,
+      { headers: { Accept: 'application/dns-json' } },
+      DNS_FETCH_MS,
+    )
     if (!res.ok) return []
     const body = await res.json()
     const answers = (body.Answer || []) as Array<{
@@ -177,20 +216,20 @@ export async function crawlSiteEmails(
     if (seenUrls.has(url)) continue
     seenUrls.add(url)
     try {
-      const ctrl = new AbortController()
-      const t = setTimeout(() => ctrl.abort(), timeoutMs)
-      const res = await fetch(url, {
-        signal: ctrl.signal,
-        headers: {
-          'User-Agent': 'FollowUpEmailDiscovery/1.0 (+https://github.com)',
-          Accept: 'text/html,application/xhtml+xml',
+      const res = await fetchWithTimeout(
+        url,
+        {
+          headers: {
+            'User-Agent': 'FollowUpEmailDiscovery/1.0 (+https://github.com)',
+            Accept: 'text/html,application/xhtml+xml',
+          },
+          redirect: 'follow',
         },
-        redirect: 'follow',
-      })
-      clearTimeout(t)
+        timeoutMs,
+      )
       if (!res.ok) continue
-      const html = await res.text()
-      if (html.length > 2_000_000) continue
+      const html = await readTextWithLimit(res, 1_500_000, Math.min(timeoutMs, 6000))
+      if (!html) continue
       pages += 1
 
       const mailtoRe = /href=["']mailto:([^"'?]+)/gi
@@ -257,20 +296,20 @@ export async function fetchOsintWorker(
   if (secret) headers.Authorization = `Bearer ${secret}`
 
   try {
-    const ctrl = new AbortController()
-    const t = setTimeout(() => ctrl.abort(), 45_000)
-    const res = await fetch(`${base}/v1/enrich`, {
-      method: 'POST',
-      headers,
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        domain,
-        people,
-        providers: ['site_crawl', 'harvester', 'pattern_mx'],
-        smtp: false,
-      }),
-    })
-    clearTimeout(t)
+    const res = await fetchWithTimeout(
+      `${base}/v1/enrich`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          domain,
+          people,
+          providers: ['site_crawl', 'harvester', 'pattern_mx'],
+          smtp: false,
+        }),
+      },
+      WORKER_FETCH_MS,
+    )
     const body = await res.json()
     if (!res.ok) {
       return {
@@ -294,41 +333,243 @@ export async function fetchOsintWorker(
   }
 }
 
+function extractEmailsFromText(text: string, domain: string): string[] {
+  const host = domain.toLowerCase().replace(/^www\./, '')
+  const found = new Set<string>()
+  EMAIL_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = EMAIL_RE.exec(text)) !== null) {
+    const em = m[0].toLowerCase()
+    if (em.endsWith(`@${host}`)) found.add(em)
+  }
+  return [...found]
+}
+
+/** Prefer Bing (free tier) over Serper — one query per company max. */
+async function runLightWebSearch(
+  q: string,
+  num: number,
+): Promise<Array<{ snippet?: string; title?: string }>> {
+  const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
+  const serperKey = Deno.env.get('SERPER_API_KEY')
+  if (!bingKey && !serperKey) return []
+
+  if (bingKey) {
+    const url = new URL('https://api.bing.microsoft.com/v7.0/search')
+    url.searchParams.set('q', q)
+    url.searchParams.set('count', String(num))
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { headers: { 'Ocp-Apim-Subscription-Key': bingKey } },
+      DEFAULT_FETCH_MS,
+    )
+    const body = await res.json()
+    if (!res.ok) return []
+    return (body.webPages?.value || []).map(
+      (v: { snippet?: string; name?: string }) => ({
+        snippet: v.snippet,
+        title: v.name,
+      }),
+    )
+  }
+
+  const res = await fetchWithTimeout(
+    'https://google.serper.dev/search',
+    {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': serperKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ q, num }),
+    },
+    DEFAULT_FETCH_MS,
+  )
+  const body = await res.json()
+  if (!res.ok) return []
+  return (body.organic || []).map((o: { snippet?: string; title?: string }) => ({
+    snippet: o.snippet,
+    title: o.title,
+  }))
+}
+
+/** Single search API call — emails from result snippets only (no extra fetches). */
+export async function discoverEmailsFromSearchSnippets(
+  domain: string,
+): Promise<EmailHit[]> {
+  const host = domain.toLowerCase().replace(/^www\./, '')
+  const q = `"@${host}"`
+  const rows = await runLightWebSearch(q, 5)
+  const hits = new Map<string, EmailHit>()
+  for (const row of rows) {
+    const text = `${row.title || ''} ${row.snippet || ''}`
+    for (const em of extractEmailsFromText(text, host)) {
+      hits.set(em, { email: em, source: 'web_snippet' })
+    }
+  }
+  return [...hits.values()]
+}
+
+async function fetchSitemapContactUrls(
+  domain: string,
+  limit = 3,
+): Promise<string[]> {
+  const host = domain.toLowerCase().replace(/^www\./, '')
+  const base = `https://${host}`
+  const urls: string[] = []
+  try {
+    const res = await fetchWithTimeout(
+      `${base}/sitemap.xml`,
+      {
+        headers: { 'User-Agent': 'FollowUpEmailDiscovery/1.0' },
+      },
+      5000,
+    )
+    if (!res.ok) return urls
+    const xml = await res.text()
+    const locRe = /<loc>([^<]+)<\/loc>/gi
+    let m: RegExpExecArray | null
+    while ((m = locRe.exec(xml)) !== null && urls.length < limit) {
+      const loc = m[1]
+      if (/contact|about|team|people|leadership/i.test(loc)) urls.push(loc)
+    }
+  } catch {
+    // ignore
+  }
+  return urls
+}
+
+export async function crawlSitemapHintPages(
+  domain: string,
+): Promise<EmailHit[]> {
+  const extraUrls = await fetchSitemapContactUrls(domain, 3)
+  if (extraUrls.length === 0) return []
+  const host = domain.toLowerCase().replace(/^www\./, '')
+  const hits = new Map<string, EmailHit>()
+  for (const url of extraUrls) {
+    try {
+      const res = await fetchWithTimeout(
+        url,
+        { headers: { 'User-Agent': 'FollowUpEmailDiscovery/1.0' } },
+        5000,
+      )
+      if (!res.ok) continue
+      const html = await readTextWithLimit(res, 800_000, 5000)
+      if (!html) continue
+      for (const em of extractEmailsFromText(html, host)) {
+        hits.set(em, { email: em, source: 'site_crawl', url })
+      }
+    } catch {
+      // skip
+    }
+  }
+  return [...hits.values()]
+}
+
 export type CompanyOsintBundle = {
   seedEmails: string[]
   hits: EmailHit[]
   workerPeople: OsintWorkerPerson[]
   pattern: string | null
   errors: string[]
+  mxStatusCache: Map<string, string>
+}
+
+async function verifyEmailMxCached(
+  email: string,
+  cache: Map<string, string>,
+): Promise<{ status: string; detail: Record<string, unknown> }> {
+  const key = email.toLowerCase()
+  if (cache.has(key)) {
+    return { status: cache.get(key)!, detail: { cached: true } }
+  }
+  const mx = await verifyEmailMx(email)
+  cache.set(key, mx.status)
+  return mx
 }
 
 export async function enrichCompanyOsint(
   domain: string,
   peopleForWorker: Array<{ first_name: string; last_name: string }>,
-  opts?: { useWorker?: boolean; fast?: boolean },
+  opts?: {
+    useWorker?: boolean
+    fast?: boolean
+    emailWebSearch?: boolean
+    budgetMs?: number
+  },
 ): Promise<CompanyOsintBundle> {
   const errors: string[] = []
-  const fast = opts?.fast === true
-  const crawlHits = await crawlSiteEmails(domain, {
-    maxPages: fast ? 4 : 8,
-    timeoutMs: fast ? 4500 : 6500,
+  const mxStatusCache = new Map<string, string>()
+  const started = Date.now()
+  const budgetMs = opts?.budgetMs ?? OSINT_BUDGET_MS
+  const timeLeft = () => budgetMs - (Date.now() - started)
+
+  const emptyBundle = (): CompanyOsintBundle => ({
+    seedEmails: [],
+    hits: [],
+    workerPeople: [],
+    pattern: null,
+    errors,
+    mxStatusCache,
   })
+
+  if (timeLeft() < 1500) {
+    errors.push('osint skipped — time budget')
+    return emptyBundle()
+  }
+
+  const fast = opts?.fast === true
+  let crawlHits: EmailHit[] = []
+  try {
+    crawlHits = await crawlSiteEmails(domain, {
+      maxPages: fast ? 3 : 5,
+      timeoutMs: fast ? 3500 : 4500,
+    })
+  } catch (e) {
+    errors.push(e instanceof Error ? e.message : 'site_crawl failed')
+  }
+
+  let sitemapHits: EmailHit[] = []
+  if (!fast && timeLeft() > 4000) {
+    try {
+      sitemapHits = await crawlSitemapHintPages(domain)
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : 'sitemap crawl failed')
+    }
+  }
+
+  let snippetHits: EmailHit[] = []
+  if (!fast && opts?.emailWebSearch !== false && timeLeft() > 3500) {
+    try {
+      snippetHits = await discoverEmailsFromSearchSnippets(domain)
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : 'web_snippet search failed')
+    }
+  }
+
   let workerHits: EmailHit[] = []
   let workerPeople: OsintWorkerPerson[] = []
 
   if (
     !fast &&
     opts?.useWorker !== false &&
-    Deno.env.get('OSINT_WORKER_URL')
+    Deno.env.get('OSINT_WORKER_URL') &&
+    timeLeft() > 8000
   ) {
-    const w = await fetchOsintWorker(domain, peopleForWorker)
+    const w = await fetchOsintWorker(domain, peopleForWorker.slice(0, 8))
     workerHits = w.hits
     workerPeople = w.people
     errors.push(...w.errors)
   }
 
-  const hits = [...crawlHits]
-  const seen = new Set(crawlHits.map((h) => h.email))
+  const hits = [...crawlHits, ...sitemapHits]
+  const seen = new Set(hits.map((h) => h.email))
+  for (const h of snippetHits) {
+    if (!seen.has(h.email)) {
+      seen.add(h.email)
+      hits.push(h)
+    }
+  }
   for (const h of workerHits) {
     if (!seen.has(h.email)) {
       seen.add(h.email)
@@ -338,7 +579,10 @@ export async function enrichCompanyOsint(
 
   const seedEmails = [...seen]
   const pattern = inferPattern(seedEmails, domain)
-  return { seedEmails, hits, workerPeople, pattern, errors }
+  if (timeLeft() < 0) {
+    errors.push('osint finished over budget')
+  }
+  return { seedEmails, hits, workerPeople, pattern, errors, mxStatusCache }
 }
 
 export function findEmailForPersonOsint(
@@ -352,7 +596,13 @@ export function findEmailForPersonOsint(
 
   for (const hit of bundle.hits) {
     if (emailMatchesPerson(hit.email, first, last)) {
-      sources.push(hit.source === 'site_crawl' ? 'site_crawl' : 'osint_worker')
+      sources.push(
+        hit.source === 'site_crawl'
+          ? 'site_crawl'
+          : hit.source === 'web_snippet'
+            ? 'web_snippet'
+            : 'osint_worker',
+      )
       source_details[hit.source] = { email: hit.email, url: hit.url }
       return {
         email: hit.email,
@@ -391,7 +641,7 @@ export async function discoverPersonEmailOsint(
   if (direct?.email) return direct
 
   const pattern = bundle.pattern
-  const candidates = generateEmailCandidates(first, last, domain, pattern)
+  const candidates = generateEmailCandidates(first, last, domain, pattern, 3)
   for (const email of candidates) {
     const fin = await finalizeOsintEmail(email, bundle, first, last)
     const status = fin.verification_status
@@ -429,7 +679,7 @@ export async function finalizeOsintEmail(
   }
 
   if (emailMatchesPerson(email, first, last) && bundle.pattern) {
-    const mx = await verifyEmailMx(email)
+    const mx = await verifyEmailMxCached(email, bundle.mxStatusCache)
     if (mx.status === 'mx_check') {
       const strongPattern = bundle.seedEmails.length >= 2 && bundle.pattern
       return {
@@ -440,7 +690,7 @@ export async function finalizeOsintEmail(
     return { verification_status: 'invalid', source_details: { verify: mx.detail } }
   }
 
-  const mx = await verifyEmailMx(email)
+  const mx = await verifyEmailMxCached(email, bundle.mxStatusCache)
   if (mx.status === 'invalid') {
     return { verification_status: 'invalid', source_details: { verify: mx.detail } }
   }

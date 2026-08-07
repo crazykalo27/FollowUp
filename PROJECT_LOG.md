@@ -68,7 +68,7 @@ Conceptual milestones (not a commit-by-commit diary).
 - Hunter free tier: keep domain-search (10/domain); plan to replace per-contact email-finder/verifier with public OSINT + MX/SMTP.
 - Hunter optional in Filters (`enable_hunter`); OSINT email pipeline (Edge crawl + pattern + optional worker) when Hunter off or quota exhausted.
 - Deployed Edge Functions to Supabase project `czakwfzjkhsaysvqeswc` (includes `run-search` + `email_discovery.ts`).
-- Search: `run-search` returns 202 + background `waitUntil` (avoids client 546); budget 140s (`RUN_SEARCH_BUDGET_MS`); faster OSINT when low on time; Overview clears errors on new run / stale run cleanup.
+- Search: queued pipeline (`pipeline_state`) — one company per Edge invocation, auto-chains via service role; lighter OSINT (sitemap, ≤1 Bing-preferring email snippet search/company).
 
 ## 2026-08-06 — One outreach send per contact
 

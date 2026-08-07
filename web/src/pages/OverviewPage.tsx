@@ -6,7 +6,9 @@ import { invokeFunction } from '../lib/api'
 import {
   SEARCH_DEPTHS,
   depthPreset,
+  loadActiveRunDepth,
   loadActiveRunId,
+  saveActiveRunDepth,
   saveActiveRunId,
   type SearchDepth,
 } from '../lib/searchDepth'
@@ -134,6 +136,7 @@ export function OverviewPage() {
   } | null>(null)
   const pollRef = useRef<number | null>(null)
   const pollRunIdRef = useRef<string | null>(null)
+  const lastNudgeRef = useRef(0)
   const appliedRunRef = useRef<string | null>(null)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
@@ -279,11 +282,31 @@ export function OverviewPage() {
       const { data } = await supabase
         .from('search_runs')
         .select(
-          'progress, stage, message, detail, current_company, companies_total, companies_done, status, summary, error',
+          'progress, stage, message, detail, current_company, companies_total, companies_done, status, summary, error, updated_at',
         )
         .eq('id', runId)
         .maybeSingle()
-      if (data) applyRunRow(runId, data)
+      if (data) {
+        applyRunRow(runId, data)
+        if (
+          data.status === 'running' &&
+          data.updated_at &&
+          pollRunIdRef.current === runId
+        ) {
+          const age = Date.now() - new Date(data.updated_at).getTime()
+          const sinceNudge = Date.now() - lastNudgeRef.current
+          if (age > 90_000 && sinceNudge > 85_000) {
+            lastNudgeRef.current = Date.now()
+            void invokeFunction('run-search', {
+              run_id: runId,
+              continue_run: true,
+              depth: loadActiveRunDepth(),
+            }).catch(() => {
+              // polling will retry nudge later
+            })
+          }
+        }
+      }
     }, 800)
   }
 
@@ -363,7 +386,7 @@ export function OverviewPage() {
 
     setErrorMsg(null)
 
-    const staleBefore = new Date(Date.now() - 4 * 60 * 1000).toISOString()
+    const staleBefore = new Date(Date.now() - 18 * 60 * 1000).toISOString()
     await supabase
       .from('search_runs')
       .update({
@@ -428,6 +451,7 @@ export function OverviewPage() {
     }
 
     saveActiveRunId(run.id)
+    saveActiveRunDepth(depth)
     setActiveRunId(run.id)
     startPolling(run.id)
 
@@ -529,10 +553,11 @@ export function OverviewPage() {
       </ul>
 
       <div className="depth-picker">
-        <h3>Search depth</h3>
+        <h3>Search size (API credits)</h3>
         <p className="muted small">
-          Estimates are ceilings — title filters and email verify usually keep
-          fewer.
+          Estimates are upper bounds per run. Bing is used before Serper when both
+          are set. Hunter numbers apply only if &quot;Use Hunter.io&quot; is on in
+          Filters.
         </p>
         <div className="depth-grid">
           {SEARCH_DEPTHS.map((d) => (
@@ -544,17 +569,26 @@ export function OverviewPage() {
               onClick={() => setDepth(d.id)}
             >
               <strong>{d.label}</strong>
-              <span className="depth-eta">{d.eta}</span>
-              <span className="depth-est">{d.estimatePeople}</span>
+              <span className="depth-eta">
+                ~{d.webSearchCredits} Bing/Serper searches
+              </span>
+              <span className="depth-est">
+                Hunter: ~{d.hunterDomainCalls} domain
+                {d.hunterMaxFindVerify > 0
+                  ? ` · up to ${d.hunterMaxFindVerify} find/verify`
+                  : ''}
+              </span>
               <span className="muted small">
-                {d.companies} companies · {d.perCompany}/company
+                {d.estimatePeople} · {d.companies} companies × {d.perCompany}{' '}
+                max
               </span>
               <span className="muted small">{d.blurb}</span>
             </button>
           ))}
         </div>
         <p className="small depth-summary">
-          Selected: <strong>{selectedDepth.label}</strong> —{' '}
+          Selected: <strong>{selectedDepth.label}</strong> — ~
+          {selectedDepth.webSearchCredits} web searches,{' '}
           {selectedDepth.estimatePeople}, {selectedDepth.eta}
         </p>
       </div>
@@ -566,7 +600,9 @@ export function OverviewPage() {
           disabled={searching || !stats.onboarding}
           onClick={runSearch}
         >
-          {searching ? 'Search running…' : `Run ${selectedDepth.label.toLowerCase()} search`}
+          {searching
+            ? 'Search running…'
+            : `Run search (${selectedDepth.label.toLowerCase()})`}
         </button>
         {showCancel && (
           <button

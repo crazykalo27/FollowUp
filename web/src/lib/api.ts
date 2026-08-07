@@ -33,7 +33,7 @@ export async function invokeFunction<T = unknown>(
   if (!res.ok) {
     if (res.status === 546) {
       throw new Error(
-        'Search hit the server time limit. Progress is saved on the Overview — wait for the report or start a new Quick search.',
+        'Search hit the server time limit. Progress is saved on the Overview — wait for the report or run a low-credits search.',
       )
     }
     throw new Error(

@@ -16,6 +16,13 @@ import {
   isHunterQuotaResponse,
   passesEmailVerification,
 } from '../_shared/email_discovery.ts'
+import {
+  isServiceChainRequest,
+  loadPipelineState,
+  savePipelineState,
+  scheduleSearchContinue,
+  type SearchPipelineState,
+} from '../_shared/search_queue.ts'
 
 type Filters = {
   include_titles: string[]
@@ -380,12 +387,15 @@ function peopleSearchTitles(include: string[]): string[] {
 async function runWebSearch(
   q: string,
   num: number,
+  opts?: { preferBing?: boolean },
 ): Promise<Array<{ title?: string; link?: string; url?: string; snippet?: string }>> {
   const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
   const serperKey = Deno.env.get('SERPER_API_KEY')
   if (!bingKey && !serperKey) return []
 
-  if (serperKey) {
+  const useBing = Boolean(bingKey && (opts?.preferBing || !serperKey))
+
+  if (!useBing && serperKey) {
     const res = await fetch('https://google.serper.dev/search', {
       method: 'POST',
       headers: {
@@ -458,7 +468,7 @@ async function discoverCompaniesFromWeb(
     )
   }
 
-  for (const query of queries.slice(0, 6)) {
+  for (const query of queries.slice(0, 4)) {
     stats.attempted += 1
     try {
       const organic = await runWebSearch(query, 10)
@@ -943,7 +953,10 @@ async function hunterEmailFinder(
   url.searchParams.set('domain', domain)
   url.searchParams.set('first_name', first_name)
   url.searchParams.set('last_name', last_name)
-  const res = await fetch(url.toString(), { headers: { 'X-API-Key': key } })
+  const res = await fetch(url.toString(), {
+    headers: { 'X-API-Key': key },
+    signal: AbortSignal.timeout(10_000),
+  })
   const body = await res.json()
   if (isHunterQuotaResponse(res.status, body)) {
     state.quotaExhausted = true
@@ -1057,10 +1070,10 @@ async function searchWebLinkedIn(
   try {
     const out: Candidate[] = []
     const seen = new Set<string>()
-    const via = serperKey ? 'serper' : 'bing'
+    const via = bingKey && (opts?.preferBing || !serperKey) ? 'bing' : 'serper'
 
     for (const q of queries.slice(0, 1)) {
-      const organic = await runWebSearch(q, 6)
+      const organic = await runWebSearch(q, 6, { preferBing: true })
       for (const item of organic) {
         const link = item.link || item.url || ''
         const li = extractLinkedInUrl(link)
@@ -1182,6 +1195,7 @@ async function setProgress(
     status?: 'running' | 'done' | 'failed' | 'cancelled'
     summary?: unknown
     error?: string | null
+    pipeline_state?: unknown | null
   },
 ) {
   if (!runId) return
@@ -1221,13 +1235,46 @@ Deno.serve(async (req) => {
   const overRunBudget = () => Date.now() - runStartedMs > RUN_BUDGET_MS
 
   try {
-    const auth = await requireUser(req)
-    if (auth instanceof Response) return auth
-    const { user } = auth
-
     const body = await req.json().catch(() => ({}))
     runId = typeof body.run_id === 'string' ? body.run_id : null
     const depth = (body.depth as string) || 'standard'
+    const chain = body.chain === true && isServiceChainRequest(req)
+    const continueRun =
+      body.continue_run === true && !chain && Boolean(runId)
+
+    let user: { id: string }
+    if (chain) {
+      if (!runId) return errorResponse('run_id required', 400)
+      const { data: runRow } = await admin
+        .from('search_runs')
+        .select('user_id, status')
+        .eq('id', runId)
+        .maybeSingle()
+      if (!runRow || runRow.status !== 'running') {
+        return jsonResponse({ ok: true, run_id: runId, skipped: true })
+      }
+      user = { id: runRow.user_id }
+    } else if (continueRun) {
+      const auth = await requireUser(req)
+      if (auth instanceof Response) return auth
+      user = auth.user
+      const { data: runRow } = await admin
+        .from('search_runs')
+        .select('user_id, status')
+        .eq('id', runId)
+        .maybeSingle()
+      if (!runRow || runRow.user_id !== user.id) {
+        return errorResponse('Invalid search run', 403)
+      }
+      if (runRow.status !== 'running') {
+        return jsonResponse({ ok: true, run_id: runId, skipped: true })
+      }
+    } else {
+      const auth = await requireUser(req)
+      if (auth instanceof Response) return auth
+      user = auth.user
+    }
+
     const depthCaps: Record<string, { companies: number; per: number }> = {
       quick: { companies: 3, per: 2 },
       standard: { companies: 6, per: 3 },
@@ -1342,7 +1389,7 @@ Deno.serve(async (req) => {
         true,
         osintWorkerConfigured
           ? 'Site crawl + pattern + OSINT worker'
-          : 'Site crawl + pattern (set OSINT_WORKER_URL for theHarvester)',
+          : 'Site crawl, sitemap hints, ≤1 Bing/Serper email query/company, patterns',
       ),
       websearch: emptyStats(
         webConfigured,
@@ -1391,6 +1438,47 @@ Deno.serve(async (req) => {
       (profile.locations && profile.locations[0]) ||
       ''
 
+    let pipeline = await loadPipelineState(admin, runId!)
+    let selected: CompanyHit[]
+    let contactsCreated: number
+    let contactsSkippedDuplicate: number
+    let companiesSelected: number
+    let company_reports: Array<Record<string, unknown>> = []
+    let errors: string[] = []
+    let webCompaniesLen = 0
+    let allJobsLen = 0
+    let remotiveCount = 0
+    let adzunaCount = 0
+    let jobQueriesForReport: string[] = jobQueries
+    let companyQueriesForReport: string[] = companyQueries
+
+    let justPlanned = false
+
+    if (pipeline) {
+      selected = pipeline.selected as CompanyHit[]
+      contactsCreated = pipeline.contactsCreated
+      contactsSkippedDuplicate = pipeline.contactsSkippedDuplicate
+      companiesSelected = pipeline.companiesSelected
+      company_reports.push(...pipeline.company_reports)
+      errors.push(...pipeline.errors)
+      hunterState.quotaExhausted = pipeline.hunterState.quotaExhausted
+      hunterState.quotaNote = pipeline.hunterState.quotaNote
+      for (const [k, v] of Object.entries(pipeline.source_stats)) {
+        source_stats[k] = { ...source_stats[k], ...v } as SourceStats
+      }
+      webCompaniesLen = pipeline.plan_meta.webCompanies
+      allJobsLen = pipeline.plan_meta.allJobs
+      remotiveCount = pipeline.plan_meta.remotiveCount
+      adzunaCount = pipeline.plan_meta.adzunaCount
+      jobQueriesForReport = pipeline.plan_meta.jobQueries
+      companyQueriesForReport = pipeline.plan_meta.companyQueries
+      await setProgress(admin, runId, {
+        stage: 'searching_people',
+        message: `Resuming search (company ${pipeline.company_index + 1} of ${selected.length})…`,
+        companies_total: selected.length,
+        companies_done: pipeline.company_index,
+      })
+    } else {
     await setProgress(admin, runId, {
       stage: 'discovering_companies',
       progress: 12,
@@ -1431,8 +1519,8 @@ Deno.serve(async (req) => {
       }),
     )
     const allJobs = jobBatches.flat()
-    const remotiveCount = allJobs.filter((j) => j.source === 'remotive').length
-    const adzunaCount = allJobs.filter((j) => j.source === 'adzuna').length
+    remotiveCount = allJobs.filter((j) => j.source === 'remotive').length
+    adzunaCount = allJobs.filter((j) => j.source === 'adzuna').length
 
     const byCompany = new Map<string, JobHit>()
     for (const job of allJobs) {
@@ -1521,7 +1609,14 @@ Deno.serve(async (req) => {
     if (strong.length >= Math.min(3, maxCompanies)) {
       ranked = strong
     }
-    const selected = ranked.slice(0, maxCompanies)
+    const selectedRanked = ranked.slice(0, maxCompanies)
+    selected = selectedRanked
+
+    webCompaniesLen = webCompanies.length
+    allJobsLen = allJobs.length
+    contactsCreated = 0
+    contactsSkippedDuplicate = 0
+    companiesSelected = 0
 
     const { data: knownContactRows } = await admin
       .from('contacts')
@@ -1530,16 +1625,16 @@ Deno.serve(async (req) => {
       )
       .eq('user_id', user.id)
 
-    const contactIndex = buildContactIndex(knownContactRows || [])
+    const contactIndexPlan = buildContactIndex(knownContactRows || [])
 
     await setProgress(admin, runId, {
-      detail: `${contactIndex.total} known contact(s) on file (kept / discarded / archived / pending) — duplicates skipped`,
+      detail: `${contactIndexPlan.total} known contact(s) on file — duplicates skipped`,
     })
 
     await setProgress(admin, runId, {
       stage: 'companies_ready',
       progress: 25,
-      message: `${webCompanies.length} industry companies + ${allJobs.length} jobs → ${selected.length} ranked targets`,
+      message: `${webCompaniesLen} industry companies + ${allJobsLen} jobs → ${selected.length} ranked targets`,
       detail: `Top: ${selected
         .slice(0, 3)
         .map((c) => `${c.company_name} (${c.relevance || 0})`)
@@ -1548,24 +1643,81 @@ Deno.serve(async (req) => {
       companies_done: 0,
     })
 
-    let contactsCreated = 0
-    let contactsSkippedDuplicate = 0
-    let companiesSelected = 0
-    const company_reports: Array<Record<string, unknown>> = []
-    const errors: string[] = []
+    pipeline = {
+      version: 1,
+      depth,
+      selected: selectedRanked,
+      company_index: 0,
+      contactsCreated: 0,
+      contactsSkippedDuplicate: 0,
+      companiesSelected: 0,
+      company_reports: [],
+      errors: [],
+      source_stats: source_stats as SearchPipelineState['source_stats'],
+      hunterState: { ...hunterState },
+      plan_meta: {
+        webCompanies: webCompaniesLen,
+        allJobs: allJobsLen,
+        remotiveCount,
+        adzunaCount,
+        jobQueries: jobQueriesForReport,
+        companyQueries: companyQueriesForReport,
+        company_discovery_stats,
+        peopleTitles,
+        deptKeywords,
+        targetRoles,
+        industries,
+        companyTypes,
+        outreachTargets,
+        skills,
+        location,
+        webConfigured,
+        hunterEnabled,
+        include,
+        exclude,
+        maxCompanies,
+        maxPerCompany,
+        require_verified_email: filters.require_verified_email !== false,
+        accept_accept_all: filters.accept_accept_all !== false,
+      },
+    }
+    await savePipelineState(admin, runId!, pipeline)
+    justPlanned = true
+    } // end initial plan
 
-    for (let i = 0; i < selected.length; i++) {
+    const meta = pipeline!.plan_meta
+    const peopleTitlesRun = meta.peopleTitles
+    const deptKeywordsRun = meta.deptKeywords
+    const includeRun = meta.include
+    const excludeRun = meta.exclude
+
+    if (justPlanned) {
+      await setProgress(admin, runId, {
+        stage: 'searching_people',
+        progress: 28,
+        message: `Plan ready — ${selected.length} companies queued`,
+        detail: 'Processing one company at a time in the background',
+        companies_total: selected.length,
+        companies_done: 0,
+      })
+      scheduleSearchContinue(admin, runId!, depth)
+      return
+    }
+
+    const { data: knownContactRowsChunk } = await admin
+      .from('contacts')
+      .select(
+        'email, linkedin_url, full_name, first_name, last_name, company_id, review_status',
+      )
+      .eq('user_id', user.id)
+
+    const contactIndex = buildContactIndex(knownContactRowsChunk || [])
+
+    const chunkStart = pipeline!.company_index
+    const chunkEnd = Math.min(chunkStart + 1, selected.length)
+
+    for (let i = chunkStart; i < chunkEnd; i++) {
       if (await runWasCancelled(admin, runId)) {
-        break
-      }
-      if (overRunBudget()) {
-        errors.push(
-          `Search time budget reached (${Math.round(RUN_BUDGET_MS / 1000)}s) — try Quick depth or run again.`,
-        )
-        await setProgress(admin, runId, {
-          message: 'Stopping early to avoid platform timeout…',
-          detail: `Processed ${i} of ${selected.length} companies`,
-        })
         break
       }
 
@@ -1621,16 +1773,16 @@ Deno.serve(async (req) => {
           ? searchWebLinkedIn(
               company.company_name,
               domain,
-              peopleTitles,
+              peopleTitlesRun,
               source_stats.websearch,
-              deptKeywords,
+              deptKeywordsRun,
             )
           : Promise.resolve([] as Candidate[]),
         proxyKey
           ? searchProxycurl(
               domain,
               company.company_name,
-              peopleTitles,
+              peopleTitlesRun,
               source_stats.proxycurl,
             )
           : Promise.resolve([] as Candidate[]),
@@ -1730,8 +1882,15 @@ Deno.serve(async (req) => {
       source_stats.osint.attempted += 1
       const osintFast =
         overRunBudget() || Date.now() - runStartedMs > RUN_BUDGET_MS - 45_000
+      await setProgress(admin, runId, {
+        message: `${canonicalName}: finding emails (OSINT)…`,
+        detail: 'Site crawl + patterns (about 20s max)',
+        current_company: canonicalName,
+      })
       const osintBundle = await enrichCompanyOsint(domain, peopleForOsint, {
         fast: osintFast,
+        budgetMs: 20_000,
+        useWorker: Boolean(Deno.env.get('OSINT_WORKER_URL')),
       })
       source_stats.osint.people_found += osintBundle.seedEmails.length
       for (const err of osintBundle.errors) {
@@ -1745,7 +1904,7 @@ Deno.serve(async (req) => {
       }> = []
 
       for (const cand of merged.values()) {
-        const match = titleMatchesFilters(cand.title, include, exclude)
+        const match = titleMatchesFilters(cand.title, includeRun, excludeRun)
         if (!match.ok && match.reason.startsWith('excluded')) continue
 
         const outreachScore = scoreOutreachTitle(cand.title)
@@ -1772,7 +1931,7 @@ Deno.serve(async (req) => {
       let kept = 0
       let skippedDup = 0
       for (const { cand, score, match } of rankedPeople) {
-        if (kept >= maxPerCompany) break
+        if (kept >= meta.maxPerCompany) break
 
         if (contactAlreadyKnown(cand, companyId, contactIndex)) {
           skippedDup += 1
@@ -1812,12 +1971,37 @@ Deno.serve(async (req) => {
 
           if (!cand.email) {
             source_stats.osint.after_title_filter += 1
-            const osint = await discoverPersonEmailOsint(
-              domain,
-              cand.first_name,
-              cand.last_name,
-              osintBundle,
-            )
+            let osint = {
+              email: null as string | null,
+              verification_status: null as string | null,
+              sources: [] as string[],
+              source_details: {} as Record<string, unknown>,
+            }
+            try {
+              osint = await Promise.race([
+                discoverPersonEmailOsint(
+                  domain,
+                  cand.first_name,
+                  cand.last_name,
+                  osintBundle,
+                ),
+                new Promise<Awaited<ReturnType<typeof discoverPersonEmailOsint>>>(
+                  (resolve) =>
+                    setTimeout(
+                      () =>
+                        resolve({
+                          email: null,
+                          verification_status: null,
+                          sources: [],
+                          source_details: { osint_timeout: true },
+                        }),
+                      9_000,
+                    ),
+                ),
+              ])
+            } catch {
+              // skip person osint
+            }
             if (osint.email) {
               cand.email = osint.email
               cand.verification_status =
@@ -1846,7 +2030,7 @@ Deno.serve(async (req) => {
           }
           if (
             cand.sources.some((s) =>
-              ['site_crawl', 'pattern', 'verify_mx', 'osint_worker'].includes(s)
+              ['site_crawl', 'pattern', 'verify_mx', 'osint_worker', 'web_snippet'].includes(s)
             )
           ) {
             source_stats.osint.with_email += 1
@@ -1861,7 +2045,7 @@ Deno.serve(async (req) => {
           continue
         }
 
-        if (filters.require_verified_email !== false) {
+        if (meta.require_verified_email !== false) {
           const hunterPrimary =
             hunterEnabled &&
             !hunterState.quotaExhausted &&
@@ -1879,7 +2063,7 @@ Deno.serve(async (req) => {
               !passesEmailVerification(
                 cand.verification_status,
                 true,
-                filters.accept_accept_all !== false,
+                meta.accept_accept_all,
               ))
           ) {
             const fin = await finalizeOsintEmail(
@@ -1900,7 +2084,7 @@ Deno.serve(async (req) => {
             !passesEmailVerification(
               cand.verification_status,
               true,
-              filters.accept_accept_all !== false,
+              meta.accept_accept_all !== false,
             )
           ) {
             continue
@@ -1948,7 +2132,7 @@ Deno.serve(async (req) => {
           }
           if (
             cand.sources.some((s) =>
-              ['site_crawl', 'pattern', 'verify_mx', 'osint_worker'].includes(s)
+              ['site_crawl', 'pattern', 'verify_mx', 'osint_worker', 'web_snippet'].includes(s)
             )
           ) {
             source_stats.osint.contacts_kept += 1
@@ -1973,6 +2157,32 @@ Deno.serve(async (req) => {
       })
     }
 
+    pipeline!.company_index = chunkEnd
+    pipeline!.contactsCreated = contactsCreated
+    pipeline!.contactsSkippedDuplicate = contactsSkippedDuplicate
+    pipeline!.companiesSelected = companiesSelected
+    pipeline!.company_reports = company_reports
+    pipeline!.errors = errors
+    pipeline!.source_stats = source_stats as SearchPipelineState['source_stats']
+    pipeline!.hunterState = {
+      quotaExhausted: hunterState.quotaExhausted,
+      quotaNote: hunterState.quotaNote,
+    }
+    await savePipelineState(admin, runId!, pipeline!)
+
+    const cancelledAfterChunk = await runWasCancelled(admin, runId)
+    if (pipeline!.company_index < selected.length && !cancelledAfterChunk) {
+      await setProgress(admin, runId, {
+        stage: 'searching_people',
+        message: `Queued company ${pipeline!.company_index + 1} of ${selected.length}…`,
+        detail: 'One company per step — continuing in background',
+        companies_done: pipeline!.company_index,
+        companies_total: selected.length,
+      })
+      scheduleSearchContinue(admin, runId!, pipeline!.depth || depth)
+      return
+    }
+
     await setProgress(admin, runId, {
       stage: 'finishing',
       progress: 95,
@@ -1986,16 +2196,16 @@ Deno.serve(async (req) => {
 
     const how = {
       method:
-        'Industry company discovery (Serper/Bing) → rank by profile fit → optional job-board signals → LinkedIn people (web search) → emails via OSINT (site crawl + pattern) with optional Hunter when enabled.',
-      company_queries: companyQueries,
-      job_queries: jobQueries,
-      location: location || null,
+        'Queued search (one company per step). Industry discovery → LinkedIn (Bing when available) → OSINT (crawl + ≤1 email snippet search/company) → optional Hunter.',
+      company_queries: companyQueriesForReport,
+      job_queries: jobQueriesForReport,
+      location: meta.location || null,
       sources: {
         web_company: {
-          used: webConfigured,
-          companies: webCompanies.length,
-          searches: company_discovery_stats.attempted,
-          note: webConfigured
+          used: meta.webConfigured,
+          companies: webCompaniesLen,
+          searches: meta.company_discovery_stats.attempted,
+          note: meta.webConfigured
             ? null
             : 'Set SERPER_API_KEY or BING_SEARCH_API_KEY for industry company discovery',
         },
@@ -2006,21 +2216,20 @@ Deno.serve(async (req) => {
           note: Deno.env.get('ADZUNA_APP_ID') ? null : 'Not configured',
         },
       },
-      include_titles: include,
-      exclude_titles: exclude,
-      people_search_titles: peopleTitles,
-      department_keywords: deptKeywords.slice(0, 8),
-      require_verified_email: filters.require_verified_email !== false,
-      enable_hunter: hunterEnabled,
+      include_titles: includeRun,
+      exclude_titles: excludeRun,
+      people_search_titles: peopleTitlesRun,
+      department_keywords: deptKeywordsRun.slice(0, 8),
+      require_verified_email: meta.require_verified_email,
+      enable_hunter: meta.hunterEnabled,
       hunter_quota_exhausted: hunterState.quotaExhausted,
-      max_companies_per_run: maxCompanies,
-      max_contacts_per_company: maxPerCompany,
-      profile_roles: targetRoles,
-      profile_industries: industries,
-      profile_company_types: companyTypes.slice(0, 8),
-      profile_outreach_targets: outreachTargets.slice(0, 10),
-      profile_skills: skills.slice(0, 8),
-      unique_companies_from_jobs: byCompany.size,
+      max_companies_per_run: meta.maxCompanies,
+      max_contacts_per_company: meta.maxPerCompany,
+      profile_roles: meta.targetRoles,
+      profile_industries: meta.industries,
+      profile_company_types: meta.companyTypes.slice(0, 8),
+      profile_outreach_targets: meta.outreachTargets.slice(0, 10),
+      profile_skills: meta.skills.slice(0, 8),
       companies_attempted: selected.length,
       companies_ranked_by_fit: selected.map((c) => ({
         name: c.company_name,
@@ -2037,8 +2246,8 @@ Deno.serve(async (req) => {
     }
 
     const summary = {
-      jobs_scanned: allJobs.length,
-      companies_discovered: webCompanies.length,
+      jobs_scanned: allJobsLen,
+      companies_discovered: webCompaniesLen,
       companies_selected: companiesSelected,
       contacts_created: contactsCreated,
       contacts_skipped_duplicate: contactsSkippedDuplicate,
@@ -2047,7 +2256,7 @@ Deno.serve(async (req) => {
       company_reports,
       errors: [
         ...errors,
-        ...company_discovery_stats.errors,
+        ...meta.company_discovery_stats.errors,
         ...Object.entries(source_stats).flatMap(([name, s]) =>
           s.errors.map((e) => `${name}: ${e}`),
         ),
@@ -2056,10 +2265,10 @@ Deno.serve(async (req) => {
         contactsCreated === 0
           ? diagnose(
               source_stats,
-              webCompanies.length,
-              allJobs.length,
-              include,
-              webConfigured,
+              webCompaniesLen,
+              allJobsLen,
+              includeRun,
+              meta.webConfigured,
             )
           : null,
     }
@@ -2071,12 +2280,13 @@ Deno.serve(async (req) => {
       message:
         contactsCreated > 0
           ? `Done — ${contactsCreated} contact(s) from ${companiesSelected} companies`
-          : `Done — no contacts kept (${webCompanies.length} industry cos · ${allJobs.length} jobs)`,
+          : `Done — no contacts kept (${webCompaniesLen} industry cos · ${allJobsLen} jobs)`,
       detail: null,
       current_company: null,
       companies_done: selected.length,
       summary,
       error: null,
+      pipeline_state: null,
     })
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unexpected error'
