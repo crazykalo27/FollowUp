@@ -116,3 +116,8 @@ Conceptual milestones (not a commit-by-commit diary).
 - Keep/discard chips: Not a person / Wrong industry / Not hiring-connected / Wrong location / Wrong job type; Keep: great location / hiring connection / industry / job type.
 - Preference docs store feedback on the hiring signal + match reason that produced the contact (not person biographies).
 - Filter rewrite + company discovery consume rewarded/rejected pick signals.
+
+## 2026-08-07 — Contacts resume position
+
+- Returning to Contacts restores the last pending contact under review (sessionStorage).
+- After a search adds newer contacts, review starts on the most recent new pending card.
