@@ -23,6 +23,17 @@ import {
   scheduleSearchContinue,
   type SearchPipelineState,
 } from '../_shared/search_queue.ts'
+import {
+  computeRunProgress,
+  initCompaniesProgress,
+  loadProgressMeta,
+  markCompanyDone,
+  markCompanySkipped,
+  pushProgressLog,
+  saveProgressMeta,
+  setCompanyProgress,
+  type ProgressMeta,
+} from '../_shared/search_progress.ts'
 
 type Filters = {
   include_titles: string[]
@@ -1196,6 +1207,7 @@ async function setProgress(
     summary?: unknown
     error?: string | null
     pipeline_state?: unknown | null
+    progress_meta?: ProgressMeta
   },
 ) {
   if (!runId) return
@@ -1204,6 +1216,40 @@ async function setProgress(
     .from('search_runs')
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', runId)
+}
+
+async function syncProgress(
+  admin: ReturnType<typeof adminClient>,
+  runId: string | null,
+  meta: ProgressMeta,
+  patch: {
+    stage?: string
+    progress?: number
+    message?: string
+    detail?: string | null
+    current_company?: string | null
+    companies_total?: number
+    companies_done?: number
+    logLine?: string
+    companyName?: string
+    companyStep?: string
+    companyProgress?: number
+    companyStatus?: 'pending' | 'active' | 'done' | 'skipped'
+  },
+) {
+  if (patch.logLine) pushProgressLog(meta, patch.logLine)
+  if (patch.companyName) {
+    setCompanyProgress(meta, patch.companyName, {
+      ...(patch.companyStatus ? { status: patch.companyStatus } : {}),
+      ...(patch.companyStep ? { step: patch.companyStep } : {}),
+      ...(patch.companyProgress !== undefined
+        ? { step_progress: patch.companyProgress }
+        : {}),
+    })
+  }
+  const { logLine, companyName, companyStep, companyProgress, companyStatus, ...rest } =
+    patch
+  await setProgress(admin, runId, { ...rest, progress_meta: meta })
 }
 
 async function runWasCancelled(
@@ -1320,10 +1366,12 @@ Deno.serve(async (req) => {
 
     const runMain = async () => {
       try {
-    await setProgress(admin, runId, {
+    let progressMeta = await loadProgressMeta(admin, runId!)
+    await syncProgress(admin, runId, progressMeta, {
       stage: 'loading_profile',
       progress: 8,
       message: 'Loading your profile and filters…',
+      logLine: 'Reading profile, filters, and API keys',
     })
 
     const { data: profileRow } = await admin
@@ -1361,8 +1409,9 @@ Deno.serve(async (req) => {
       5,
     )
 
-    await setProgress(admin, runId, {
+    await syncProgress(admin, runId, progressMeta, {
       detail: `Depth: ${depth} · up to ${maxCompanies} companies × ${maxPerCompany} contacts`,
+      logLine: `Search depth: ${depth} · max ${maxCompanies} companies`,
     })
 
     const hunterKey = Deno.env.get('HUNTER_API_KEY')
@@ -1472,14 +1521,25 @@ Deno.serve(async (req) => {
       adzunaCount = pipeline.plan_meta.adzunaCount
       jobQueriesForReport = pipeline.plan_meta.jobQueries
       companyQueriesForReport = pipeline.plan_meta.companyQueries
-      await setProgress(admin, runId, {
+      if (progressMeta.companies.length === 0) {
+        progressMeta.companies = initCompaniesProgress(
+          selected.map((c) => c.company_name),
+        )
+      }
+      await syncProgress(admin, runId, progressMeta, {
         stage: 'searching_people',
         message: `Resuming search (company ${pipeline.company_index + 1} of ${selected.length})…`,
         companies_total: selected.length,
         companies_done: pipeline.company_index,
+        progress: computeRunProgress(
+          progressMeta,
+          pipeline.company_index,
+          25,
+        ),
+        logLine: `Resuming company ${pipeline.company_index + 1} of ${selected.length}`,
       })
     } else {
-    await setProgress(admin, runId, {
+    await syncProgress(admin, runId, progressMeta, {
       stage: 'discovering_companies',
       progress: 12,
       message: 'Finding companies in your industries (not job boards first)…',
@@ -1487,6 +1547,7 @@ Deno.serve(async (req) => {
         .slice(0, 3)
         .map((q) => `“${q}”`)
         .join(', ')}${companyQueries.length > 3 ? '…' : ''}`,
+      logLine: 'Industry company discovery (web search)',
     })
 
     const webCompanies = webConfigured
@@ -1499,7 +1560,15 @@ Deno.serve(async (req) => {
         )
       : []
 
-    await setProgress(admin, runId, {
+    if (webCompanies.length > 0) {
+      pushProgressLog(
+        progressMeta,
+        `Web discovery: ${webCompanies.length} companies from industry queries`,
+      )
+      await saveProgressMeta(admin, runId!, progressMeta)
+    }
+
+    await syncProgress(admin, runId, progressMeta, {
       stage: 'fetching_jobs',
       progress: 18,
       message: 'Supplementing with job-board hiring signals…',
@@ -1507,6 +1576,7 @@ Deno.serve(async (req) => {
         .slice(0, 2)
         .map((q) => `“${q}”`)
         .join(', ')}${jobQueries.length > 2 ? '…' : ''}`,
+      logLine: `Scanning Remotive + Adzuna (${jobQueries.length} role queries)`,
     })
 
     const jobBatches = await Promise.all(
@@ -1627,13 +1697,22 @@ Deno.serve(async (req) => {
 
     const contactIndexPlan = buildContactIndex(knownContactRows || [])
 
-    await setProgress(admin, runId, {
+    await syncProgress(admin, runId, progressMeta, {
       detail: `${contactIndexPlan.total} known contact(s) on file — duplicates skipped`,
+      logLine: `Dedup index: ${contactIndexPlan.total} existing contacts`,
     })
 
-    await setProgress(admin, runId, {
+    progressMeta.companies = initCompaniesProgress(
+      selected.map((c) => c.company_name),
+    )
+    pushProgressLog(
+      progressMeta,
+      `Ranked ${selected.length} target companies`,
+    )
+
+    await syncProgress(admin, runId, progressMeta, {
       stage: 'companies_ready',
-      progress: 25,
+      progress: computeRunProgress(progressMeta, 0, 25),
       message: `${webCompaniesLen} industry companies + ${allJobsLen} jobs → ${selected.length} ranked targets`,
       detail: `Top: ${selected
         .slice(0, 3)
@@ -1641,6 +1720,7 @@ Deno.serve(async (req) => {
         .join(' · ') || 'none'}`,
       companies_total: selected.length,
       companies_done: 0,
+      logLine: 'Company queue ready — processing one at a time',
     })
 
     pipeline = {
@@ -1692,9 +1772,10 @@ Deno.serve(async (req) => {
     const excludeRun = meta.exclude
 
     if (justPlanned) {
-      await setProgress(admin, runId, {
+      pushProgressLog(progressMeta, 'Plan saved — scheduling first company')
+      await syncProgress(admin, runId, progressMeta, {
         stage: 'searching_people',
-        progress: 28,
+        progress: computeRunProgress(progressMeta, 0, 28),
         message: `Plan ready — ${selected.length} companies queued`,
         detail: 'Processing one company at a time in the background',
         companies_total: selected.length,
@@ -1722,9 +1803,9 @@ Deno.serve(async (req) => {
       }
 
       const company = selected[i]
-      const pct = 25 + Math.round(((i + 0.5) / Math.max(selected.length, 1)) * 65)
+      const pct = computeRunProgress(progressMeta, i, 25)
 
-      await setProgress(admin, runId, {
+      await syncProgress(admin, runId, progressMeta, {
         stage: 'searching_people',
         progress: pct,
         message: `Searching people at ${company.company_name}…`,
@@ -1732,6 +1813,11 @@ Deno.serve(async (req) => {
         current_company: company.company_name,
         companies_total: selected.length,
         companies_done: i,
+        companyName: company.company_name,
+        companyStatus: 'active',
+        companyStep: 'Resolving domain & employer check',
+        companyProgress: 8,
+        logLine: `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain`,
       })
 
       const domain =
@@ -1752,16 +1838,34 @@ Deno.serve(async (req) => {
 
       if (!domain) {
         report.outcome = 'Skipped — could not resolve domain'
+        markCompanySkipped(progressMeta, company.company_name, report.outcome)
+        await syncProgress(admin, runId, progressMeta, {
+          companies_done: i + 1,
+          progress: computeRunProgress(progressMeta, i + 1, 25),
+          logLine: `${company.company_name}: ${report.outcome}`,
+        })
         company_reports.push(report)
         continue
       }
 
       if (!isEmployerCorporateHost(domain)) {
         report.outcome = 'Skipped — domain is a publisher/aggregator, not an employer'
+        markCompanySkipped(progressMeta, company.company_name, report.outcome)
+        await syncProgress(admin, runId, progressMeta, {
+          companies_done: i + 1,
+          progress: computeRunProgress(progressMeta, i + 1, 25),
+          logLine: `${company.company_name}: ${report.outcome}`,
+        })
         company_reports.push(report)
         continue
       }
 
+      await syncProgress(admin, runId, progressMeta, {
+        companyName: company.company_name,
+        companyStep: 'LinkedIn + Hunter domain search (parallel)',
+        companyProgress: 22,
+        logLine: `${company.company_name}: searching people on ${domain}`,
+      })
       let hunterPeople: Candidate[] = []
       let hunterOrg: string | null = null
 
@@ -1798,6 +1902,12 @@ Deno.serve(async (req) => {
 
       if (!looksLikeEmployerName(canonicalName)) {
         report.outcome = 'Skipped — could not resolve a real employer name'
+        markCompanySkipped(progressMeta, company.company_name, report.outcome)
+        await syncProgress(admin, runId, progressMeta, {
+          companies_done: i + 1,
+          progress: computeRunProgress(progressMeta, i + 1, 25),
+          logLine: `${company.company_name}: ${report.outcome}`,
+        })
         company_reports.push(report)
         continue
       }
@@ -1839,6 +1949,12 @@ Deno.serve(async (req) => {
         if (insErr || !inserted) {
           report.outcome = `DB error — ${insErr?.message || 'insert failed'}`
           errors.push(`${canonicalName}: ${insErr?.message}`)
+          markCompanySkipped(progressMeta, company.company_name, report.outcome)
+          await syncProgress(admin, runId, progressMeta, {
+            companies_done: i + 1,
+            progress: computeRunProgress(progressMeta, i + 1, 25),
+            logLine: `${canonicalName}: ${report.outcome}`,
+          })
           company_reports.push(report)
           continue
         }
@@ -1846,22 +1962,30 @@ Deno.serve(async (req) => {
       }
       companiesSelected += 1
 
-      await setProgress(admin, runId, {
+      await syncProgress(admin, runId, progressMeta, {
         message: `Scored ${canonicalName}: H${hunterPeople.length} / Web${webPeople.length} / P${proxyPeople.length}`,
         detail: `Domain ${domain}`,
         current_company: canonicalName,
+        companyName: company.company_name,
+        companyStep: `Merged ${hunterPeople.length + webPeople.length + proxyPeople.length} raw hits — ranking titles`,
+        companyProgress: 38,
+        progress: computeRunProgress(progressMeta, i, 25),
+        logLine: `${canonicalName}: H${hunterPeople.length} Hunter · Web${webPeople.length} LinkedIn · P${proxyPeople.length} Proxycurl`,
       })
 
       ;(report.by_provider as Record<string, number>).hunter = hunterPeople.length
       ;(report.by_provider as Record<string, number>).websearch = webPeople.length
       ;(report.by_provider as Record<string, number>).proxycurl = proxyPeople.length
 
-      await setProgress(admin, runId, {
+      await syncProgress(admin, runId, progressMeta, {
         message: `${canonicalName}: scoring & emails…`,
         detail: hunterEnabled && !hunterState.quotaExhausted
           ? 'Outreach title score + Hunter / OSINT emails'
           : 'Outreach title score + OSINT email pipeline',
         current_company: canonicalName,
+        companyName: company.company_name,
+        companyStep: 'Title fit scoring',
+        companyProgress: 42,
       })
 
       const merged = new Map<string, Candidate>()
@@ -1882,10 +2006,14 @@ Deno.serve(async (req) => {
       source_stats.osint.attempted += 1
       const osintFast =
         overRunBudget() || Date.now() - runStartedMs > RUN_BUDGET_MS - 45_000
-      await setProgress(admin, runId, {
+      await syncProgress(admin, runId, progressMeta, {
         message: `${canonicalName}: finding emails (OSINT)…`,
         detail: 'Site crawl + patterns (about 20s max)',
         current_company: canonicalName,
+        companyName: company.company_name,
+        companyStep: 'OSINT — site crawl, sitemap, patterns',
+        companyProgress: 52,
+        logLine: `${canonicalName}: OSINT email discovery (≤20s)`,
       })
       const osintBundle = await enrichCompanyOsint(domain, peopleForOsint, {
         fast: osintFast,
@@ -1927,6 +2055,13 @@ Deno.serve(async (req) => {
       }
 
       rankedPeople.sort((a, b) => b.score - a.score)
+
+      await syncProgress(admin, runId, progressMeta, {
+        companyName: company.company_name,
+        companyStep: 'Matching emails to contacts & verification',
+        companyProgress: 68,
+        logLine: `${canonicalName}: OSINT ${osintBundle.seedEmails.length} seed emails · ${rankedPeople.length} people after title filter`,
+      })
 
       let kept = 0
       let skippedDup = 0
@@ -2150,10 +2285,13 @@ Deno.serve(async (req) => {
           : `No contacts kept (H${hunterPeople.length}/W${webPeople.length}/P${proxyPeople.length}${skippedDup ? ` · ${skippedDup} dup` : ''})`
       company_reports.push(report)
 
-      await setProgress(admin, runId, {
+      markCompanyDone(progressMeta, company.company_name, report.outcome as string)
+      await syncProgress(admin, runId, progressMeta, {
         companies_done: i + 1,
+        progress: computeRunProgress(progressMeta, i + 1, 25),
         detail: `${company.company_name}: kept ${kept} · total contacts ${contactsCreated}`,
         current_company: company.company_name,
+        logLine: `${canonicalName}: ${report.outcome}`,
       })
     }
 
@@ -2172,22 +2310,29 @@ Deno.serve(async (req) => {
 
     const cancelledAfterChunk = await runWasCancelled(admin, runId)
     if (pipeline!.company_index < selected.length && !cancelledAfterChunk) {
-      await setProgress(admin, runId, {
+      await syncProgress(admin, runId, progressMeta, {
         stage: 'searching_people',
         message: `Queued company ${pipeline!.company_index + 1} of ${selected.length}…`,
         detail: 'One company per step — continuing in background',
         companies_done: pipeline!.company_index,
         companies_total: selected.length,
+        progress: computeRunProgress(
+          progressMeta,
+          pipeline!.company_index,
+          25,
+        ),
+        logLine: `Queueing company ${pipeline!.company_index + 1} of ${selected.length}`,
       })
       scheduleSearchContinue(admin, runId!, pipeline!.depth || depth)
       return
     }
 
-    await setProgress(admin, runId, {
+    await syncProgress(admin, runId, progressMeta, {
       stage: 'finishing',
       progress: 95,
       message: 'Building search report…',
       current_company: null,
+      logLine: 'All companies processed — compiling report',
     })
 
     if (hunterState.quotaExhausted && hunterState.quotaNote) {

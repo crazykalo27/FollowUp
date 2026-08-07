@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
+import { emailSettingsFromFilters } from '../lib/searchEmailSettings'
 import { DEFAULT_FILTERS, type SearchFiltersData, type SearchProfileData } from '../types/database'
 
 const EMPTY_SEARCH_PROFILE: SearchProfileData = {
@@ -155,11 +156,7 @@ export function FiltersPage() {
         filters: SearchFiltersData
         rationale?: string
       }>('recommend-filters', {})
-      const f = { ...DEFAULT_FILTERS, ...res.filters }
-      setFilters(f)
-      setIncludeText(listToText(f.include_titles || DEFAULT_FILTERS.include_titles))
-      setExcludeText(listToText(f.exclude_titles || DEFAULT_FILTERS.exclude_titles))
-      setLocationsText(listToText(f.locations || []))
+      await loadFilters()
       setStatus(
         res.rationale
           ? `Search targets saved. Contact filters synced: ${res.rationale}`
@@ -175,30 +172,67 @@ export function FiltersPage() {
     setSavingTargets(false)
   }
 
-  async function save() {
-    if (!user) return
-    setSaving(true)
-    setStatus(null)
-    const next: SearchFiltersData = {
-      ...filters,
-      include_titles: textToList(includeText),
-      exclude_titles: textToList(excludeText),
-      locations: textToList(locationsText),
-    }
+  async function persistFilters(
+    next: SearchFiltersData,
+    opts?: { message?: string },
+  ) {
+    if (!user) return false
+    const { data: row } = await supabase
+      .from('search_filters')
+      .select('filters')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    const email = emailSettingsFromFilters(
+      row?.filters as Record<string, unknown> | undefined,
+    )
+    const merged: SearchFiltersData = { ...next, ...email }
     const { error } = await supabase.from('search_filters').upsert(
       {
         user_id: user.id,
-        filters: next,
+        filters: merged,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' },
     )
-    setSaving(false)
-    if (error) setStatus(error.message)
-    else {
-      setFilters(next)
-      setStatus('Filters saved. Search will use these deterministically.')
+    if (error) {
+      setStatus(error.message)
+      return false
     }
+    setFilters(merged)
+    if (opts?.message !== '') {
+      setStatus(opts?.message ?? 'Settings saved.')
+    }
+    return true
+  }
+
+  function mergeFilters(patch: Partial<SearchFiltersData>): SearchFiltersData {
+    return {
+      ...filters,
+      include_titles: textToList(includeText),
+      exclude_titles: textToList(excludeText),
+      locations: textToList(locationsText),
+      ...patch,
+    }
+  }
+
+  async function saveFilterToggles(patch: Partial<SearchFiltersData>) {
+    const next = mergeFilters(patch)
+    setFilters(next)
+    setSaving(true)
+    setStatus(null)
+    await persistFilters(next, { message: 'Settings saved.' })
+    setSaving(false)
+  }
+
+  async function save() {
+    if (!user) return
+    setSaving(true)
+    setStatus(null)
+    const next = mergeFilters({})
+    await persistFilters(next, {
+      message: 'Filters saved. Search will use these deterministically.',
+    })
+    setSaving(false)
   }
 
   async function recommendFromAi() {
@@ -209,11 +243,7 @@ export function FiltersPage() {
         filters: SearchFiltersData
         rationale?: string
       }>('recommend-filters', {})
-      const f = { ...DEFAULT_FILTERS, ...res.filters }
-      setFilters(f)
-      setIncludeText(listToText(f.include_titles || []))
-      setExcludeText(listToText(f.exclude_titles || []))
-      setLocationsText(listToText(f.locations || []))
+      await loadFilters()
       setStatus(
         res.rationale
           ? `AI updated filters: ${res.rationale}`
@@ -295,7 +325,8 @@ export function FiltersPage() {
       <h2>Contact filters</h2>
       <p className="muted small">
         Refined as you keep/discard contacts. Edit anytime — search uses these
-        rules deterministically for people at each company.
+        rules deterministically for people at each company. Hunter and verified-email
+        options live under <Link to="/app/settings">Settings</Link>.
       </p>
 
       <div className="actions">
@@ -349,6 +380,11 @@ export function FiltersPage() {
                   max_companies_per_run: Number(e.target.value),
                 }))
               }
+              onBlur={(e) =>
+                void saveFilterToggles({
+                  max_companies_per_run: Number(e.target.value),
+                })
+              }
             />
           </label>
           <label>
@@ -364,52 +400,14 @@ export function FiltersPage() {
                   max_contacts_per_company: Number(e.target.value),
                 }))
               }
+              onBlur={(e) =>
+                void saveFilterToggles({
+                  max_contacts_per_company: Number(e.target.value),
+                })
+              }
             />
           </label>
         </div>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={filters.enable_hunter !== false}
-            onChange={(e) =>
-              setFilters((f) => ({
-                ...f,
-                enable_hunter: e.target.checked,
-              }))
-            }
-          />
-          Use Hunter.io for email lookup (uses monthly API credits)
-        </label>
-        <p className="muted small">
-          When off or credits are exhausted, FollowUp uses the free OSINT pipeline
-          (company site crawl, email patterns, MX checks, optional OSINT worker).
-        </p>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={filters.require_verified_email}
-            onChange={(e) =>
-              setFilters((f) => ({
-                ...f,
-                require_verified_email: e.target.checked,
-              }))
-            }
-          />
-          Require verified deliverable email
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={filters.accept_accept_all}
-            onChange={(e) =>
-              setFilters((f) => ({
-                ...f,
-                accept_accept_all: e.target.checked,
-              }))
-            }
-          />
-          Accept &quot;accept_all&quot; verification status
-        </label>
       </div>
 
       <div className="actions">

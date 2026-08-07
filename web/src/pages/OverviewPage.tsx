@@ -13,6 +13,32 @@ import {
   type SearchDepth,
 } from '../lib/searchDepth'
 
+type ProgressLogEntry = { ts: string; text: string }
+
+type CompanyProgressRow = {
+  name: string
+  status: 'pending' | 'active' | 'done' | 'skipped'
+  step: string
+  step_progress: number
+}
+
+type ProgressMeta = {
+  companies: CompanyProgressRow[]
+  log: ProgressLogEntry[]
+}
+
+function formatLogTime(iso: string) {
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  } catch {
+    return ''
+  }
+}
+
 type SourceStats = {
   configured: boolean
   attempted: number
@@ -133,6 +159,7 @@ export function OverviewPage() {
     current_company: string | null
     companies_total: number
     companies_done: number
+    progress_meta: ProgressMeta
   } | null>(null)
   const pollRef = useRef<number | null>(null)
   const pollRunIdRef = useRef<string | null>(null)
@@ -216,6 +243,7 @@ export function OverviewPage() {
       status?: string | null
       summary?: unknown
       error?: string | null
+      progress_meta?: ProgressMeta | null
     },
   ) {
     if (pollRunIdRef.current !== runId) return
@@ -223,6 +251,17 @@ export function OverviewPage() {
     if (data.status === 'running') {
       setErrorMsg(null)
     }
+
+    const rawMeta = data.progress_meta
+    const meta: ProgressMeta =
+      rawMeta && typeof rawMeta === 'object' && Array.isArray((rawMeta as ProgressMeta).companies)
+        ? {
+            companies: (rawMeta as ProgressMeta).companies,
+            log: Array.isArray((rawMeta as ProgressMeta).log)
+              ? (rawMeta as ProgressMeta).log
+              : [],
+          }
+        : { companies: [], log: [] }
 
     setLive({
       progress: data.progress ?? 0,
@@ -232,6 +271,7 @@ export function OverviewPage() {
       current_company: data.current_company ?? null,
       companies_total: data.companies_total || 0,
       companies_done: data.companies_done || 0,
+      progress_meta: meta,
     })
     if (data.status === 'done' && data.summary) {
       finishWithSummary(runId, data.summary as SearchSummary)
@@ -282,7 +322,7 @@ export function OverviewPage() {
       const { data } = await supabase
         .from('search_runs')
         .select(
-          'progress, stage, message, detail, current_company, companies_total, companies_done, status, summary, error, updated_at',
+          'progress, stage, message, detail, current_company, companies_total, companies_done, status, summary, error, updated_at, progress_meta',
         )
         .eq('id', runId)
         .maybeSingle()
@@ -333,7 +373,7 @@ export function OverviewPage() {
       let runQuery = supabase
         .from('search_runs')
         .select(
-          'id, progress, stage, message, detail, current_company, companies_total, companies_done, status, summary, error, created_at',
+          'id, progress, stage, message, detail, current_company, companies_total, companies_done, status, summary, error, created_at, progress_meta',
         )
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
@@ -344,7 +384,7 @@ export function OverviewPage() {
         ? await supabase
             .from('search_runs')
             .select(
-              'id, progress, stage, message, detail, current_company, companies_total, companies_done, status, summary, error',
+              'id, progress, stage, message, detail, current_company, companies_total, companies_done, status, summary, error, progress_meta',
             )
             .eq('id', storedId)
             .maybeSingle()
@@ -428,6 +468,7 @@ export function OverviewPage() {
       current_company: null,
       companies_total: 0,
       companies_done: 0,
+      progress_meta: { companies: [], log: [] },
     })
 
     const { data: run, error: runErr } = await supabase
@@ -477,6 +518,7 @@ export function OverviewPage() {
             current_company: null,
             companies_total: res.summary.companies_selected,
             companies_done: res.summary.companies_selected,
+            progress_meta: live?.progress_meta ?? { companies: [], log: [] },
           })
         }
       })
@@ -632,24 +674,71 @@ export function OverviewPage() {
       {live && (searching || live.progress > 0) && (
         <div className="search-progress" aria-live="polite">
           <div className="search-progress-head">
-            <strong>{live.message}</strong>
+            <strong>Overall</strong>
             <span className="muted">{live.progress}%</span>
           </div>
-          <div className="progress-track">
+          <p className="small search-progress-lead">{live.message}</p>
+          <div className="progress-track progress-track-overall">
             <div
               className={`progress-fill ${searching ? 'active' : ''}`}
               style={{ width: `${Math.max(live.progress, 2)}%` }}
             />
           </div>
-          {live.detail && <p className="muted small">{live.detail}</p>}
-          {live.current_company && (
-            <p className="small">
-              Current company: <strong>{live.current_company}</strong>
-              {live.companies_total > 0
-                ? ` (${live.companies_done}/${live.companies_total})`
-                : ''}
+          {live.companies_total > 0 && (
+            <p className="muted small">
+              Companies completed: {live.companies_done}/{live.companies_total}
             </p>
           )}
+          {live.detail && <p className="muted small">{live.detail}</p>}
+
+          {live.progress_meta.companies.length > 0 && (
+            <div className="company-progress-block">
+              <h4 className="company-progress-title">Per company</h4>
+              <ul className="company-progress-list">
+                {live.progress_meta.companies.map((c) => (
+                  <li
+                    key={c.name}
+                    className={`company-progress-row ${c.status}`}
+                  >
+                    <div className="company-progress-row-head">
+                      <span className="company-progress-name">{c.name}</span>
+                      <span className="muted small">
+                        {c.status === 'done' || c.status === 'skipped'
+                          ? c.step
+                          : `${c.step_progress}%`}
+                      </span>
+                    </div>
+                    <div className="progress-track progress-track-mini">
+                      <div
+                        className={`progress-fill ${c.status === 'active' && searching ? 'active' : ''}`}
+                        style={{
+                          width: `${Math.max(
+                            c.status === 'pending' ? 4 : c.step_progress,
+                            4,
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {live.progress_meta.log.length > 0 && (
+            <div className="activity-log-block">
+              <h4 className="company-progress-title">Live activity</h4>
+              <ul className="activity-log">
+                {live.progress_meta.log.map((entry, idx) => (
+                  <li key={`${entry.ts}-${idx}`}>
+                    <time className="muted">{formatLogTime(entry.ts)}</time>
+                    <span>{entry.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {searching && (
             <p className="muted small">
               Safe to leave this page — progress continues in the background.

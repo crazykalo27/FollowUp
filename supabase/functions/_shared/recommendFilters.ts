@@ -140,25 +140,47 @@ ${JSON.stringify(pref?.discard_reason_counts || {})}`,
   const parsed = parseFiltersJson(raw)
   const filters = normalizeFilters(parsed)
 
+  const { data: existingRow } = await admin
+    .from('search_filters')
+    .select('filters')
+    .eq('user_id', userId)
+    .maybeSingle()
+  const prev = (existingRow?.filters || {}) as Record<string, unknown>
+
+  const preservedToggles = {
+    ...(prev.enable_hunter !== undefined
+      ? { enable_hunter: prev.enable_hunter !== false }
+      : {}),
+    ...(prev.require_verified_email !== undefined
+      ? { require_verified_email: prev.require_verified_email !== false }
+      : {}),
+    ...(prev.accept_accept_all !== undefined
+      ? { accept_accept_all: prev.accept_accept_all !== false }
+      : {}),
+  }
+
+  const filtersToStore = {
+    include_titles: filters.include_titles,
+    exclude_titles: filters.exclude_titles,
+    locations: filters.locations,
+    seniority: filters.seniority,
+    company_size_min: filters.company_size_min,
+    company_size_max: filters.company_size_max,
+    max_companies_per_run: filters.max_companies_per_run,
+    max_contacts_per_company: filters.max_contacts_per_company,
+    require_verified_email: filters.require_verified_email,
+    accept_accept_all: filters.accept_accept_all,
+    ...preservedToggles,
+  }
+
   await admin.from('search_filters').upsert(
     {
       user_id: userId,
-      filters: {
-        include_titles: filters.include_titles,
-        exclude_titles: filters.exclude_titles,
-        locations: filters.locations,
-        seniority: filters.seniority,
-        company_size_min: filters.company_size_min,
-        company_size_max: filters.company_size_max,
-        max_companies_per_run: filters.max_companies_per_run,
-        max_contacts_per_company: filters.max_contacts_per_company,
-        require_verified_email: filters.require_verified_email,
-        accept_accept_all: filters.accept_accept_all,
-      },
+      filters: filtersToStore,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'user_id' },
   )
 
-  return filters
+  return { ...filters, ...preservedToggles }
 }

@@ -70,6 +70,13 @@ Conceptual milestones (not a commit-by-commit diary).
 - Deployed Edge Functions to Supabase project `czakwfzjkhsaysvqeswc` (includes `run-search` + `email_discovery.ts`).
 - Search: queued pipeline (`pipeline_state`) — one company per Edge invocation, auto-chains via service role; lighter OSINT (sitemap, ≤1 Bing-preferring email snippet search/company).
 
+## 2026-08-06 — Rich search progress UI
+
+- `search_runs.progress_meta`: per-company step bars + scrolling activity log; `run-search` writes granular steps (discovery, OSINT, saves).
+- Overview: overall progress bar, per-company mini bars, live activity feed; overall % derived from plan + company queue.
+- Filters: Hunter / verified-email toggles auto-save to `search_filters`; AI filter rewrite keeps your saved toggles.
+- Email discovery (Hunter, verified email) moved to Settings; persisted in `search_filters` with explicit save + reload.
+
 ## 2026-08-06 — One outreach send per contact
 
 - DB partial unique index on sent outreach per user+contact; send-outreach rejects duplicate sends with Gmail follow-up message.

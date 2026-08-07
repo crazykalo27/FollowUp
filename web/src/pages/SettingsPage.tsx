@@ -3,6 +3,12 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
+import {
+  DEFAULT_SEARCH_EMAIL_SETTINGS,
+  loadSearchEmailSettings,
+  saveSearchEmailSettings,
+  type SearchEmailSettings,
+} from '../lib/searchEmailSettings'
 import type { SearchProfileData } from '../types/database'
 
 const EMPLOYMENT_TYPE_OPTIONS = [
@@ -46,6 +52,10 @@ export function SettingsPage() {
   const [employmentTypes, setEmploymentTypes] = useState<string[]>([])
   const [remotePreference, setRemotePreference] = useState('')
   const [savingEmployment, setSavingEmployment] = useState(false)
+  const [emailSettings, setEmailSettings] = useState<SearchEmailSettings>(
+    DEFAULT_SEARCH_EMAIL_SETTINGS,
+  )
+  const [savingEmailSettings, setSavingEmailSettings] = useState(false)
 
   useEffect(() => {
     const g = params.get('gmail')
@@ -58,7 +68,8 @@ export function SettingsPage() {
   useEffect(() => {
     if (!user) return
     void (async () => {
-      const [{ data: gmail }, { data: prof }, { data: sp }] = await Promise.all([
+      const [{ data: gmail }, { data: prof }, { data: sp }, emailPrefs] =
+        await Promise.all([
         supabase
           .from('gmail_connection')
           .select('email')
@@ -76,6 +87,7 @@ export function SettingsPage() {
           .select('profile')
           .eq('user_id', user.id)
           .maybeSingle(),
+        loadSearchEmailSettings(supabase, user.id),
       ])
       if (gmail?.email) {
         setGmailEmail(gmail.email)
@@ -97,8 +109,27 @@ export function SettingsPage() {
       const p = (sp?.profile as SearchProfileData | undefined) || EMPTY_PROFILE
       setEmploymentTypes(p.employment_types || [])
       setRemotePreference(p.remote_preference || '')
+      setEmailSettings(emailPrefs)
     })()
   }, [user])
+
+  async function saveEmailDiscoverySettings() {
+    if (!user) return
+    setSavingEmailSettings(true)
+    setMsg(null)
+    const { error } = await saveSearchEmailSettings(
+      supabase,
+      user.id,
+      emailSettings,
+    )
+    setSavingEmailSettings(false)
+    if (error) setMsg(error)
+    else {
+      const fresh = await loadSearchEmailSettings(supabase, user.id)
+      setEmailSettings(fresh)
+      setMsg('Email discovery settings saved — used on every search run.')
+    }
+  }
 
   async function saveEmploymentPrefs() {
     if (!user) return
@@ -294,6 +325,66 @@ export function SettingsPage() {
           onClick={() => void saveEmploymentPrefs()}
         >
           {savingEmployment ? 'Saving…' : 'Save job preferences'}
+        </button>
+      </div>
+
+      <div className="settings-block">
+        <h2>Email discovery (search)</h2>
+        <p className="muted small">
+          Controls how FollowUp finds and keeps contact emails during{' '}
+          <Link to="/app">Overview</Link> searches. Saved to your account — reload
+          safe.
+        </p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={emailSettings.enable_hunter}
+            onChange={(e) =>
+              setEmailSettings((s) => ({
+                ...s,
+                enable_hunter: e.target.checked,
+              }))
+            }
+          />
+          Use Hunter.io for email lookup (uses monthly API credits)
+        </label>
+        <p className="muted small">
+          When off or credits are exhausted, FollowUp uses the free OSINT pipeline
+          (site crawl, email patterns, MX checks, optional OSINT worker).
+        </p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={emailSettings.require_verified_email}
+            onChange={(e) =>
+              setEmailSettings((s) => ({
+                ...s,
+                require_verified_email: e.target.checked,
+              }))
+            }
+          />
+          Require verified deliverable email
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={emailSettings.accept_accept_all}
+            onChange={(e) =>
+              setEmailSettings((s) => ({
+                ...s,
+                accept_accept_all: e.target.checked,
+              }))
+            }
+          />
+          Accept &quot;accept_all&quot; verification status
+        </label>
+        <button
+          type="button"
+          className="btn primary"
+          disabled={savingEmailSettings}
+          onClick={() => void saveEmailDiscoverySettings()}
+        >
+          {savingEmailSettings ? 'Saving…' : 'Save email discovery settings'}
         </button>
       </div>
 
