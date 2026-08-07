@@ -82,3 +82,9 @@ Conceptual milestones (not a commit-by-commit diary).
 - DB partial unique index on sent outreach per user+contact; send-outreach rejects duplicate sends with Gmail follow-up message.
 - draft-emails skips contacts already sent; returns `skipped_already_sent`.
 - Drafts list: checkmark + sent date; lock send/edit when outreach sent; Contacts kept tab shows sent state.
+
+## 2026-08-06 — Profile-driven company discovery
+
+- `company_discovery.ts`: skills/technologies → sector labels; recruiter-style queries; Crunchbase/Wellfound/LinkedIn/YC site searches; expanded listicle/finance host blocklist.
+- Seed knowledge graph (CPU, AI accelerators, FPGA, EDA, quantum, embedded) merged before web results; depth sets web query budget (5/8/10).
+- Listicle SERP titles: extract LinkedIn companies only — do not treat ranking pages as employers.

@@ -34,6 +34,15 @@ import {
   setCompanyProgress,
   type ProgressMeta,
 } from '../_shared/search_progress.ts'
+import {
+  buildCompanyDiscoveryQueries,
+  companyWebSearchQueryBudget,
+  isEmployerCorporateHost,
+  isListicleOrPublisherTitle,
+  isSkippableCompanyHost,
+  looksLikeEmployerName,
+  seedCompaniesFromKnowledgeGraph,
+} from '../_shared/company_discovery.ts'
 
 type Filters = {
   include_titles: string[]
@@ -85,102 +94,6 @@ const BROAD_PEOPLE_TITLES = [
   'Technical Recruiter',
   'Talent Acquisition',
 ]
-
-const SKIP_COMPANY_HOST_PARTS = [
-  'indeed.',
-  'glassdoor.',
-  'ziprecruiter.',
-  'monster.',
-  'wikipedia.',
-  'youtube.',
-  'twitter.',
-  'x.com',
-  'facebook.',
-  'reddit.',
-  'remotive.',
-  'adzuna.',
-  'linkedin.com/jobs',
-  'linkedin.com/pulse',
-  'medium.com',
-  'arxiv.org',
-  'substack.com',
-  'ghost.io',
-  'blogspot.',
-  'wordpress.com',
-  'wixsite.com',
-  'squarespace.com',
-  'notion.site',
-  'github.io',
-  'beehiiv.com',
-  'mailchimp.',
-  'feedburner.',
-  'techcrunch.com',
-  'forbes.com',
-  'businessinsider.com',
-  'builtin.com',
-  'crunchbase.com',
-  'pitchbook.com',
-  'cbinsights.com',
-  'statista.com',
-  'g2.com',
-  'ycombinator.com',
-  'news.ycombinator',
-  'quantamagazine.org',
-  'thequantuminsider.com',
-  'nature.com/articles',
-  'science.org',
-  'ieee.org',
-  'springer.com',
-  'researchgate.net',
-  'semiconductor-digest.com',
-  'venturebeat.com',
-  'prnewswire.com',
-  'businesswire.com',
-]
-
-const LISTICLE_TITLE_RE =
-  /\b(top\s*\d+|best\s*\d+|\d+\s+(best|top|leading)|list of|newsletter|podcast|webinar|interview with|how to|guide to|what is|ultimate guide|roundup|magazine|weekly|daily digest|blog\b|vs\.|review\b|careers page|job board)/i
-
-function isSkippableCompanyHost(host: string): boolean {
-  const h = host.toLowerCase()
-  return SKIP_COMPANY_HOST_PARTS.some((p) => h.includes(p))
-}
-
-function isEmployerCorporateHost(host: string): boolean {
-  const h = host.toLowerCase().replace(/^www\./, '')
-  if (!h || isSkippableCompanyHost(h)) return false
-  if (h.endsWith('.substack.com') || h === 'substack.com') return false
-  if (h.endsWith('.github.io') || h.endsWith('.wordpress.com')) return false
-  const parts = h.split('.')
-  if (parts.length < 2) return false
-  const tld = parts[parts.length - 1]
-  if (!/^[a-z]{2,}$/i.test(tld)) return false
-  return true
-}
-
-function isListicleOrPublisherTitle(text: string): boolean {
-  const t = text.trim()
-  if (!t || t.length < 2) return true
-  if (LISTICLE_TITLE_RE.test(t)) return true
-  if (/^\d{4}\s/.test(t)) return true
-  return false
-}
-
-function looksLikeEmployerName(name: string): boolean {
-  const n = name.trim()
-  if (n.length < 2 || n.length > 80) return false
-  if (isListicleOrPublisherTitle(n)) return false
-  const lower = n.toLowerCase()
-  if (
-    /\b(newsletter|blog|magazine|journal|insider|digest|podcast|substack|medium)\b/.test(
-      lower,
-    )
-  ) {
-    return false
-  }
-  if (/^(the|a)\s+\d+/i.test(n)) return false
-  return true
-}
 
 function linkedInCompanyFromUrl(url: string): { name: string; url: string } | null {
   try {
@@ -268,87 +181,6 @@ function scoreCompanyFit(
 ): number {
   const blob = `${companyName} ${signalText || ''}`
   return scoreJobRelevance(blob, roles, industries, skills)
-}
-
-function buildCompanyDiscoveryQueries(
-  industries: string[],
-  roles: string[],
-  companyTypes: string[],
-  skills: string[],
-): string[] {
-  const queries: string[] = []
-  const inds =
-    industries.length > 0 ? industries : companyTypes.slice(0, 4).filter(Boolean)
-
-  const sizeAngles = [
-    'startups',
-    'scale-up companies',
-    'public companies',
-    'Fortune 500',
-    'mid-size companies',
-    'research labs',
-    'national labs',
-    'university spinouts',
-    'unicorn companies',
-    'hardware companies',
-    'software companies',
-  ]
-
-  const ctLower = companyTypes.map((c) => c.toLowerCase())
-  const wantsStartup = ctLower.some((c) =>
-    /startup|early|seed|series|venture|unicorn/i.test(c),
-  )
-  const wantsLarge = ctLower.some((c) =>
-    /fortune|enterprise|public|faang|big tech|multinational/i.test(c),
-  )
-  const wantsLab = ctLower.some((c) =>
-    /lab|national|research institute|academia|university/i.test(c),
-  )
-
-  const pickSizes = (): string[] => {
-    const picked: string[] = []
-    if (wantsStartup) picked.push('startups', 'scale-up companies', 'unicorn companies')
-    if (wantsLarge) picked.push('public companies', 'Fortune 500', 'enterprise companies')
-    if (wantsLab) picked.push('research labs', 'national labs', 'university spinouts')
-    if (picked.length === 0) {
-      return ['startups', 'companies', 'public companies', 'research labs']
-    }
-    return picked
-  }
-
-  const sizes = pickSizes()
-
-  for (const ind of inds.slice(0, 5)) {
-    const i = ind.trim()
-    if (!i) continue
-    for (const size of sizes.slice(0, 4)) {
-      queries.push(`${i} ${size}`)
-    }
-    queries.push(`site:linkedin.com/company ${i}`)
-    queries.push(`${i} company careers hiring`)
-    if (/quantum|qubit|compiler|architecture|risc|silicon|accelerator|hpc/i.test(i)) {
-      queries.push(`${i} semiconductor companies`)
-      queries.push(`${i} quantum hardware companies`)
-    }
-  }
-  for (const ct of companyTypes.slice(0, 4)) {
-    const c = ct.trim()
-    if (c) queries.push(`${c} companies hiring`)
-  }
-  for (const role of roles.slice(0, 3)) {
-    const r = role.trim()
-    if (r) queries.push(`${r} employers startups`)
-  }
-  if (queries.length === 0 && skills.length > 0) {
-    queries.push(`${skills.slice(0, 2).join(' ')} companies`)
-  }
-  const seen = new Set<string>()
-  return queries.filter((q) => {
-    const key = q.toLowerCase().trim()
-    if (!key || seen.has(key)) return false
-    seen.add(key)
-    return true
-  }).slice(0, 14)
 }
 
 function departmentKeywords(
@@ -439,6 +271,7 @@ async function runWebSearch(
 
 async function discoverCompaniesFromWeb(
   queries: string[],
+  maxQueries: number,
   roles: string[],
   industries: string[],
   skills: string[],
@@ -479,7 +312,7 @@ async function discoverCompaniesFromWeb(
     )
   }
 
-  for (const query of queries.slice(0, 4)) {
+  for (const query of queries.slice(0, maxQueries)) {
     stats.attempted += 1
     try {
       const organic = await runWebSearch(query, 10)
@@ -499,6 +332,8 @@ async function discoverCompaniesFromWeb(
           storeLinkedInCompany(liCo, blob, query, 2)
           continue
         }
+
+        if (isListicleOrPublisherTitle(title)) continue
 
         let host: string | null = null
         try {
@@ -1542,17 +1377,28 @@ Deno.serve(async (req) => {
     await syncProgress(admin, runId, progressMeta, {
       stage: 'discovering_companies',
       progress: 12,
-      message: 'Finding companies in your industries (not job boards first)…',
+      message: 'Finding employers from your profile (sectors + targeted search)…',
       detail: `Queries: ${companyQueries
         .slice(0, 3)
         .map((q) => `“${q}”`)
         .join(', ')}${companyQueries.length > 3 ? '…' : ''}`,
-      logLine: 'Industry company discovery (web search)',
+      logLine: 'Profile-driven company discovery',
     })
 
-    const webCompanies = webConfigured
+    const graphSeeds = seedCompaniesFromKnowledgeGraph(
+      industries,
+      companyTypes,
+      skills,
+      targetRoles,
+      (name, signal) =>
+        scoreCompanyFit(name, signal, targetRoles, industries, skills),
+    )
+
+    const webQueryBudget = companyWebSearchQueryBudget(depth)
+    const webCompaniesRaw = webConfigured
       ? await discoverCompaniesFromWeb(
           companyQueries,
+          webQueryBudget,
           targetRoles,
           industries,
           skills,
@@ -1560,10 +1406,15 @@ Deno.serve(async (req) => {
         )
       : []
 
+    const webCompanies = mergeCompanyLists(
+      graphSeeds as CompanyHit[],
+      webCompaniesRaw,
+    )
+
     if (webCompanies.length > 0) {
       pushProgressLog(
         progressMeta,
-        `Web discovery: ${webCompanies.length} companies from industry queries`,
+        `Discovery: ${graphSeeds.length} graph seeds + ${webCompaniesRaw.length} web → ${webCompanies.length} unique companies`,
       )
       await saveProgressMeta(admin, runId!, progressMeta)
     }
@@ -1667,7 +1518,7 @@ Deno.serve(async (req) => {
       )
       c.relevance =
         base +
-        (c.source === 'web_company' ? 4 : 0) +
+        (c.source === 'web_company' || c.source === 'knowledge_graph' ? 4 : 0) +
         (c.hiring_signal ? 2 : 0) +
         favoriteBoost(c.company_name, c.domain)
     }

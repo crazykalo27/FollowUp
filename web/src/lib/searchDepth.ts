@@ -1,7 +1,7 @@
 export type SearchDepth = 'quick' | 'standard' | 'deep'
 
-/** Industry discovery queries per run (see run-search). */
-const PLAN_WEB_SEARCHES = 4
+/** Industry discovery queries per run (see run-search / companyWebSearchQueryBudget). */
+const PLAN_WEB_SEARCHES = 8
 /** LinkedIn + email snippet search per company (Bing preferred over Serper). */
 const WEB_SEARCHES_PER_COMPANY = 2
 
