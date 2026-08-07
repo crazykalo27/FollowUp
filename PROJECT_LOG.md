@@ -88,3 +88,9 @@ Conceptual milestones (not a commit-by-commit diary).
 - `company_discovery.ts`: skills/technologies → sector labels; recruiter-style queries; Crunchbase/Wellfound/LinkedIn/YC site searches; expanded listicle/finance host blocklist.
 - Seed knowledge graph (CPU, AI accelerators, FPGA, EDA, quantum, embedded) merged before web results; depth sets web query budget (5/8/10).
 - Listicle SERP titles: extract LinkedIn companies only — do not treat ranking pages as employers.
+
+## 2026-08-07 — AI online company discovery
+
+- Company discovery now feeds profile + filters (+ preference hints) to the AI and asks it to run live web searches (Serper/Bing via tool calls), then return real employers — not blogs/papers/listicles.
+- People search at those companies prioritizes similar roles: filter include titles, outreach targets, and the user’s target roles.
+- Removed template/sector query scraping + static knowledge-graph seeding from the hot path; job boards still supplement hiring signals.

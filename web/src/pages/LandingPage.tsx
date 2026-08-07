@@ -56,7 +56,7 @@ export function LandingPage() {
         <ol>
           <li>Build a search profile from your resume and a short AI chat.</li>
           <li>Tune title filters so you only contact real managers.</li>
-          <li>We find companies hiring, enrich contacts with Hunter, draft emails.</li>
+          <li>AI searches the web for fitting employers, then finds people in similar roles and drafts outreach.</li>
           <li>You review, confirm, and send from your Gmail.</li>
         </ol>
       </section>

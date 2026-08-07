@@ -1,4 +1,10 @@
-/** Profile-driven company discovery: sectors, recruiter queries, seed graph, listicle filters. */
+/** AI-led company discovery: profile + filters → live web search → real employers. */
+
+import {
+  openaiChatRaw,
+  type OpenAiChatMessage,
+  type OpenAiToolDef,
+} from './cors.ts'
 
 export type CompanySeed = {
   company_name: string
@@ -7,6 +13,45 @@ export type CompanySeed = {
   source: string
   hiring_signal?: string | null
   relevance?: number
+  why?: string | null
+}
+
+export type DiscoveryProfile = {
+  roles?: string[]
+  industries?: string[]
+  company_types?: string[]
+  outreach_targets?: string[]
+  skills?: string[]
+  locations?: string[]
+  notes?: string
+  employment_types?: string[]
+  remote_preference?: string
+  seniority?: string
+  must_haves?: string[]
+}
+
+export type DiscoveryFilters = {
+  include_titles?: string[]
+  exclude_titles?: string[]
+  locations?: string[]
+  company_size_min?: number | null
+  company_size_max?: number | null
+  seniority?: string[]
+}
+
+export type WebSearchHit = {
+  title?: string
+  link?: string
+  url?: string
+  snippet?: string
+}
+
+export type DiscoveryStats = {
+  attempted: number
+  found: number
+  errors: string[]
+  rounds: number
+  queries: string[]
 }
 
 export const SKIP_COMPANY_HOST_PARTS = [
@@ -78,150 +123,11 @@ export const SKIP_COMPANY_HOST_PARTS = [
   'top100.',
   'wellfound.com/jobs',
   'angel.co/jobs',
-  'linkedin.com/in/',
+  'linkedin.com',
 ]
 
 const LISTICLE_TITLE_RE =
   /\b(top\s*\d+|best\s*\d+|\d+\s+(best|top|leading|largest)|list of|largest\b|market\s*cap|ranking|ranked|fortune\s*500|stock\b|etf\b|newsletter|podcast|webinar|interview with|how to|guide to|what is|ultimate guide|roundup|magazine|weekly|daily digest|blog\b|vs\.|review\b|careers page|job board|companies to watch|to know in)\b/i
-
-/** Technology tokens → recruiter-style sector labels (not broad "hardware"). */
-const TECH_TO_SECTORS: Array<{ re: RegExp; sectors: string[] }> = [
-  {
-    re: /\brisc[\s-]?v\b/i,
-    sectors: ['CPU Design', 'Embedded Systems', 'Semiconductor Design'],
-  },
-  {
-    re: /\b(fpga|xilinx|altera)\b/i,
-    sectors: ['FPGA', 'Semiconductor Design'],
-  },
-  {
-    re: /\b(asic|rtl|verilog|systemverilog|vhdl)\b/i,
-    sectors: ['ASIC Design', 'Semiconductor Design'],
-  },
-  {
-    re: /\b(microarchitecture|computer architecture|cpu design|processor design)\b/i,
-    sectors: ['CPU Design', 'Processor Architecture'],
-  },
-  {
-    re: /\b(gpu|cuda|tensor core|ai accelerator|npu|tpu)\b/i,
-    sectors: ['AI Hardware', 'GPU Architecture'],
-  },
-  {
-    re: /\b(embedded|soc|firmware|bare metal)\b/i,
-    sectors: ['Embedded Systems', 'Semiconductor Design'],
-  },
-  {
-    re: /\b(hpc|parallel computing|mpi|openmp)\b/i,
-    sectors: ['High Performance Computing', 'Cloud Infrastructure'],
-  },
-  {
-    re: /\b(quantum|qubit|superconducting)\b/i,
-    sectors: ['Quantum Computing', 'Research Labs'],
-  },
-  {
-    re: /\b(eda|synopsys|cadence|verification)\b/i,
-    sectors: ['EDA Software'],
-  },
-  {
-    re: /\b(datacenter|silicon|chip design|semiconductor)\b/i,
-    sectors: ['Semiconductor Design', 'Datacenter Silicon'],
-  },
-  {
-    re: /\b(compiler|llvm|ir\b)/i,
-    sectors: ['Systems Software', 'AI Hardware'],
-  },
-]
-
-const COMPANY_GRAPH: Record<
-  string,
-  Array<{ name: string; domain?: string }>
-> = {
-  'CPU Design': [
-    { name: 'Intel', domain: 'intel.com' },
-    { name: 'AMD', domain: 'amd.com' },
-    { name: 'Apple', domain: 'apple.com' },
-    { name: 'Arm', domain: 'arm.com' },
-    { name: 'SiFive', domain: 'sifive.com' },
-    { name: 'Ampere Computing', domain: 'amperecomputing.com' },
-    { name: 'Tenstorrent', domain: 'tenstorrent.com' },
-  ],
-  'AI Hardware': [
-    { name: 'NVIDIA', domain: 'nvidia.com' },
-    { name: 'Cerebras', domain: 'cerebras.ai' },
-    { name: 'Groq', domain: 'groq.com' },
-    { name: 'Tenstorrent', domain: 'tenstorrent.com' },
-    { name: 'Esperanto', domain: 'esperanto.ai' },
-    { name: 'Qualcomm', domain: 'qualcomm.com' },
-  ],
-  'GPU Architecture': [
-    { name: 'NVIDIA', domain: 'nvidia.com' },
-    { name: 'AMD', domain: 'amd.com' },
-    { name: 'Intel', domain: 'intel.com' },
-  ],
-  FPGA: [
-    { name: 'AMD', domain: 'amd.com' },
-    { name: 'Intel', domain: 'intel.com' },
-    { name: 'Lattice Semiconductor', domain: 'latticesemi.com' },
-  ],
-  'EDA Software': [
-    { name: 'Synopsys', domain: 'synopsys.com' },
-    { name: 'Cadence', domain: 'cadence.com' },
-    { name: 'Siemens EDA', domain: 'eda.sw.siemens.com' },
-  ],
-  'Quantum Computing': [
-    { name: 'IBM', domain: 'ibm.com' },
-    { name: 'IonQ', domain: 'ionq.com' },
-    { name: 'PsiQuantum', domain: 'psiquantum.com' },
-    { name: 'Rigetti', domain: 'rigetti.com' },
-  ],
-  'Embedded Systems': [
-    { name: 'NXP', domain: 'nxp.com' },
-    { name: 'STMicroelectronics', domain: 'st.com' },
-    { name: 'Nordic Semiconductor', domain: 'nordicsemi.com' },
-    { name: 'Microchip', domain: 'microchip.com' },
-    { name: 'Marvell', domain: 'marvell.com' },
-  ],
-  'Semiconductor Design': [
-    { name: 'Broadcom', domain: 'broadcom.com' },
-    { name: 'Marvell', domain: 'marvell.com' },
-    { name: 'MediaTek', domain: 'mediatek.com' },
-  ],
-  'High Performance Computing': [
-    { name: 'HPE', domain: 'hpe.com' },
-    { name: 'AWS', domain: 'aws.amazon.com' },
-    { name: 'Google Cloud', domain: 'cloud.google.com' },
-  ],
-  'Cloud Infrastructure': [
-    { name: 'Microsoft', domain: 'microsoft.com' },
-    { name: 'Google', domain: 'google.com' },
-    { name: 'Amazon', domain: 'amazon.com' },
-  ],
-  'Research Labs': [
-    { name: 'Sandia National Laboratories', domain: 'sandia.gov' },
-    { name: 'Lawrence Livermore National Laboratory', domain: 'llnl.gov' },
-  ],
-}
-
-const RECRUITER_QUERY_TEMPLATES = [
-  (t: string) => `${t} startup`,
-  (t: string) => `${t} company`,
-  (t: string) => `processor design ${t}`,
-  (t: string) => `ASIC design ${t}`,
-  (t: string) => `chip design ${t}`,
-  (t: string) => `("computer architecture" OR microarchitecture) ${t}`,
-  (t: string) => `AI accelerator ${t}`,
-  (t: string) => `embedded processor ${t}`,
-  (t: string) => `RTL design ${t}`,
-  (t: string) => `hardware acceleration ${t}`,
-  (t: string) => `datacenter silicon ${t}`,
-]
-
-const DATABASE_SOURCE_TEMPLATES = [
-  (t: string) => `site:crunchbase.com ${t}`,
-  (t: string) => `site:wellfound.com ${t}`,
-  (t: string) => `site:linkedin.com/company ${t}`,
-  (t: string) => `site:yc.com ${t} semiconductor`,
-]
 
 export function isSkippableCompanyHost(host: string): boolean {
   const h = host.toLowerCase()
@@ -254,7 +160,7 @@ export function looksLikeEmployerName(name: string): boolean {
   if (isListicleOrPublisherTitle(n)) return false
   const lower = n.toLowerCase()
   if (
-    /\b(newsletter|blog|magazine|journal|insider|digest|podcast|substack|medium|market\s*cap|ranking|etf|wikipedia)\b/.test(
+    /\b(newsletter|blog|magazine|journal|insider|digest|podcast|substack|medium|market\s*cap|ranking|etf|wikipedia|arxiv|paper|proceedings)\b/.test(
       lower,
     )
   ) {
@@ -264,187 +170,443 @@ export function looksLikeEmployerName(name: string): boolean {
   return true
 }
 
-function profileBlob(
-  industries: string[],
-  companyTypes: string[],
-  skills: string[],
-  roles: string[],
-): string {
-  return [...industries, ...companyTypes, ...skills, ...roles].join(' ')
+export function companyDiscoveryRoundBudget(depth: string): number {
+  if (depth === 'quick') return 3
+  if (depth === 'deep') return 7
+  return 5
 }
 
-/** Infer sector labels from profile text (skills + industries), not generic "hardware". */
-export function inferDiscoverySectors(
-  industries: string[],
-  companyTypes: string[],
-  skills: string[],
-  roles: string[],
-): string[] {
-  const blob = profileBlob(industries, companyTypes, skills, roles)
-  const sectors = new Set<string>()
+/** @deprecated Prefer AI discovery; kept for report/back-compat. */
+export function companyWebSearchQueryBudget(depth: string): number {
+  return companyDiscoveryRoundBudget(depth) * 2
+}
 
-  for (const ind of industries) {
-    const i = ind.trim()
-    if (i && !/^computer hardware$/i.test(i)) sectors.add(i)
-  }
-  for (const ct of companyTypes) {
-    const c = ct.trim()
-    if (c) sectors.add(c)
-  }
+const WEB_SEARCH_TOOL: OpenAiToolDef = {
+  type: 'function',
+  function: {
+    name: 'web_search',
+    description:
+      'Search the live web for real employer companies matching the candidate profile. Prefer queries that surface company websites, LinkedIn company pages, or hiring pages — not blogs, academic papers, or “top N” listicles.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Search query targeting real employers (e.g. "SiFive RISC-V careers", "site:linkedin.com/company quantum computing startup").',
+        },
+      },
+      required: ['query'],
+    },
+  },
+}
 
-  for (const { re, sectors: mapped } of TECH_TO_SECTORS) {
-    if (re.test(blob)) {
-      for (const s of mapped) sectors.add(s)
+function extractDomainFromUrl(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+    if (!host || isSkippableCompanyHost(host)) return null
+    if (!isEmployerCorporateHost(host)) return null
+    return host
+  } catch {
+    return null
+  }
+}
+
+function normalizeDomain(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  let d = raw.trim().toLowerCase()
+  d = d.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0] || ''
+  if (!d || isSkippableCompanyHost(d)) return null
+  if (!isEmployerCorporateHost(d)) return null
+  return d
+}
+
+function parseCompaniesJson(text: string): Array<{
+  company_name?: string
+  domain?: string | null
+  url?: string | null
+  why?: string | null
+  hiring_signal?: string | null
+}> {
+  const trimmed = text.trim()
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const raw = fenced ? fenced[1].trim() : trimmed
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start < 0 || end <= start) return []
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as {
+      companies?: Array<Record<string, unknown>>
     }
+    if (!Array.isArray(parsed.companies)) return []
+    return parsed.companies.map((c) => ({
+      company_name: typeof c.company_name === 'string' ? c.company_name : undefined,
+      domain: typeof c.domain === 'string' ? c.domain : null,
+      url: typeof c.url === 'string' ? c.url : null,
+      why: typeof c.why === 'string' ? c.why : null,
+      hiring_signal:
+        typeof c.hiring_signal === 'string' ? c.hiring_signal : null,
+    }))
+  } catch {
+    return []
   }
-
-  return [...sectors].slice(0, 12)
 }
 
-export function seedCompaniesFromKnowledgeGraph(
-  industries: string[],
-  companyTypes: string[],
-  skills: string[],
-  roles: string[],
-  scoreFit: (name: string, signal: string | null) => number,
+function scoreAiCompany(
+  name: string,
+  why: string | null,
+  profile: DiscoveryProfile,
+): number {
+  const blob = `${name} ${why || ''}`.toLowerCase()
+  let score = 8
+  for (const role of profile.roles || []) {
+    if (role && blob.includes(role.toLowerCase())) score += 2
+  }
+  for (const ind of profile.industries || []) {
+    if (ind && blob.includes(ind.toLowerCase())) score += 2
+  }
+  for (const skill of (profile.skills || []).slice(0, 8)) {
+    if (skill && blob.includes(skill.toLowerCase())) score += 1
+  }
+  for (const ct of profile.company_types || []) {
+    if (ct && blob.includes(ct.toLowerCase())) score += 1
+  }
+  return score
+}
+
+function sanitizeAiCompanies(
+  raw: Array<{
+    company_name?: string
+    domain?: string | null
+    url?: string | null
+    why?: string | null
+    hiring_signal?: string | null
+  }>,
+  profile: DiscoveryProfile,
+  maxCompanies: number,
 ): CompanySeed[] {
-  const blob = profileBlob(industries, companyTypes, skills, roles)
-  const sectors = inferDiscoverySectors(
-    industries,
-    companyTypes,
-    skills,
-    roles,
-  )
-  const matchedCategories = new Set<string>()
-  for (const sector of sectors) {
-    const key = Object.keys(COMPANY_GRAPH).find(
-      (k) =>
-        k.toLowerCase() === sector.toLowerCase() ||
-        sector.toLowerCase().includes(k.toLowerCase()) ||
-        k.toLowerCase().includes(sector.toLowerCase()),
-    )
-    if (key) matchedCategories.add(key)
-  }
-
-  if (matchedCategories.size === 0) {
-    for (const { re, sectors: mapped } of TECH_TO_SECTORS) {
-      if (!re.test(blob)) continue
-      for (const s of mapped) {
-        if (COMPANY_GRAPH[s]) matchedCategories.add(s)
-      }
-    }
-  }
-
   const out: CompanySeed[] = []
   const seen = new Set<string>()
-  for (const cat of matchedCategories) {
-    const entries = COMPANY_GRAPH[cat] || []
-    for (const e of entries) {
-      const key = e.name.toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      const relevance = scoreFit(e.name, `seed:${cat}`) + 6
-      out.push({
-        company_name: e.name,
-        domain: e.domain || null,
-        url: e.domain ? `https://${e.domain.replace(/^www\./, '')}/` : '',
-        source: 'knowledge_graph',
-        hiring_signal: null,
-        relevance,
-      })
+
+  for (const c of raw) {
+    const name = (c.company_name || '').trim()
+    if (!looksLikeEmployerName(name)) continue
+
+    let domain = normalizeDomain(c.domain || null)
+    const urlRaw = (c.url || '').trim()
+    const isLinkedInCompany =
+      /linkedin\.com\/company\//i.test(urlRaw) ||
+      /linkedin\.com\/company\//i.test(c.domain || '')
+
+    if (!domain && urlRaw && !isLinkedInCompany) {
+      domain = extractDomainFromUrl(urlRaw)
     }
+
+    // LinkedIn company pages are allowed without a corporate domain
+    let url = urlRaw
+    if (!url && domain) url = `https://${domain}/`
+    if (!url && !domain && !isLinkedInCompany) continue
+    if (!url && isLinkedInCompany) {
+      // keep whatever LI URL we have; domain stays null until later resolution
+      url = urlRaw
+    }
+
+    if (url && !isLinkedInCompany) {
+      try {
+        const host = new URL(url).hostname.toLowerCase()
+        if (isSkippableCompanyHost(host) && !domain) continue
+      } catch {
+        if (!domain) continue
+      }
+    }
+
+    const key = (domain || name).toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    out.push({
+      company_name: name,
+      domain,
+      url: url || (domain ? `https://${domain}/` : ''),
+      source: 'ai_web_search',
+      hiring_signal: c.hiring_signal || null,
+      why: c.why || null,
+      relevance: scoreAiCompany(name, c.why || null, profile),
+    })
   }
-  return out.sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
+
+  return out
+    .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
+    .slice(0, maxCompanies)
+}
+
+function buildDiscoveryBrief(
+  profile: DiscoveryProfile,
+  filters: DiscoveryFilters,
+  maxCompanies: number,
+  preferenceHint?: string | null,
+): string {
+  return JSON.stringify(
+    {
+      goal: `Find ${maxCompanies} real employers (companies / labs / product orgs) that hire for this candidate. Then we will search for people at those companies in similar roles.`,
+      profile: {
+        target_roles: profile.roles || [],
+        industries: profile.industries || [],
+        company_types: profile.company_types || [],
+        people_to_contact: profile.outreach_targets || [],
+        skills: (profile.skills || []).slice(0, 12),
+        locations: profile.locations || [],
+        employment_types: profile.employment_types || [],
+        remote_preference: profile.remote_preference || null,
+        seniority: profile.seniority || null,
+        must_haves: profile.must_haves || [],
+        notes: profile.notes || null,
+      },
+      filters: {
+        include_titles: filters.include_titles || [],
+        exclude_titles: filters.exclude_titles || [],
+        locations: filters.locations || [],
+        company_size_min: filters.company_size_min ?? null,
+        company_size_max: filters.company_size_max ?? null,
+        seniority: filters.seniority || [],
+      },
+      preference_hint: preferenceHint || null,
+      reject: [
+        'blogs, newsletters, magazines, podcasts',
+        'academic papers, arxiv, journals, conference proceedings',
+        '“top N companies” listicles and ranking pages',
+        'job boards and aggregators (Indeed, Glassdoor, Builtin)',
+        'finance ticker / market-cap list pages',
+        'generic publishers (TechCrunch, Forbes, etc.) as the employer',
+      ],
+      output_when_done:
+        'Return ONLY JSON: {"companies":[{"company_name":"...","domain":"example.com","url":"https://...","why":"one sentence fit","hiring_signal":"optional role/team"}]}',
+    },
+    null,
+    2,
+  )
 }
 
 /**
- * Recruiter-style discovery queries: technologies → sectors → targeted searches + DB sites.
- * Avoids broad patterns like "{industry} hardware companies".
+ * Ask the model to run live web searches (via tool) using profile + filters,
+ * then return real employer companies.
  */
-export function buildCompanyDiscoveryQueries(
-  industries: string[],
-  roles: string[],
-  companyTypes: string[],
-  skills: string[],
-): string[] {
-  const queries: string[] = []
-  const sectors = inferDiscoverySectors(industries, companyTypes, skills, roles)
-  const blob = profileBlob(industries, companyTypes, skills, roles)
-
-  const ctLower = companyTypes.map((c) => c.toLowerCase())
-  const wantsStartup = ctLower.some((c) =>
-    /startup|early|seed|series|venture|unicorn/i.test(c),
-  )
-  const wantsLab = ctLower.some((c) =>
-    /lab|national|research institute|academia|university/i.test(c),
-  )
-
-  const sectorTerms = sectors.slice(0, 8)
-  for (const sector of sectorTerms) {
-    const s = sector.trim()
-    if (!s || /^computer hardware$/i.test(s)) continue
-    for (const tmpl of RECRUITER_QUERY_TEMPLATES.slice(0, 4)) {
-      queries.push(tmpl(s))
-    }
-    if (wantsStartup) queries.push(`${s} startup`)
-    if (wantsLab) queries.push(`${s} research lab`)
-    for (const db of DATABASE_SOURCE_TEMPLATES) {
-      queries.push(db(s))
-    }
+export async function discoverCompaniesWithAi(
+  profile: DiscoveryProfile,
+  filters: DiscoveryFilters,
+  opts: {
+    maxCompanies: number
+    depth: string
+    runWebSearch: (q: string, num: number) => Promise<WebSearchHit[]>
+    onProgress?: (msg: string) => void | Promise<void>
+    preferenceHint?: string | null
+  },
+): Promise<{ companies: CompanySeed[]; stats: DiscoveryStats }> {
+  const stats: DiscoveryStats = {
+    attempted: 0,
+    found: 0,
+    errors: [] as string[],
+    rounds: 0,
+    queries: [] as string[],
   }
 
-  const techPhrases: Array<{ re: RegExp; query: string }> = [
-    { re: /\brisc[\s-]?v\b/i, query: 'RISC-V startup' },
-    { re: /\brisc[\s-]?v\b/i, query: 'RISC-V company' },
-    { re: /\b(fpga)\b/i, query: 'FPGA startup' },
-    { re: /\b(asic|rtl)\b/i, query: 'ASIC design company' },
+  const maxRounds = companyDiscoveryRoundBudget(opts.depth)
+  const need = Math.max(3, Math.min(opts.maxCompanies + 4, 14))
+
+  const system = `You are a company discovery agent for job outreach.
+Given a candidate profile and search filters, use the web_search tool to find REAL employers that fit — companies, product orgs, or research labs that hire people in the target roles.
+Do NOT treat publishers, blogs, academic papers, listicles, or job boards as companies.
+Prefer official company sites and LinkedIn company pages.
+After enough evidence, stop calling tools and reply with the JSON object described in the user brief.
+Return at most ${need} companies, best fits first.`
+
+  const messages: OpenAiChatMessage[] = [
+    { role: 'system', content: system },
     {
-      re: /\b(microarchitecture|computer architecture)\b/i,
-      query: 'CPU architecture company',
+      role: 'user',
+      content: buildDiscoveryBrief(
+        profile,
+        filters,
+        need,
+        opts.preferenceHint,
+      ),
     },
-    {
-      re: /\b(microarchitecture|computer architecture)\b/i,
-      query: 'processor architecture company',
-    },
-    { re: /\b(ai accelerator|npu|tpu)\b/i, query: 'AI accelerator startup' },
-    { re: /\b(embedded)\b/i, query: 'embedded processor company' },
-    { re: /\b(quantum)\b/i, query: 'quantum computing hardware company' },
-    { re: /\b(cache coherence)\b/i, query: 'cache coherence company' },
-    { re: /\b(verification)\b/i, query: 'processor verification company' },
   ]
-  for (const { re, query } of techPhrases) {
-    if (re.test(blob)) queries.push(query)
-  }
 
-  for (const role of roles.slice(0, 2)) {
-    const r = role.trim()
-    if (r) queries.push(`${r} employer semiconductor`)
-  }
-
-  if (queries.length === 0) {
-    for (const ind of industries.slice(0, 3)) {
-      const i = ind.trim()
-      if (i) queries.push(`site:linkedin.com/company ${i}`)
+  for (let round = 0; round < maxRounds; round++) {
+    stats.rounds = round + 1
+    let message: OpenAiChatMessage
+    try {
+      message = await openaiChatRaw(messages, {
+        temperature: 0.2,
+        tools: [WEB_SEARCH_TOOL],
+        tool_choice: 'auto',
+        model: 'gpt-4o-mini',
+      })
+    } catch (e) {
+      stats.errors.push(
+        e instanceof Error ? e.message : 'OpenAI company discovery failed',
+      )
+      break
     }
+
+    const toolCalls = message.tool_calls || []
+    if (toolCalls.length > 0) {
+      messages.push({
+        role: 'assistant',
+        content: message.content || null,
+        tool_calls: toolCalls,
+      })
+
+      for (const call of toolCalls) {
+        if (call.function?.name !== 'web_search') {
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({ error: 'unknown tool' }),
+          })
+          continue
+        }
+
+        let query = ''
+        try {
+          const args = JSON.parse(call.function.arguments || '{}') as {
+            query?: string
+          }
+          query = (args.query || '').trim()
+        } catch {
+          query = ''
+        }
+
+        if (!query) {
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({ error: 'missing query' }),
+          })
+          continue
+        }
+
+        stats.attempted += 1
+        stats.queries.push(query)
+        if (opts.onProgress) {
+          await opts.onProgress(`AI web search: “${query}”`)
+        }
+
+        try {
+          const organic = await opts.runWebSearch(query, 8)
+          stats.found += organic.length
+          const compact = organic.slice(0, 8).map((item) => ({
+            title: item.title || null,
+            url: item.link || item.url || null,
+            snippet: item.snippet || null,
+          }))
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({ query, results: compact }),
+          })
+        } catch (e) {
+          const err =
+            e instanceof Error ? e.message : `Search failed: ${query}`
+          stats.errors.push(err)
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({ query, error: err, results: [] }),
+          })
+        }
+      }
+      continue
+    }
+
+    const content = message.content || ''
+    const parsed = parseCompaniesJson(content)
+    if (parsed.length > 0) {
+      const companies = sanitizeAiCompanies(parsed, profile, opts.maxCompanies)
+      if (opts.onProgress) {
+        await opts.onProgress(
+          `AI selected ${companies.length} employer(s) from live search`,
+        )
+      }
+      return { companies, stats }
+    }
+
+    // Model replied without tools or parseable JSON — nudge once, then stop
+    messages.push({ role: 'assistant', content })
+    messages.push({
+      role: 'user',
+      content:
+        'Return the final JSON now with a companies array of real employers only (name, domain, url, why). No markdown commentary.',
+    })
   }
 
-  const seen = new Set<string>()
-  return queries
-    .filter((q) => {
-      const key = q.toLowerCase().trim()
-      if (!key || seen.has(key)) return false
-      if (/\bhardware companies\b/i.test(key) && !/\b(ai|quantum|embedded)\b/i.test(key)) {
-        return false
-      }
-      seen.add(key)
-      return true
-    })
-    .slice(0, 20)
+  // Final forced JSON pass without tools
+  try {
+    if (opts.onProgress) await opts.onProgress('AI finalizing company list…')
+    const finalMsg = await openaiChatRaw(
+      [
+        ...messages,
+        {
+          role: 'user',
+          content:
+            'Based on the search evidence so far, return ONLY the JSON object with companies. No tools.',
+        },
+      ],
+      {
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+        tool_choice: 'none',
+        model: 'gpt-4o-mini',
+      },
+    )
+    const companies = sanitizeAiCompanies(
+      parseCompaniesJson(finalMsg.content || ''),
+      profile,
+      opts.maxCompanies,
+    )
+    return { companies, stats }
+  } catch (e) {
+    stats.errors.push(
+      e instanceof Error ? e.message : 'AI company finalize failed',
+    )
+    return { companies: [], stats }
+  }
 }
 
-/** How many industry web searches to run per planning phase (by search depth). */
-export function companyWebSearchQueryBudget(depth: string): number {
-  if (depth === 'quick') return 5
-  if (depth === 'deep') return 10
-  return 8
+/**
+ * Titles used when searching people at discovered companies.
+ * Prefer filter include titles + outreach targets + the user's target roles
+ * (similar roles), then broad fallbacks.
+ */
+export function buildPeopleSearchTitles(opts: {
+  includeTitles?: string[]
+  outreachTargets?: string[]
+  targetRoles?: string[]
+  broadFallback?: string[]
+  limit?: number
+}): string[] {
+  const broad = opts.broadFallback || [
+    'Director',
+    'Engineering Manager',
+    'Principal Engineer',
+    'Staff Engineer',
+    'Research Scientist',
+    'Senior Engineer',
+    'Lead Engineer',
+  ]
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const t of [
+    ...(opts.includeTitles || []),
+    ...(opts.outreachTargets || []),
+    ...(opts.targetRoles || []),
+    ...broad,
+  ]) {
+    const key = t.toLowerCase().trim()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(t.trim())
+  }
+  return out.slice(0, opts.limit ?? 10)
 }

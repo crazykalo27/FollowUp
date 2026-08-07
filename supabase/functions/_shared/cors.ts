@@ -67,10 +67,46 @@ export async function hunterGet(path: string, params: Record<string, string>) {
   return body
 }
 
+export type OpenAiChatMessage = {
+  role: string
+  content?: string | null
+  tool_calls?: Array<{
+    id: string
+    type?: string
+    function: { name: string; arguments: string }
+  }>
+  tool_call_id?: string
+  name?: string
+}
+
+export type OpenAiToolDef = {
+  type: 'function'
+  function: {
+    name: string
+    description?: string
+    parameters?: Record<string, unknown>
+  }
+}
+
 export async function openaiChat(
   messages: { role: string; content: string }[],
   opts?: { temperature?: number; response_format?: { type: string } },
 ) {
+  const message = await openaiChatRaw(messages, opts)
+  return (message.content || '') as string
+}
+
+/** Full chat completion message (supports tool calling). */
+export async function openaiChatRaw(
+  messages: OpenAiChatMessage[],
+  opts?: {
+    temperature?: number
+    response_format?: { type: string }
+    tools?: OpenAiToolDef[]
+    tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
+    model?: string
+  },
+): Promise<OpenAiChatMessage> {
   const key = Deno.env.get('OPENAI_API_KEY')
   if (!key) throw new Error('OPENAI_API_KEY is not configured')
 
@@ -81,12 +117,13 @@ export async function openaiChat(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: opts?.model || 'gpt-4o-mini',
       temperature: opts?.temperature ?? 0.4,
       messages,
       ...(opts?.response_format
         ? { response_format: opts.response_format }
         : {}),
+      ...(opts?.tools ? { tools: opts.tools, tool_choice: opts.tool_choice || 'auto' } : {}),
     }),
   })
 
@@ -94,7 +131,7 @@ export async function openaiChat(
   if (!res.ok) {
     throw new Error(body?.error?.message || `OpenAI error ${res.status}`)
   }
-  return body.choices?.[0]?.message?.content as string
+  return (body.choices?.[0]?.message || { role: 'assistant', content: '' }) as OpenAiChatMessage
 }
 
 export function titleMatchesFilters(

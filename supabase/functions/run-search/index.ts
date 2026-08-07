@@ -35,13 +35,10 @@ import {
   type ProgressMeta,
 } from '../_shared/search_progress.ts'
 import {
-  buildCompanyDiscoveryQueries,
-  companyWebSearchQueryBudget,
+  buildPeopleSearchTitles,
+  discoverCompaniesWithAi,
   isEmployerCorporateHost,
-  isListicleOrPublisherTitle,
-  isSkippableCompanyHost,
   looksLikeEmployerName,
-  seedCompaniesFromKnowledgeGraph,
 } from '../_shared/company_discovery.ts'
 
 type Filters = {
@@ -54,6 +51,9 @@ type Filters = {
   accept_accept_all: boolean
   /** When false, email find/verify uses OSINT pipeline only. */
   enable_hunter?: boolean
+  company_size_min?: number | null
+  company_size_max?: number | null
+  seniority?: string[]
 }
 
 type HunterRunState = {
@@ -94,59 +94,6 @@ const BROAD_PEOPLE_TITLES = [
   'Technical Recruiter',
   'Talent Acquisition',
 ]
-
-function linkedInCompanyFromUrl(url: string): { name: string; url: string } | null {
-  try {
-    const u = new URL(url)
-    if (!u.hostname.includes('linkedin.com')) return null
-    const m = u.pathname.match(/\/company\/([^/?#]+)/i)
-    if (!m) return null
-    const slug = m[1]
-    const name = slug
-      .replace(/-/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase())
-    return { name, url: `https://www.linkedin.com/company/${slug}/` }
-  } catch {
-    return null
-  }
-}
-
-function guessNameFromResultTitle(title: string): string | null {
-  const cleaned = title
-    .replace(/\s*\|\s*LinkedIn.*$/i, '')
-    .replace(/\s*-\s*LinkedIn.*$/i, '')
-    .trim()
-  const parts = cleaned.split(/\s[-–—|]\s/).map((p) => p.trim()).filter(Boolean)
-  if (parts.length === 0) return null
-  // Job-style: "Senior Engineer - IonQ" → employer often last segment
-  if (parts.length >= 2) {
-    const last = parts[parts.length - 1]
-    if (looksLikeEmployerName(last)) return last
-  }
-  const first = parts[0] || null
-  if (first && looksLikeEmployerName(first)) return first
-  return null
-}
-
-function extractLinkedInCompaniesFromText(
-  text: string,
-): Array<{ name: string; url: string }> {
-  const out: Array<{ name: string; url: string }> = []
-  const seen = new Set<string>()
-  const re = /linkedin\.com\/company\/([a-z0-9-]+)/gi
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    const slug = m[1]
-    const key = slug.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    const hit = linkedInCompanyFromUrl(
-      `https://www.linkedin.com/company/${slug}/`,
-    )
-    if (hit) out.push(hit)
-  }
-  return out
-}
 
 function pickCanonicalCompanyName(
   guessed: string,
@@ -215,16 +162,18 @@ function departmentKeywords(
   return [...words].slice(0, 10)
 }
 
-function peopleSearchTitles(include: string[]): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const t of [...include, ...BROAD_PEOPLE_TITLES]) {
-    const key = t.toLowerCase().trim()
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    out.push(t)
-  }
-  return out.slice(0, 10)
+function peopleSearchTitles(
+  include: string[],
+  outreachTargets: string[] = [],
+  targetRoles: string[] = [],
+): string[] {
+  return buildPeopleSearchTitles({
+    includeTitles: include,
+    outreachTargets,
+    targetRoles,
+    broadFallback: BROAD_PEOPLE_TITLES,
+    limit: 10,
+  })
 }
 
 async function runWebSearch(
@@ -269,119 +218,6 @@ async function runWebSearch(
   )
 }
 
-async function discoverCompaniesFromWeb(
-  queries: string[],
-  maxQueries: number,
-  roles: string[],
-  industries: string[],
-  skills: string[],
-  stats: { attempted: number; found: number; errors: string[] },
-): Promise<CompanyHit[]> {
-  const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
-  const serperKey = Deno.env.get('SERPER_API_KEY')
-  if (!bingKey && !serperKey) return []
-
-  const byKey = new Map<string, CompanyHit>()
-
-  const storeHit = (hit: CompanyHit, key: string) => {
-    if (!looksLikeEmployerName(hit.company_name)) return
-    const prev = byKey.get(key)
-    if (!prev || (hit.relevance || 0) > (prev.relevance || 0)) {
-      byKey.set(key, hit)
-    }
-  }
-
-  const storeLinkedInCompany = (
-    liCo: { name: string; url: string },
-    context: string,
-    query: string,
-    boost = 2,
-  ) => {
-    const relevance =
-      scoreCompanyFit(liCo.name, context, roles, industries, skills) + boost
-    storeHit(
-      {
-        company_name: liCo.name,
-        domain: null,
-        url: liCo.url,
-        source: 'web_company',
-        hiring_signal: null,
-        relevance,
-      },
-      liCo.name.toLowerCase(),
-    )
-  }
-
-  for (const query of queries.slice(0, maxQueries)) {
-    stats.attempted += 1
-    try {
-      const organic = await runWebSearch(query, 10)
-      stats.found += organic.length
-      for (const item of organic) {
-        const link = item.link || item.url || ''
-        const snippet = item.snippet || ''
-        const title = item.title || ''
-        const blob = `${title} ${snippet} ${link}`
-
-        for (const liCo of extractLinkedInCompaniesFromText(blob)) {
-          storeLinkedInCompany(liCo, blob, query, 3)
-        }
-
-        const liCo = linkedInCompanyFromUrl(link)
-        if (liCo) {
-          storeLinkedInCompany(liCo, blob, query, 2)
-          continue
-        }
-
-        if (isListicleOrPublisherTitle(title)) continue
-
-        let host: string | null = null
-        try {
-          host = new URL(link).hostname.replace(/^www\./, '')
-        } catch {
-          continue
-        }
-        if (!host || isSkippableCompanyHost(host)) continue
-        if (!isEmployerCorporateHost(host)) continue
-
-        const domain = extractDomain(link)
-        if (!domain || !isEmployerCorporateHost(domain)) continue
-
-        const guessed =
-          guessNameFromResultTitle(title) ||
-          domainToGuessName(domain)
-        if (!looksLikeEmployerName(guessed)) continue
-
-        const relevance = scoreCompanyFit(
-          guessed,
-          `${snippet} ${title} ${query}`,
-          roles,
-          industries,
-          skills,
-        )
-        const key = domain.toLowerCase()
-        storeHit(
-          {
-            company_name: guessed,
-            domain,
-            url: link,
-            source: 'web_company',
-            hiring_signal: null,
-            relevance,
-          },
-          key,
-        )
-      }
-    } catch (e) {
-      stats.errors.push(
-        e instanceof Error ? e.message : `Company search failed: ${query}`,
-      )
-    }
-  }
-
-  return [...byKey.values()]
-}
-
 function jobHitsToCompanies(jobs: JobHit[]): CompanyHit[] {
   return jobs.map((job) => ({
     company_name: job.company_name,
@@ -421,7 +257,12 @@ function mergeCompanyLists(
       company_name: pickBetterCompanyName(prev.company_name, c.company_name),
       domain: prev.domain || c.domain,
       url: prev.url || c.url,
-      source: prev.source === 'web_company' ? prev.source : c.source,
+      source:
+        prev.source === 'ai_web_search' || c.source === 'ai_web_search'
+          ? 'ai_web_search'
+          : prev.source === 'web_company'
+            ? prev.source
+            : c.source,
       hiring_signal: prev.hiring_signal || c.hiring_signal,
       relevance,
     })
@@ -902,24 +743,32 @@ async function searchWebLinkedIn(
     .map((t) => `"${t}"`)
     .join(' OR ')
   const deptClause = deptKeywords
-    .slice(0, 5)
+    .slice(0, 4)
     .map((k) => `"${k}"`)
     .join(' OR ')
 
+  // Prefer similar role titles at the company; dept keywords only as a secondary query.
   const queries = [
+    titleClause
+      ? `site:linkedin.com/in (${titleClause}) "${companyName}"`
+      : null,
     deptClause
       ? `site:linkedin.com/in "${companyName}" (${deptClause})`
-      : `site:linkedin.com/in (${titleClause}) "${companyName}"`,
-    `site:linkedin.com/in (${titleClause}) "${companyName}"`,
-  ]
+      : null,
+  ].filter(Boolean) as string[]
+
+  if (queries.length === 0) {
+    queries.push(`site:linkedin.com/in "${companyName}"`)
+  }
 
   try {
     const out: Candidate[] = []
     const seen = new Set<string>()
-    const via = bingKey && (opts?.preferBing || !serperKey) ? 'bing' : 'serper'
+    const preferBing = Boolean(bingKey)
+    const via = preferBing ? 'bing' : 'serper'
 
-    for (const q of queries.slice(0, 1)) {
-      const organic = await runWebSearch(q, 6, { preferBing: true })
+    for (const q of queries.slice(0, 2)) {
+      const organic = await runWebSearch(q, 6, { preferBing })
       for (const item of organic) {
         const link = item.link || item.url || ''
         const li = extractLinkedInUrl(link)
@@ -1229,6 +1078,11 @@ Deno.serve(async (req) => {
       outreach_targets?: string[]
       locations?: string[]
       roles_confirmed?: boolean
+      notes?: string
+      employment_types?: string[]
+      remote_preference?: string
+      seniority?: string
+      must_haves?: string[]
     }
     const filters = (filterRow?.filters || {}) as Filters
     const include = filters.include_titles || []
@@ -1295,12 +1149,6 @@ Deno.serve(async (req) => {
     const outreachTargets = profile.outreach_targets || []
     const skills = profile.skills || []
     const jobQueries = buildJobQueries(targetRoles, industries, skills)
-    const companyQueries = buildCompanyDiscoveryQueries(
-      industries,
-      targetRoles,
-      companyTypes,
-      skills,
-    )
     const deptKeywords = departmentKeywords(
       industries,
       companyTypes,
@@ -1308,14 +1156,17 @@ Deno.serve(async (req) => {
       skills,
       targetRoles,
     )
-    const peopleTitles = peopleSearchTitles([
-      ...include,
-      ...outreachTargets,
-    ])
+    const peopleTitles = peopleSearchTitles(
+      include,
+      outreachTargets,
+      targetRoles,
+    )
     const company_discovery_stats = {
       attempted: 0,
       found: 0,
       errors: [] as string[],
+      rounds: 0,
+      queries: [] as string[],
     }
     const location =
       (filters.locations && filters.locations[0]) ||
@@ -1334,7 +1185,7 @@ Deno.serve(async (req) => {
     let remotiveCount = 0
     let adzunaCount = 0
     let jobQueriesForReport: string[] = jobQueries
-    let companyQueriesForReport: string[] = companyQueries
+    let companyQueriesForReport: string[] = []
 
     let justPlanned = false
 
@@ -1377,44 +1228,96 @@ Deno.serve(async (req) => {
     await syncProgress(admin, runId, progressMeta, {
       stage: 'discovering_companies',
       progress: 12,
-      message: 'Finding employers from your profile (sectors + targeted search)…',
-      detail: `Queries: ${companyQueries
-        .slice(0, 3)
-        .map((q) => `“${q}”`)
-        .join(', ')}${companyQueries.length > 3 ? '…' : ''}`,
-      logLine: 'Profile-driven company discovery',
+      message: 'AI is searching the web for employers from your profile…',
+      detail: `Roles: ${(targetRoles.slice(0, 3).join(', ') || 'n/a')}${
+        industries.length ? ` · ${industries.slice(0, 2).join(', ')}` : ''
+      }`,
+      logLine: 'AI company discovery (profile + filters → live web search)',
     })
 
-    const graphSeeds = seedCompaniesFromKnowledgeGraph(
-      industries,
-      companyTypes,
-      skills,
-      targetRoles,
-      (name, signal) =>
-        scoreCompanyFit(name, signal, targetRoles, industries, skills),
-    )
+    const { data: prefRow } = await admin
+      .from('preference_documents')
+      .select('ai_summary, likes_doc, dislikes_doc')
+      .eq('user_id', user.id)
+      .maybeSingle()
 
-    const webQueryBudget = companyWebSearchQueryBudget(depth)
-    const webCompaniesRaw = webConfigured
-      ? await discoverCompaniesFromWeb(
-          companyQueries,
-          webQueryBudget,
-          targetRoles,
-          industries,
-          skills,
-          company_discovery_stats,
+    const preferenceHint = [
+      prefRow?.ai_summary,
+      prefRow?.likes_doc ? `Liked: ${String(prefRow.likes_doc).slice(0, 400)}` : null,
+      prefRow?.dislikes_doc
+        ? `Disliked: ${String(prefRow.dislikes_doc).slice(0, 400)}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 900)
+
+    let aiCompanies: CompanyHit[] = []
+    if (Deno.env.get('OPENAI_API_KEY')) {
+      try {
+        const aiResult = await discoverCompaniesWithAi(
+          {
+            roles: targetRoles,
+            industries,
+            company_types: companyTypes,
+            outreach_targets: outreachTargets,
+            skills,
+            locations: profile.locations || [],
+            notes: profile.notes,
+            employment_types: profile.employment_types,
+            remote_preference: profile.remote_preference,
+            seniority: profile.seniority,
+            must_haves: profile.must_haves,
+          },
+          {
+            include_titles: include,
+            exclude_titles: exclude,
+            locations: filters.locations || [],
+            company_size_min: filters.company_size_min,
+            company_size_max: filters.company_size_max,
+            seniority: filters.seniority,
+          },
+          {
+            maxCompanies: Math.max(maxCompanies + 2, maxCompanies),
+            depth,
+            runWebSearch: (q, num) => runWebSearch(q, num),
+            preferenceHint: preferenceHint || null,
+            onProgress: async (msg) => {
+              pushProgressLog(progressMeta, msg)
+              await saveProgressMeta(admin, runId!, progressMeta)
+              await syncProgress(admin, runId, progressMeta, {
+                stage: 'discovering_companies',
+                progress: 14,
+                message: 'AI searching for matching employers…',
+                detail: msg,
+              })
+            },
+          },
         )
-      : []
+        aiCompanies = aiResult.companies as CompanyHit[]
+        company_discovery_stats.attempted = aiResult.stats.attempted
+        company_discovery_stats.found = aiResult.stats.found
+        company_discovery_stats.errors = aiResult.stats.errors
+        company_discovery_stats.rounds = aiResult.stats.rounds
+        company_discovery_stats.queries = aiResult.stats.queries
+        companyQueriesForReport = aiResult.stats.queries
+      } catch (e) {
+        company_discovery_stats.errors.push(
+          e instanceof Error ? e.message : 'AI company discovery failed',
+        )
+      }
+    } else {
+      company_discovery_stats.errors.push(
+        'OPENAI_API_KEY missing — skipping AI company discovery',
+      )
+    }
 
-    const webCompanies = mergeCompanyLists(
-      graphSeeds as CompanyHit[],
-      webCompaniesRaw,
-    )
+    const webCompanies = aiCompanies
 
     if (webCompanies.length > 0) {
       pushProgressLog(
         progressMeta,
-        `Discovery: ${graphSeeds.length} graph seeds + ${webCompaniesRaw.length} web → ${webCompanies.length} unique companies`,
+        `AI discovery: ${webCompanies.length} employers (${company_discovery_stats.attempted} web searches)`,
       )
       await saveProgressMeta(admin, runId!, progressMeta)
     }
@@ -1503,8 +1406,18 @@ Deno.serve(async (req) => {
 
     mergedCompanies = mergedCompanies.filter((c) => {
       if (!looksLikeEmployerName(c.company_name)) return false
-      const d = c.domain || extractDomain(c.url) || null
-      if (d && !isEmployerCorporateHost(d)) return false
+      if (c.domain && !isEmployerCorporateHost(c.domain)) return false
+      if (!c.domain && c.url) {
+        try {
+          const host = new URL(c.url).hostname.replace(/^www\./, '').toLowerCase()
+          if (host.includes('linkedin.com')) {
+            return /\/company\//i.test(c.url)
+          }
+          if (host && !isEmployerCorporateHost(host)) return false
+        } catch {
+          return true
+        }
+      }
       return true
     })
 
@@ -1518,7 +1431,7 @@ Deno.serve(async (req) => {
       )
       c.relevance =
         base +
-        (c.source === 'web_company' || c.source === 'knowledge_graph' ? 4 : 0) +
+        (c.source === 'ai_web_search' || c.source === 'web_company' ? 5 : 0) +
         (c.hiring_signal ? 2 : 0) +
         favoriteBoost(c.company_name, c.domain)
     }
@@ -1564,7 +1477,7 @@ Deno.serve(async (req) => {
     await syncProgress(admin, runId, progressMeta, {
       stage: 'companies_ready',
       progress: computeRunProgress(progressMeta, 0, 25),
-      message: `${webCompaniesLen} industry companies + ${allJobsLen} jobs → ${selected.length} ranked targets`,
+      message: `${webCompaniesLen} AI-found companies + ${allJobsLen} jobs → ${selected.length} ranked targets`,
       detail: `Top: ${selected
         .slice(0, 3)
         .map((c) => `${c.company_name} (${c.relevance || 0})`)
@@ -2192,18 +2105,18 @@ Deno.serve(async (req) => {
 
     const how = {
       method:
-        'Queued search (one company per step). Industry discovery → LinkedIn (Bing when available) → OSINT (crawl + ≤1 email snippet search/company) → optional Hunter.',
+        'Queued search (one company per step). AI reads your profile + filters, runs live web search for employers, then finds people in similar roles at those companies (LinkedIn via Bing/Serper → OSINT → optional Hunter).',
       company_queries: companyQueriesForReport,
       job_queries: jobQueriesForReport,
       location: meta.location || null,
       sources: {
         web_company: {
-          used: meta.webConfigured,
+          used: Boolean(Deno.env.get('OPENAI_API_KEY')),
           companies: webCompaniesLen,
           searches: meta.company_discovery_stats.attempted,
-          note: meta.webConfigured
-            ? null
-            : 'Set SERPER_API_KEY or BING_SEARCH_API_KEY for industry company discovery',
+          note: Deno.env.get('OPENAI_API_KEY')
+            ? 'AI agent + Serper/Bing web_search tool'
+            : 'Set OPENAI_API_KEY (and SERPER_API_KEY or BING_SEARCH_API_KEY) for AI company discovery',
         },
         remotive: { used: true, jobs: remotiveCount },
         adzuna: {

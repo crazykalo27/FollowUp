@@ -48,6 +48,8 @@ export type SearchPipelineState = {
       attempted: number
       found: number
       errors: string[]
+      rounds?: number
+      queries?: string[]
     }
     peopleTitles: string[]
     deptKeywords: string[]
