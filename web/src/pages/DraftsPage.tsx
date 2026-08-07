@@ -57,7 +57,7 @@ export function DraftsPage() {
   )
   const [bodyTemplate, setBodyTemplate] = useState(DEFAULT_EMAIL_BODY_TEMPLATE)
   const [savingTemplate, setSavingTemplate] = useState(false)
-  const orientDraftStarted = useRef(false)
+  const focusedContactRef = useRef<string | null>(null)
   const [completeOpen, setCompleteOpen] = useState(false)
   const [gmailEmail, setGmailEmail] = useState<string | null>(null)
   const [connectingGmail, setConnectingGmail] = useState(false)
@@ -90,8 +90,9 @@ export function DraftsPage() {
     setMsg(`Imported “${preset.label}” — click Save template to keep it.`)
   }
 
-  async function load() {
+  async function load(preferredContactId?: string | null) {
     if (!user) return
+    const focusId = preferredContactId ?? orientContactId
     const { data } = await supabase
       .from('outreach_drafts')
       .select(
@@ -105,12 +106,17 @@ export function DraftsPage() {
       contacts: Array.isArray(d.contacts) ? d.contacts[0] : d.contacts,
     })) as DraftRow[]
     setDrafts(mapped)
+
+    if (focusId) {
+      const forContact = mapped.find((d) => d.contact_id === focusId)
+      if (forContact) {
+        setActive(forContact)
+        return mapped
+      }
+    }
     if (active) {
       const refreshed = mapped.find((d) => d.id === active.id) || null
       setActive(refreshed)
-    } else if (orientContactId) {
-      const forContact = mapped.find((d) => d.contact_id === orientContactId)
-      if (forContact) setActive(forContact)
     }
     return mapped
   }
@@ -215,12 +221,14 @@ export function DraftsPage() {
       }
       setResumeFileName(resume?.file_name || null)
     })()
-    void load()
+    void load(orientContactId)
   }, [user])
 
+  // Deep-link from Contacts "Go to drafts" (or orientation) → select that contact's draft
   useEffect(() => {
-    if (!user || !orientContactId || orientDraftStarted.current) return
-    orientDraftStarted.current = true
+    if (!user || !orientContactId) return
+    if (focusedContactRef.current === orientContactId) return
+    focusedContactRef.current = orientContactId
     void (async () => {
       const { data: contact } = await supabase
         .from('contacts')
@@ -229,16 +237,16 @@ export function DraftsPage() {
         .maybeSingle()
       setContactName(contact?.full_name || contact?.email || 'this contact')
 
-      const mapped = await load()
+      const mapped = await load(orientContactId)
       const existing = mapped?.find((d) => d.contact_id === orientContactId)
       if (existing) {
         setActive(existing)
-        await completeOrientationIfNeeded(true)
-        return
+        if (inOrientation) {
+          await completeOrientationIfNeeded(true)
+        }
       }
-      // Wait for user to press Generate during orientation coaching
     })()
-  }, [user, orientContactId])
+  }, [user, orientContactId, inOrientation])
 
   async function saveTemplate() {
     if (!user) return

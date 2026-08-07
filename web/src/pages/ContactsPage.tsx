@@ -179,12 +179,15 @@ export function ContactsPage() {
   const [sentOutreachIds, setSentOutreachIds] = useState<Set<string>>(
     () => new Set(),
   )
+  const [draftedContactIds, setDraftedContactIds] = useState<Set<string>>(
+    () => new Set(),
+  )
   const positionReady = useRef(false)
   const skipPersistOnce = useRef(false)
 
   const load = useCallback(async () => {
     if (!user) return
-    const [{ data }, { data: sentRows }] = await Promise.all([
+    const [{ data }, { data: draftRows }] = await Promise.all([
       supabase
         .from('contacts')
         .select(
@@ -194,13 +197,18 @@ export function ContactsPage() {
         .order('created_at', { ascending: false }),
       supabase
         .from('outreach_drafts')
-        .select('contact_id')
-        .eq('user_id', user.id)
-        .eq('status', 'sent'),
+        .select('contact_id, status')
+        .eq('user_id', user.id),
     ])
-    setSentOutreachIds(
-      new Set((sentRows || []).map((r) => r.contact_id as string)),
-    )
+    const drafted = new Set<string>()
+    const sent = new Set<string>()
+    for (const row of draftRows || []) {
+      const cid = row.contact_id as string
+      drafted.add(cid)
+      if (row.status === 'sent') sent.add(cid)
+    }
+    setDraftedContactIds(drafted)
+    setSentOutreachIds(sent)
     const mapped = (data || []).map((r) => ({
       ...r,
       companies: Array.isArray(r.companies) ? r.companies[0] : r.companies,
@@ -682,13 +690,17 @@ export function ContactsPage() {
         void load()
         return
       }
-      setMsg(`Draft ready (${res.drafts.length}). Open Drafts to review.`)
-      void load()
+      setDraftedContactIds((prev) => new Set(prev).add(id))
+      setMsg('Draft ready — press Go to drafts to review it.')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Drafting failed')
     } finally {
       setDraftingId(null)
     }
+  }
+
+  function goToDraft(contactId: string) {
+    navigate(`/app/drafts?contact=${contactId}`)
   }
 
   async function draftKept() {
@@ -970,6 +982,14 @@ export function ContactsPage() {
                     <p className="small outreach-sent-note">
                       ✓ Outreach sent — follow up in Gmail
                     </p>
+                  ) : draftedContactIds.has(r.id) ? (
+                    <button
+                      type="button"
+                      className="btn primary"
+                      onClick={() => goToDraft(r.id)}
+                    >
+                      Go to drafts
+                    </button>
                   ) : (
                     <button
                       type="button"
