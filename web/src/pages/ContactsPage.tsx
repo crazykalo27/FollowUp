@@ -4,6 +4,11 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
+import {
+  isNewerIso,
+  loadContactsReviewPosition,
+  saveContactsReviewPosition,
+} from '../lib/contactsReviewPosition'
 
 type ContactRow = {
   id: string
@@ -17,6 +22,7 @@ type ContactRow = {
   linkedin_url: string | null
   sources: string[] | null
   review_status: string | null
+  created_at?: string | null
   source_details: {
     hiring_signal?: string
     hiring_signal_url?: string
@@ -173,6 +179,8 @@ export function ContactsPage() {
   const [sentOutreachIds, setSentOutreachIds] = useState<Set<string>>(
     () => new Set(),
   )
+  const positionReady = useRef(false)
+  const skipPersistOnce = useRef(false)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -180,7 +188,7 @@ export function ContactsPage() {
       supabase
         .from('contacts')
         .select(
-          'id, company_id, full_name, title, email, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, source_details, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
+          'id, company_id, full_name, title, email, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, created_at, source_details, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
         )
         .eq('user_id', user.id)
         .order('created_at', { ascending: false }),
@@ -193,12 +201,54 @@ export function ContactsPage() {
     setSentOutreachIds(
       new Set((sentRows || []).map((r) => r.contact_id as string)),
     )
-    setRows(
-      (data || []).map((r) => ({
-        ...r,
-        companies: Array.isArray(r.companies) ? r.companies[0] : r.companies,
-      })) as ContactRow[],
+    const mapped = (data || []).map((r) => ({
+      ...r,
+      companies: Array.isArray(r.companies) ? r.companies[0] : r.companies,
+    })) as ContactRow[]
+    setRows(mapped)
+
+    const pendingRows = mapped.filter(
+      (r) => (r.review_status || 'pending') === 'pending',
     )
+    const newestCreatedAt =
+      mapped.reduce<string | null>((best, row) => {
+        const t = row.created_at || null
+        if (!t) return best
+        if (!best || isNewerIso(t, best)) return t
+        return best
+      }, null)
+
+    const stored = loadContactsReviewPosition(user.id)
+    const hasNewContacts = isNewerIso(
+      newestCreatedAt,
+      stored?.newestCreatedAt ?? null,
+    )
+
+    skipPersistOnce.current = true
+    if (pendingRows.length === 0) {
+      setActiveId(null)
+    } else if (hasNewContacts) {
+      // Fresh search results — start on the most recent new pending contact
+      setActiveId(pendingRows[0].id)
+    } else if (
+      stored?.activeId &&
+      pendingRows.some((p) => p.id === stored.activeId)
+    ) {
+      setActiveId(stored.activeId)
+    } else {
+      setActiveId(pendingRows[0].id)
+    }
+
+    saveContactsReviewPosition(user.id, {
+      activeId:
+        hasNewContacts
+          ? pendingRows[0]?.id || null
+          : stored?.activeId && pendingRows.some((p) => p.id === stored.activeId)
+            ? stored.activeId
+            : pendingRows[0]?.id || null,
+      newestCreatedAt,
+    })
+    positionReady.current = true
   }, [user])
 
   useEffect(() => {
@@ -218,16 +268,36 @@ export function ContactsPage() {
     [rows],
   )
 
-  // Keep activeId pointing at a pending card; default to first
+  // Keep activeId valid; do not reset to first when a saved id is still pending
   useEffect(() => {
     if (pending.length === 0) {
-      setActiveId(null)
+      if (activeId !== null) setActiveId(null)
       return
     }
     if (!activeId || !pending.some((p) => p.id === activeId)) {
       setActiveId(pending[0].id)
     }
   }, [pending, activeId])
+
+  // Persist last-reviewed contact while navigating around the app
+  useEffect(() => {
+    if (!user || !positionReady.current) return
+    if (skipPersistOnce.current) {
+      skipPersistOnce.current = false
+      return
+    }
+    const newestCreatedAt =
+      rows.reduce<string | null>((best, row) => {
+        const t = row.created_at || null
+        if (!t) return best
+        if (!best || isNewerIso(t, best)) return t
+        return best
+      }, null)
+    saveContactsReviewPosition(user.id, {
+      activeId,
+      newestCreatedAt,
+    })
+  }, [user, activeId, rows])
 
   const current = useMemo(
     () => pending.find((p) => p.id === activeId) || pending[0] || null,
