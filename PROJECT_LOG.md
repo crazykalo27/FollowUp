@@ -94,3 +94,4 @@ Conceptual milestones (not a commit-by-commit diary).
 - Company discovery now feeds profile + filters (+ preference hints) to the AI and asks it to run live web searches (Serper/Bing via tool calls), then return real employers — not blogs/papers/listicles.
 - People search at those companies prioritizes similar roles: filter include titles, outreach targets, and the user’s target roles.
 - Removed template/sector query scraping + static knowledge-graph seeding from the hot path; job boards still supplement hiring signals.
+- Going forward: redeploy touched Edge Functions after function changes (`npx supabase functions deploy <name> --project-ref czakwfzjkhsaysvqeswc`).
