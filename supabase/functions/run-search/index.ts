@@ -1108,7 +1108,7 @@ Deno.serve(async (req) => {
     const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
     const serperKey = Deno.env.get('SERPER_API_KEY')
     const webConfigured = Boolean(bingKey || serperKey)
-    const hunterEnabled = filters.enable_hunter !== false
+    const hunterEnabled = filters.enable_hunter === true
     const osintWorkerConfigured = Boolean(Deno.env.get('OSINT_WORKER_URL'))
     const hunterState: HunterRunState = {
       quotaExhausted: false,
@@ -1521,7 +1521,7 @@ Deno.serve(async (req) => {
         exclude,
         maxCompanies,
         maxPerCompany,
-        require_verified_email: filters.require_verified_email !== false,
+        require_verified_email: filters.require_verified_email === true,
         accept_accept_all: filters.accept_accept_all !== false,
       },
     }
@@ -1944,7 +1944,7 @@ Deno.serve(async (req) => {
           continue
         }
 
-        if (meta.require_verified_email !== false) {
+        if (meta.require_verified_email === true) {
           const hunterPrimary =
             hunterEnabled &&
             !hunterState.quotaExhausted &&

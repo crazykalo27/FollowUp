@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
+import { useOrientation } from '../lib/orientationContext'
 import type { SearchProfileData } from '../types/database'
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
 export function OnboardingPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const orientation = useOrientation()
   const [fileName, setFileName] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [messages, setMessages] = useState<Msg[]>([])
@@ -17,6 +20,7 @@ export function OnboardingPage() {
   const [bootstrapping, setBootstrapping] = useState(false)
   const [profile, setProfile] = useState<SearchProfileData | null>(null)
   const [ready, setReady] = useState(false)
+  const [seriesComplete, setSeriesComplete] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const chatLogRef = useRef<HTMLDivElement>(null)
   const bootstrapAttempted = useRef(false)
@@ -29,17 +33,16 @@ export function OnboardingPage() {
         reply: string | null
         profile: SearchProfileData
         ready?: boolean
+        series_complete?: boolean
         already_started?: boolean
         filters?: unknown
       }>('chat-profile', { action: 'bootstrap' })
       if (res.profile) setProfile(res.profile)
       if (res.ready) setReady(true)
+      if (res.series_complete) setSeriesComplete(true)
       if (res.reply && !res.already_started) {
         setMessages((m) =>
           m.length === 0 ? [{ role: 'assistant', content: res.reply! }] : m,
-        )
-        setStatus(
-          'Confirm target jobs and industries with a reply — required before search.',
         )
       } else if (res.reply && res.already_started) {
         setMessages((m) => {
@@ -84,8 +87,15 @@ export function OnboardingPage() {
         ])
 
       if (resume) setFileName(resume.file_name)
-      if (sp?.profile) setProfile(sp.profile as SearchProfileData)
-      if (prof?.onboarding_complete) setReady(true)
+      if (sp?.profile) {
+        const p = sp.profile as SearchProfileData
+        setProfile(p)
+        if ((p.orientation_q ?? 0) >= 7) setSeriesComplete(true)
+      }
+      if (prof?.onboarding_complete) {
+        setReady(true)
+        setSeriesComplete(true)
+      }
 
       const loaded: Msg[] = (chat || [])
         .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -132,14 +142,15 @@ export function OnboardingPage() {
 
       setFileName(file.name)
       await invokeFunction('parse-resume', { resume_id: row.id })
-      setStatus('Resume uploaded. Starting your profile interview…')
+      setStatus('Scanning your resume…')
 
       await supabase.from('profile_chat_messages').delete().eq('user_id', user.id)
       setMessages([])
       setReady(false)
+      setSeriesComplete(false)
       bootstrapAttempted.current = true
       await bootstrapChat()
-      setStatus('Resume scanned. Confirm the proposed roles to continue.')
+      setStatus(null)
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Upload failed')
     } finally {
@@ -158,7 +169,7 @@ export function OnboardingPage() {
         ...m,
         {
           role: 'user',
-          content: message || 'Use what you have — lock the profile.',
+          content: message || 'Save my profile.',
         },
       ])
     }
@@ -168,6 +179,7 @@ export function OnboardingPage() {
         reply: string
         profile: SearchProfileData | null
         ready?: boolean
+        series_complete?: boolean
         filters?: unknown
       }>('chat-profile', {
         action: finalize ? 'finalize' : 'reply',
@@ -176,15 +188,12 @@ export function OnboardingPage() {
       })
       setMessages((m) => [...m, { role: 'assistant', content: res.reply }])
       if (res.profile) setProfile(res.profile)
+      if (res.series_complete) setSeriesComplete(true)
       if (res.ready) {
         setReady(true)
-        setStatus(
-          'Profile ready — searching companies hiring for your confirmed roles. Tweak filters anytime.',
-        )
-      } else if (res.filters) {
-        setStatus(
-          'Roles confirmed — contact filters updated from your profile. Continue chatting or lock when ready.',
-        )
+        await orientation.advanceTo('filters')
+        setStatus('Profile saved — review your filters next.')
+        navigate('/app/filters')
       }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Chat failed')
@@ -193,25 +202,42 @@ export function OnboardingPage() {
     }
   }
 
-  const hasUserReply = messages.some((m) => m.role === 'user')
-  const awaitingRoleConfirm =
-    Boolean(fileName) &&
-    Boolean(profile) &&
-    !profile?.roles_confirmed &&
-    !hasUserReply &&
-    !ready
-
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
+  // Pre-upload: purpose + central upload
+  if (!fileName) {
+    return (
+      <div className="profile-hero">
+        <p className="profile-purpose">
+          Find direct contacts to land jobs
+        </p>
+        <p className="lede profile-purpose-sub">
+          Upload your resume. We scan it, ask a few questions, then help you
+          reach hiring managers — not application black holes.
+        </p>
+        <label className="upload upload-hero">
+          <input
+            type="file"
+            accept=".pdf,.doc,.docx,.txt,application/pdf,text/plain"
+            disabled={uploading}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void onUpload(f)
+            }}
+          />
+          <span>{uploading ? 'Uploading…' : 'Upload resume'}</span>
+        </label>
+        {status && <p className="flash error">{status}</p>}
+      </div>
+    )
+  }
 
   return (
-    <div className="profile-layout">
+    <div className="profile-layout profile-layout-focus">
       <header className="profile-top">
         <div>
           <h1>Profile</h1>
           <p className="lede">
-            Upload your resume as context. We infer jobs and industries you want,
-            then chat to nail company types and who to email — not a skills
-            checklist.
+            Answer each question so we know who to find. When the series is
+            done, save your profile to continue.
           </p>
         </div>
         <div className="profile-top-actions">
@@ -226,24 +252,19 @@ export function OnboardingPage() {
               }}
             />
             <span>
-              {uploading || bootstrapping ? 'Working…' : 'Choose resume'}
+              {uploading || bootstrapping ? 'Working…' : 'Replace resume'}
             </span>
           </label>
-          {fileName && <p className="muted small">Current: {fileName}</p>}
+          <p className="muted small">Current: {fileName}</p>
         </div>
         {status && <p className="flash">{status}</p>}
       </header>
 
-      <div className="profile-body">
+      <div className="profile-body profile-body-single">
         <section className="chat chat-pane" aria-label="Profile chat">
           <div className="chat-log" ref={chatLogRef}>
-            {!fileName && messages.length === 0 && (
-              <p className="muted">Upload a resume to begin.</p>
-            )}
-            {fileName && messages.length === 0 && bootstrapping && (
-              <p className="muted">
-                Scanning resume and drafting target roles for you to confirm…
-              </p>
+            {messages.length === 0 && bootstrapping && (
+              <p className="muted">Scanning resume and starting orientation…</p>
             )}
             {messages.map((m, i) => (
               <div key={i} className={`bubble ${m.role}`}>
@@ -252,13 +273,11 @@ export function OnboardingPage() {
             ))}
           </div>
 
-          {lastAssistant && !ready && (
+          {seriesComplete && !ready && (
             <div className="next-prompt">
-              <span className="muted small">Your turn</span>
               <p>
-                {awaitingRoleConfirm
-                  ? 'Confirm the roles above, or tell us what to change — required before search.'
-                  : 'Reply below — or lock the profile as-is.'}
+                Profile interview complete. Clarify anything else below, or
+                press Save profile to continue to Filters.
               </p>
             </div>
           )}
@@ -268,13 +287,11 @@ export function OnboardingPage() {
               rows={3}
               value={input}
               placeholder={
-                ready
-                  ? 'Optional: refine your profile…'
-                  : awaitingRoleConfirm
-                    ? 'e.g. “Keep those” or “Focus on quantum software engineer roles”…'
-                    : 'Answer the question above…'
+                seriesComplete
+                  ? 'Optional: clarify anything else…'
+                  : 'Answer the question above…'
               }
-              disabled={!fileName || bootstrapping}
+              disabled={bootstrapping}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -286,45 +303,54 @@ export function OnboardingPage() {
             <div className="actions">
               <button
                 type="button"
-                className="btn primary"
-                disabled={busy || bootstrapping || !fileName || !input.trim()}
+                className="btn"
+                disabled={busy || bootstrapping || !input.trim()}
                 onClick={() => send(false)}
               >
                 Send
               </button>
               <button
                 type="button"
-                className="btn"
+                className="btn primary"
                 disabled={
-                  busy ||
-                  bootstrapping ||
-                  !fileName ||
-                  !profile ||
-                  awaitingRoleConfirm
-                }
-                title={
-                  awaitingRoleConfirm
-                    ? 'Confirm or change roles with a message first'
-                    : undefined
+                  busy || bootstrapping || !seriesComplete || ready
                 }
                 onClick={() => send(true)}
               >
-                Use profile as-is
+                {busy && seriesComplete ? 'Saving…' : 'Save profile'}
               </button>
             </div>
           </div>
         </section>
 
-        <aside className="profile-side">
-          <h3>{ready ? 'Ready to search' : 'Search targets'}</h3>
-          <p className="muted small">
-            <Link to="/app/filters">Edit on Filters</Link>
-          </p>
-          {profile ? (
+        {!orientation.complete && profile && (
+          <aside className="profile-side profile-side-thin">
+            <h3>So far</h3>
             <div className="profile-side-summary">
-              {profile.roles?.length > 0 && (
+              {profile.locations?.length > 0 && (
                 <p>
-                  <strong>Jobs wanted:</strong> {profile.roles.join(', ')}
+                  <strong>Locations:</strong> {profile.locations.join(', ')}
+                </p>
+              )}
+              {(profile.employment_types?.length ?? 0) > 0 && (
+                <p>
+                  <strong>Job type:</strong>{' '}
+                  {(profile.employment_types ?? []).join(', ')}
+                </p>
+              )}
+              {profile.remote_preference && (
+                <p>
+                  <strong>Work style:</strong> {profile.remote_preference}
+                </p>
+              )}
+              {profile.company_size && (
+                <p>
+                  <strong>Company size:</strong> {profile.company_size}
+                </p>
+              )}
+              {profile.seniority && (
+                <p>
+                  <strong>Seniority:</strong> {profile.seniority}
                 </p>
               )}
               {profile.industries?.length > 0 && (
@@ -332,35 +358,14 @@ export function OnboardingPage() {
                   <strong>Industries:</strong> {profile.industries.join(', ')}
                 </p>
               )}
-              {(profile.company_types?.length ?? 0) > 0 && (
+              {profile.roles?.length > 0 && (
                 <p>
-                  <strong>Company types:</strong>{' '}
-                  {(profile.company_types ?? []).join(', ')}
+                  <strong>Titles:</strong> {profile.roles.join(', ')}
                 </p>
-              )}
-              {(profile.outreach_targets?.length ?? 0) > 0 && (
-                <p>
-                  <strong>People to find:</strong>{' '}
-                  {(profile.outreach_targets ?? []).join(', ')}
-                </p>
-              )}
-              {(profile.employment_types?.length ?? 0) > 0 && (
-                <p>
-                  <strong>Looking for:</strong>{' '}
-                  {(profile.employment_types ?? []).join(', ')}
-                  {profile.remote_preference
-                    ? ` · ${profile.remote_preference}`
-                    : ''}
-                </p>
-              )}
-              {profile.notes && (
-                <p className="muted small">{profile.notes}</p>
               )}
             </div>
-          ) : (
-            <p className="muted">Upload a resume to start.</p>
-          )}
-        </aside>
+          </aside>
+        )}
       </div>
     </div>
   )

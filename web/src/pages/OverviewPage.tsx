@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
+import { useOrientation } from '../lib/orientationContext'
 import {
   SEARCH_DEPTHS,
   depthPreset,
@@ -140,6 +141,8 @@ function SourceCard({
 
 export function OverviewPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const orientation = useOrientation()
   const [stats, setStats] = useState({
     resumes: 0,
     contacts: 0,
@@ -167,6 +170,7 @@ export function OverviewPage() {
   const appliedRunRef = useRef<string | null>(null)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [orientPrompt, setOrientPrompt] = useState(false)
 
   function stopPoll() {
     if (pollRef.current != null) {
@@ -189,6 +193,9 @@ export function OverviewPage() {
     pollRunIdRef.current = null
     stopPoll()
     setErrorMsg(null)
+    if (!orientation.complete && next.contacts_created > 0) {
+      void orientation.advanceTo('contacts').then(() => setOrientPrompt(true))
+    }
   }
 
   function dismissStuckRun() {
@@ -212,7 +219,7 @@ export function OverviewPage() {
           status: 'cancelled',
           stage: 'cancelled',
           message: 'Search cancelled',
-          detail: 'Stopped from Overview',
+          detail: 'Stopped from Search',
           error: 'Cancelled by user',
           updated_at: new Date().toISOString(),
         })
@@ -558,48 +565,45 @@ export function OverviewPage() {
   const selectedDepth = depthPreset(depth)
 
   return (
-    <div className="panel">
-      <h1>Overview</h1>
+    <div className="panel search-page">
+      <h1>Search</h1>
       <p className="lede">
-        Find people who hire—not black-hole application portals. Search keeps
-        running if you leave this page; come back anytime to see progress.
+        {orientation.complete
+          ? 'We find companies in your target industries, then people to contact directly — not job-board black holes. Search keeps running if you leave this page.'
+          : 'Run a search to discover companies and direct contacts based on your profile and filters. When it finishes, review contacts next.'}
       </p>
 
-      <div className="stat-row">
-        <div>
-          <strong>{stats.resumes}</strong>
-          <span>Resumes</span>
+      {!orientation.complete && (
+        <div className="orientation-coach">
+          <p>
+            Choose a search size, then press <strong>Run search</strong>. Stay
+            on this page or leave — progress continues either way.
+          </p>
         </div>
-        <div>
-          <strong>{stats.contacts}</strong>
-          <span>Contacts</span>
-        </div>
-        <div>
-          <strong>{stats.drafts}</strong>
-          <span>Drafts</span>
-        </div>
-      </div>
+      )}
 
-      <ul className="checklist">
-        <li className={stats.resumes ? 'done' : ''}>
-          <Link to="/app/onboarding">Upload resume & build profile</Link>
-          {stats.onboarding ? ' — ready' : ''}
-        </li>
-        <li>
-          <Link to="/app/filters">Tune manager title filters</Link>
-        </li>
-        <li className={stats.gmail ? 'done' : ''}>
-          <Link to="/app/settings">Connect Gmail</Link>
-          {stats.gmail ? ' — connected' : ''}
-        </li>
-      </ul>
+      {orientation.complete && (
+        <div className="stat-row">
+          <div>
+            <strong>{stats.resumes}</strong>
+            <span>Resumes</span>
+          </div>
+          <div>
+            <strong>{stats.contacts}</strong>
+            <span>Contacts</span>
+          </div>
+          <div>
+            <strong>{stats.drafts}</strong>
+            <span>Drafts</span>
+          </div>
+        </div>
+      )}
 
       <div className="depth-picker">
-        <h3>Search size (API credits)</h3>
+        <h3>Search size</h3>
         <p className="muted small">
-          Estimates are upper bounds per run. Bing is used before Serper when both
-          are set. Hunter numbers apply only if &quot;Use Hunter.io&quot; is on in
-          Filters.
+          Estimates are upper bounds per run. Hunter applies only if enabled in
+          Settings.
         </p>
         <div className="depth-grid">
           {SEARCH_DEPTHS.map((d) => (
@@ -666,10 +670,32 @@ export function OverviewPage() {
             {cancelling ? 'Cancelling…' : 'Cancel stuck search'}
           </button>
         )}
-        <Link className="btn" to="/app/contacts">
-          View contacts
-        </Link>
+        {(orientation.canAccess('contacts') || orientPrompt) && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => navigate('/app/contacts')}
+          >
+            Go to contacts
+          </button>
+        )}
       </div>
+
+      {orientPrompt && (
+        <div className="flash orientation-coach">
+          Search found contacts. Open Contacts to review them — keep one that
+          looks right to continue orientation.
+          <div className="actions" style={{ marginTop: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => navigate('/app/contacts')}
+            >
+              Review contacts
+            </button>
+          </div>
+        </div>
+      )}
 
       {live && (searching || live.progress > 0) && (
         <div className="search-progress" aria-live="polite">

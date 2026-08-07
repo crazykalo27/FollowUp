@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { emailSettingsFromFilters } from '../lib/searchEmailSettings'
+import { useOrientation } from '../lib/orientationContext'
 import { DEFAULT_FILTERS, type SearchFiltersData, type SearchProfileData } from '../types/database'
 
 const EMPTY_SEARCH_PROFILE: SearchProfileData = {
@@ -13,6 +14,7 @@ const EMPTY_SEARCH_PROFILE: SearchProfileData = {
   outreach_targets: [],
   employment_types: [],
   remote_preference: '',
+  company_size: '',
   skills: [],
   locations: [],
   seniority: '',
@@ -40,6 +42,8 @@ type PrefDocs = {
 
 export function FiltersPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const orientation = useOrientation()
   const [filters, setFilters] = useState<SearchFiltersData>(DEFAULT_FILTERS)
   const [includeText, setIncludeText] = useState(listToText(DEFAULT_FILTERS.include_titles))
   const [excludeText, setExcludeText] = useState(listToText(DEFAULT_FILTERS.exclude_titles))
@@ -47,13 +51,16 @@ export function FiltersPage() {
   const [rolesText, setRolesText] = useState('')
   const [industriesText, setIndustriesText] = useState('')
   const [companyTypesText, setCompanyTypesText] = useState('')
+  const [companySize, setCompanySize] = useState('')
   const [outreachText, setOutreachText] = useState('')
   const [notesText, setNotesText] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [savingTargets, setSavingTargets] = useState(false)
+  const [continuing, setContinuing] = useState(false)
   const [recommending, setRecommending] = useState(false)
   const [prefs, setPrefs] = useState<PrefDocs | null>(null)
+  const inOrientation = !orientation.complete
 
   async function loadSearchTargets() {
     if (!user) return
@@ -67,8 +74,10 @@ export function FiltersPage() {
     setRolesText(listToText(p.roles || []))
     setIndustriesText(listToText(p.industries || []))
     setCompanyTypesText(listToText(p.company_types || []))
+    setCompanySize(p.company_size || '')
     setOutreachText(listToText(p.outreach_targets || []))
     setNotesText(p.notes || '')
+    setLocationsText(listToText(p.locations || []))
   }
 
   async function loadFilters() {
@@ -83,7 +92,9 @@ export function FiltersPage() {
       setFilters({ ...DEFAULT_FILTERS, ...f })
       setIncludeText(listToText(f.include_titles || DEFAULT_FILTERS.include_titles))
       setExcludeText(listToText(f.exclude_titles || DEFAULT_FILTERS.exclude_titles))
-      setLocationsText(listToText(f.locations || []))
+      if ((f.locations || []).length) {
+        setLocationsText(listToText(f.locations || []))
+      }
     }
   }
 
@@ -111,12 +122,12 @@ export function FiltersPage() {
     void loadPrefs()
   }, [user])
 
-  async function saveSearchTargets() {
-    if (!user) return
+  async function saveSearchTargets(): Promise<boolean> {
+    if (!user) return false
     const roles = textToList(rolesText)
     if (roles.length === 0) {
-      setStatus('Add at least one target job title under Search targets.')
-      return
+      setStatus('Add at least one target job title under Company targets.')
+      return false
     }
     setSavingTargets(true)
     setStatus(null)
@@ -134,7 +145,9 @@ export function FiltersPage() {
       roles,
       industries: textToList(industriesText),
       company_types: textToList(companyTypesText),
+      company_size: companySize.trim() || undefined,
       outreach_targets: textToList(outreachText),
+      locations: textToList(locationsText),
       notes: notesText.trim() || undefined,
       roles_confirmed: true,
     }
@@ -149,7 +162,7 @@ export function FiltersPage() {
     if (error) {
       setSavingTargets(false)
       setStatus(error.message)
-      return
+      return false
     }
     try {
       const res = await invokeFunction<{
@@ -159,8 +172,8 @@ export function FiltersPage() {
       await loadFilters()
       setStatus(
         res.rationale
-          ? `Search targets saved. Contact filters synced: ${res.rationale}`
-          : 'Search targets saved — contact filters synced from your profile.',
+          ? `Targets saved. Contact filters synced: ${res.rationale}`
+          : 'Targets saved — contact filters synced.',
       )
     } catch (e) {
       setStatus(
@@ -170,6 +183,7 @@ export function FiltersPage() {
       )
     }
     setSavingTargets(false)
+    return true
   }
 
   async function persistFilters(
@@ -215,24 +229,35 @@ export function FiltersPage() {
     }
   }
 
-  async function saveFilterToggles(patch: Partial<SearchFiltersData>) {
-    const next = mergeFilters(patch)
-    setFilters(next)
-    setSaving(true)
-    setStatus(null)
-    await persistFilters(next, { message: 'Settings saved.' })
-    setSaving(false)
-  }
-
   async function save() {
     if (!user) return
     setSaving(true)
     setStatus(null)
+    const okTargets = await saveSearchTargets()
+    if (!okTargets) {
+      setSaving(false)
+      return
+    }
     const next = mergeFilters({})
     await persistFilters(next, {
-      message: 'Filters saved. Search will use these deterministically.',
+      message: 'Filters updated and saved.',
     })
     setSaving(false)
+  }
+
+  async function continueOrientation() {
+    setContinuing(true)
+    setStatus(null)
+    const ok = await saveSearchTargets()
+    if (!ok) {
+      setContinuing(false)
+      return
+    }
+    const next = mergeFilters({})
+    await persistFilters(next, { message: '' })
+    await orientation.advanceTo('search')
+    setContinuing(false)
+    navigate('/app/search')
   }
 
   async function recommendFromAi() {
@@ -247,7 +272,7 @@ export function FiltersPage() {
       setStatus(
         res.rationale
           ? `AI updated filters: ${res.rationale}`
-          : 'AI rewrote filters from your resume, chat, and keep/discard history.',
+          : 'AI rewrote filters from your profile and preferences.',
       )
       await loadPrefs()
     } catch (e) {
@@ -258,43 +283,79 @@ export function FiltersPage() {
   }
 
   return (
-    <div className="panel">
-      <h1>Filters & search targets</h1>
+    <div className="panel filters-page">
+      <h1>Filters</h1>
       <p className="lede">
-        Search targets define which companies and roles we hunt for. Contact
-        filters narrow which people titles qualify. Both feed every search run.
+        {inOrientation
+          ? 'Review company targets and who we should contact. Continue when these look right — or update and save first.'
+          : 'Company targets drive which employers we hunt. Contact targets narrow who qualifies at each company.'}
       </p>
 
-      <section className="settings-block">
-        <h2>Search targets</h2>
+      <section className="filter-section">
+        <h2>Company targets</h2>
         <p className="muted small">
-          Same fields as on <Link to="/app/onboarding">Profile</Link> — edit here
-          or keep chatting there. One line or comma per item.
+          Jobs, industries, company type/size, and locations for discovery.
         </p>
-        <label>
-          Jobs wanted
-          <textarea
-            value={rolesText}
-            onChange={(e) => setRolesText(e.target.value)}
-            placeholder="Quantum software engineer"
-          />
-        </label>
-        <label>
-          Industries
-          <textarea
-            value={industriesText}
-            onChange={(e) => setIndustriesText(e.target.value)}
-            placeholder="Quantum computing"
-          />
-        </label>
-        <label>
-          Company types
-          <textarea
-            value={companyTypesText}
-            onChange={(e) => setCompanyTypesText(e.target.value)}
-            placeholder="Startups, national labs"
-          />
-        </label>
+        <div className="form-grid">
+          <label>
+            Jobs wanted
+            <textarea
+              value={rolesText}
+              onChange={(e) => setRolesText(e.target.value)}
+              placeholder="Quantum software engineer"
+            />
+          </label>
+          <label>
+            Industries
+            <textarea
+              value={industriesText}
+              onChange={(e) => setIndustriesText(e.target.value)}
+              placeholder="Quantum computing"
+            />
+          </label>
+          <label>
+            Company types
+            <textarea
+              value={companyTypesText}
+              onChange={(e) => setCompanyTypesText(e.target.value)}
+              placeholder="Startups, national labs"
+            />
+          </label>
+          <label>
+            Company size
+            <input
+              type="text"
+              value={companySize}
+              onChange={(e) => setCompanySize(e.target.value)}
+              placeholder="large / medium / small"
+            />
+          </label>
+          <label>
+            Locations
+            <textarea
+              rows={3}
+              value={locationsText}
+              onChange={(e) => setLocationsText(e.target.value)}
+              placeholder="One per line"
+            />
+          </label>
+          <label>
+            Notes
+            <textarea
+              rows={3}
+              value={notesText}
+              onChange={(e) => setNotesText(e.target.value)}
+              placeholder="Optional context"
+            />
+          </label>
+        </div>
+      </section>
+
+      <section className="filter-section">
+        <h2>Contact targets</h2>
+        <p className="muted small">
+          People to find at those companies, plus title include/exclude rules.
+        </p>
         <label>
           People to find
           <textarea
@@ -303,147 +364,131 @@ export function FiltersPage() {
             placeholder="Hiring managers, team leads"
           />
         </label>
-        <label>
-          Notes
-          <textarea
-            rows={3}
-            value={notesText}
-            onChange={(e) => setNotesText(e.target.value)}
-            placeholder="Optional context for search and drafts"
-          />
-        </label>
-        <button
-          type="button"
-          className="btn primary"
-          disabled={savingTargets}
-          onClick={() => void saveSearchTargets()}
-        >
-          {savingTargets ? 'Saving…' : 'Save search targets'}
-        </button>
-      </section>
-
-      <h2>Contact filters</h2>
-      <p className="muted small">
-        Refined as you keep/discard contacts. Edit anytime — search uses these
-        rules deterministically for people at each company. Hunter and verified-email
-        options live under <Link to="/app/settings">Settings</Link>.
-      </p>
-
-      <div className="actions">
-        <button
-          type="button"
-          className="btn"
-          disabled={recommending}
-          onClick={() => void recommendFromAi()}
-        >
-          {recommending ? 'Asking AI…' : 'Rewrite filters from profile + prefs'}
-        </button>
-      </div>
-
-      <div className="form-grid">
-        <label>
-          Include title keywords
-          <textarea
-            rows={6}
-            value={includeText}
-            onChange={(e) => setIncludeText(e.target.value)}
-          />
-        </label>
-        <label>
-          Exclude title keywords
-          <textarea
-            rows={6}
-            value={excludeText}
-            onChange={(e) => setExcludeText(e.target.value)}
-          />
-        </label>
-        <label>
-          Preferred locations (optional)
-          <textarea
-            rows={3}
-            value={locationsText}
-            onChange={(e) => setLocationsText(e.target.value)}
-            placeholder="One per line"
-          />
-        </label>
-        <div className="form-row">
+        <div className="form-grid">
           <label>
-            Max companies / run
-            <input
-              type="number"
-              min={1}
-              max={50}
-              value={filters.max_companies_per_run}
-              onChange={(e) =>
-                setFilters((f) => ({
-                  ...f,
-                  max_companies_per_run: Number(e.target.value),
-                }))
-              }
-              onBlur={(e) =>
-                void saveFilterToggles({
-                  max_companies_per_run: Number(e.target.value),
-                })
-              }
+            Include title keywords
+            <textarea
+              rows={5}
+              value={includeText}
+              onChange={(e) => setIncludeText(e.target.value)}
             />
           </label>
           <label>
-            Max contacts / company
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={filters.max_contacts_per_company}
-              onChange={(e) =>
-                setFilters((f) => ({
-                  ...f,
-                  max_contacts_per_company: Number(e.target.value),
-                }))
-              }
-              onBlur={(e) =>
-                void saveFilterToggles({
-                  max_contacts_per_company: Number(e.target.value),
-                })
-              }
+            Exclude title keywords
+            <textarea
+              rows={5}
+              value={excludeText}
+              onChange={(e) => setExcludeText(e.target.value)}
             />
           </label>
         </div>
-      </div>
+        {!inOrientation && (
+          <div className="form-row">
+            <label>
+              Max companies / run
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={filters.max_companies_per_run}
+                onChange={(e) =>
+                  setFilters((f) => ({
+                    ...f,
+                    max_companies_per_run: Number(e.target.value),
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Max contacts / company
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={filters.max_contacts_per_company}
+                onChange={(e) =>
+                  setFilters((f) => ({
+                    ...f,
+                    max_contacts_per_company: Number(e.target.value),
+                  }))
+                }
+              />
+            </label>
+          </div>
+        )}
+      </section>
 
       <div className="actions">
-        <button type="button" className="btn primary" disabled={saving} onClick={save}>
-          {saving ? 'Saving…' : 'Save filters'}
-        </button>
+        {inOrientation ? (
+          <>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={continuing || savingTargets}
+              onClick={() => void continueOrientation()}
+            >
+              {continuing ? 'Continuing…' : 'Continue'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={saving || savingTargets}
+              onClick={() => void save()}
+            >
+              {saving ? 'Saving…' : 'Update and save'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={saving || savingTargets}
+              onClick={() => void save()}
+            >
+              {saving ? 'Saving…' : 'Save filters'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={recommending}
+              onClick={() => void recommendFromAi()}
+            >
+              {recommending ? 'Asking AI…' : 'Rewrite from profile + prefs'}
+            </button>
+          </>
+        )}
       </div>
       {status && <p className="flash">{status}</p>}
 
-      <section className="pref-docs">
-        <h2>What you’ve liked / discarded</h2>
-        <p className="muted small">
-          Living documents updated each time you keep or discard a contact.
-          The AI uses these when rewriting filters.
-        </p>
-        {prefs?.ai_summary && (
-          <div className="pref-summary">
-            <h3>AI preference memo</h3>
-            <p>{prefs.ai_summary}</p>
+      {!inOrientation && (
+        <section className="pref-docs">
+          <h2>What you’ve liked / discarded</h2>
+          <p className="muted small">
+            Living documents updated each time you keep or discard a contact.
+          </p>
+          {prefs?.ai_summary && (
+            <div className="pref-summary">
+              <h3>AI preference memo</h3>
+              <p>{prefs.ai_summary}</p>
+            </div>
+          )}
+          <div className="pref-grid">
+            <div>
+              <h3>Likes</h3>
+              <pre className="pref-log">
+                {prefs?.likes_doc?.trim() || '(empty — keep some contacts)'}
+              </pre>
+            </div>
+            <div>
+              <h3>Dislikes</h3>
+              <pre className="pref-log">
+                {prefs?.dislikes_doc?.trim() || '(empty — discard with reasons)'}
+              </pre>
+            </div>
           </div>
-        )}
-        <div className="pref-grid">
-          <div>
-            <h3>Likes</h3>
-            <pre className="pref-log">
-              {prefs?.likes_doc?.trim() || '(empty — keep some contacts)'}
-            </pre>
-          </div>
-          <div>
-            <h3>Dislikes</h3>
-            <pre className="pref-log">
-              {prefs?.dislikes_doc?.trim() || '(empty — discard with reasons)'}
-            </pre>
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
     </div>
   )
 }

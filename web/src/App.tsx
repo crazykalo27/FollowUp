@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './lib/auth'
+import { OrientationProvider } from './lib/orientationContext'
 import { AppShell, RequireAuth } from './components/AppShell'
 import { ProfileSetupGate } from './components/ProfileSetupGate'
 import { WelcomeSetupPage } from './pages/WelcomeSetupPage'
@@ -21,8 +22,16 @@ export default function App() {
           <Route element={<RequireAuth />}>
             <Route path="/app/welcome" element={<WelcomeSetupPage />} />
             <Route element={<ProfileSetupGate />}>
-              <Route path="/app" element={<AppShell />}>
-                <Route index element={<OverviewPage />} />
+              <Route
+                path="/app"
+                element={
+                  <OrientationProvider>
+                    <AppShell />
+                  </OrientationProvider>
+                }
+              >
+                <Route index element={<Navigate to="search" replace />} />
+                <Route path="search" element={<OverviewPage />} />
                 <Route path="onboarding" element={<OnboardingPage />} />
                 <Route path="filters" element={<FiltersPage />} />
                 <Route path="contacts" element={<ContactsPage />} />

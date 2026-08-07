@@ -46,9 +46,7 @@ export function ProfileSetupGate() {
     return <div className="page-center muted">Loading…</div>
   }
 
-  const onSetupPath =
-    location.pathname === '/app/welcome' ||
-    location.pathname === '/app/settings'
+  const onSetupPath = location.pathname === '/app/welcome'
 
   if (!complete && !onSetupPath) {
     return <Navigate to="/app/welcome" replace />

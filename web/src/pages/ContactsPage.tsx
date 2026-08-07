@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
+import { useOrientation } from '../lib/orientationContext'
 
 type ContactRow = {
   id: string
@@ -150,6 +151,9 @@ function ContactPeek({ contact }: { contact: ContactRow }) {
 
 export function ContactsPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const orientation = useOrientation()
+  const orientLockDiscard = !orientation.complete
   const [rows, setRows] = useState<ContactRow[]>([])
   const [busy, setBusy] = useState(false)
   const [draftingId, setDraftingId] = useState<string | null>(null)
@@ -367,6 +371,11 @@ export function ContactsPage() {
     const subject = target || current
     if (!subject || busy) return
 
+    if (decision === 'discard' && orientLockDiscard) {
+      setMsg('During orientation, find one contact to Keep — Discard unlocks after.')
+      return
+    }
+
     if (decision === 'discard' && reasons.length === 0 && !note.trim()) {
       return
     }
@@ -411,6 +420,12 @@ export function ContactsPage() {
       },
       deciding,
     )
+
+    if (decision === 'keep' && orientLockDiscard) {
+      void orientation.advanceTo('drafts').then(() => {
+        navigate(`/app/drafts?contact=${decidingId}`)
+      })
+    }
 
     if (isReviewQueue) {
       window.setTimeout(() => {
@@ -535,6 +550,10 @@ export function ContactsPage() {
   }
 
   function openDiscard(target?: ContactRow) {
+    if (orientLockDiscard) {
+      setMsg('During orientation, find one contact to Keep — Discard unlocks after.')
+      return
+    }
     setSelectedReasons([])
     setDiscardNote('')
     setDiscardTargetId(target?.id ?? current?.id ?? null)
@@ -564,7 +583,9 @@ export function ContactsPage() {
 
   function onPointerMove(e: ReactPointerEvent<HTMLElement>) {
     if (!dragging || !dragStart.current) return
-    setDragX(e.clientX - dragStart.current.x)
+    let dx = e.clientX - dragStart.current.x
+    if (orientLockDiscard && dx < 0) dx = 0
+    setDragX(dx)
   }
 
   function onPointerUp() {
@@ -573,7 +594,7 @@ export function ContactsPage() {
     dragStart.current = null
     if (dragX > 110) {
       applyDecision('keep')
-    } else if (dragX < -110) {
+    } else if (dragX < -110 && !orientLockDiscard) {
       openDiscard()
       setDragX(0)
     } else {
@@ -657,9 +678,25 @@ export function ContactsPage() {
     <div className="panel">
       <h1>Contacts</h1>
       <p className="lede">
-        Swipe or use Keep / Discard on the center card. Click a side card in the
-        carousel to review that contact.
+        {orientLockDiscard
+          ? 'Review the people we found. Keep someone worth emailing to continue.'
+          : 'Swipe or use Keep / Discard on the center card. Click a side card to review that contact.'}
       </p>
+
+      {orientLockDiscard && (
+        <div className="orientation-coach">
+          <p>
+            <strong>Keep</strong> means this person is a good outreach target —
+            we’ll draft an email to them next.
+          </p>
+          <p>
+            <strong>Discard</strong> removes people who aren’t a fit and teaches
+            the search what to avoid. Discard stays locked until you Keep one
+            contact and finish orientation.
+          </p>
+          <p className="muted small">Find one contact to Keep to continue.</p>
+        </div>
+      )}
 
       <div className="tab-row">
         <button
@@ -669,23 +706,27 @@ export function ContactsPage() {
         >
           Review ({pending.length})
         </button>
-        <button
-          type="button"
-          className={`tab ${tab === 'kept' ? 'active' : ''}`}
-          onClick={() => setTab('kept')}
-        >
-          Kept ({kept.length})
-        </button>
-        <button
-          type="button"
-          className={`tab ${tab === 'archived' ? 'active' : ''}`}
-          onClick={() => setTab('archived')}
-        >
-          Archived ({archived.length})
-        </button>
-        <Link className="btn" to="/app/drafts">
-          Open drafts
-        </Link>
+        {!orientLockDiscard && (
+          <>
+            <button
+              type="button"
+              className={`tab ${tab === 'kept' ? 'active' : ''}`}
+              onClick={() => setTab('kept')}
+            >
+              Kept ({kept.length})
+            </button>
+            <button
+              type="button"
+              className={`tab ${tab === 'archived' ? 'active' : ''}`}
+              onClick={() => setTab('archived')}
+            >
+              Archived ({archived.length})
+            </button>
+            <Link className="btn" to="/app/drafts">
+              Open drafts
+            </Link>
+          </>
+        )}
         <button type="button" className="btn ghost" onClick={() => void load()}>
           Refresh
         </button>
@@ -701,7 +742,7 @@ export function ContactsPage() {
             {!current && (
               <p className="muted review-empty">
                 {rows.length === 0
-                  ? 'No contacts yet. Run a people search from Overview.'
+                  ? 'No contacts yet. Run a people search from Search.'
                   : 'You’re caught up — no pending contacts. Check Kept, or run another search.'}
               </p>
             )}
@@ -745,7 +786,7 @@ export function ContactsPage() {
                         onPointerCancel={onPointerUp}
                       >
                         {dragX > 40 && <span className="swipe-stamp keep">Keep</span>}
-                        {dragX < -40 && (
+                        {dragX < -40 && !orientLockDiscard && (
                           <span className="swipe-stamp discard">Discard</span>
                         )}
                         <ContactDetail contact={current} />
@@ -772,7 +813,12 @@ export function ContactsPage() {
                   <button
                     type="button"
                     className="btn swipe-discard"
-                    disabled={busy}
+                    disabled={busy || orientLockDiscard}
+                    title={
+                      orientLockDiscard
+                        ? 'Discard unlocks after orientation'
+                        : undefined
+                    }
                     onClick={() => openDiscard()}
                   >
                     Discard
@@ -787,29 +833,31 @@ export function ContactsPage() {
                   </button>
                 </div>
 
-                <div className="company-actions">
-                  <button
-                    type="button"
-                    className="btn ghost small"
-                    disabled={
-                      busy ||
-                      current.companies?.user_flag === 'favorite'
-                    }
-                    onClick={() => applyFavoriteCompany()}
-                  >
-                    {current.companies?.user_flag === 'favorite'
-                      ? 'Company favorited'
-                      : 'Favorite company'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost small company-discard-all"
-                    disabled={busy || pendingAtCompany < 1}
-                    onClick={() => setDiscardCompanyOpen(true)}
-                  >
-                    Discard all at company ({pendingAtCompany})
-                  </button>
-                </div>
+                {!orientLockDiscard && (
+                  <div className="company-actions">
+                    <button
+                      type="button"
+                      className="btn ghost small"
+                      disabled={
+                        busy ||
+                        current.companies?.user_flag === 'favorite'
+                      }
+                      onClick={() => applyFavoriteCompany()}
+                    >
+                      {current.companies?.user_flag === 'favorite'
+                        ? 'Company favorited'
+                        : 'Favorite company'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn ghost small company-discard-all"
+                      disabled={busy || pendingAtCompany < 1}
+                      onClick={() => setDiscardCompanyOpen(true)}
+                    >
+                      Discard all at company ({pendingAtCompany})
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>
