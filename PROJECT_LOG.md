@@ -110,3 +110,9 @@ Conceptual milestones (not a commit-by-commit diary).
 - Profile load waits for resume lookup to avoid upload-hero flash.
 - Settings: delete profile (confirm DELETE) wipes data and restarts orientation; verified-email checkbox strictly off by default.
 - After first draft: optional Gmail connect popup + Copy draft button.
+
+## 2026-08-07 — Pick-signal keep/discard learning
+
+- Keep/discard chips: Not a person / Wrong industry / Not hiring-connected / Wrong location / Wrong job type; Keep: great location / hiring connection / industry / job type.
+- Preference docs store feedback on the hiring signal + match reason that produced the contact (not person biographies).
+- Filter rewrite + company discovery consume rewarded/rejected pick signals.

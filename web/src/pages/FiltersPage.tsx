@@ -463,9 +463,11 @@ export function FiltersPage() {
 
       {!inOrientation && (
         <section className="pref-docs">
-          <h2>What you’ve liked / discarded</h2>
+          <h2>Pick-signal feedback</h2>
           <p className="muted small">
-            Living documents updated each time you keep or discard a contact.
+            Keep/discard reasons are attached to the hiring signal and match
+            reason that produced each contact — so search learns which pick
+            types to repeat or avoid.
           </p>
           {prefs?.ai_summary && (
             <div className="pref-summary">
@@ -475,13 +477,13 @@ export function FiltersPage() {
           )}
           <div className="pref-grid">
             <div>
-              <h3>Likes</h3>
+              <h3>Rewarded pick signals</h3>
               <pre className="pref-log">
                 {prefs?.likes_doc?.trim() || '(empty — keep some contacts)'}
               </pre>
             </div>
             <div>
-              <h3>Dislikes</h3>
+              <h3>Rejected pick signals</h3>
               <pre className="pref-log">
                 {prefs?.dislikes_doc?.trim() || '(empty — discard with reasons)'}
               </pre>

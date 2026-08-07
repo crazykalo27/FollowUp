@@ -9,15 +9,34 @@ import {
 import { recommendFiltersForUser } from '../_shared/recommendFilters.ts'
 
 export const DISCARD_REASONS = [
-  { id: 'recruiter_hr', label: 'Recruiter / HR — not a hiring manager' },
-  { id: 'wrong_seniority', label: 'Wrong seniority' },
-  { id: 'wrong_role', label: 'Role / title isn’t what I want' },
-  { id: 'wrong_industry', label: 'Wrong industry or company type' },
-  { id: 'wrong_location', label: 'Location doesn’t work' },
-  { id: 'not_hiring_manager', label: 'Doesn’t seem to hire for my roles' },
-  { id: 'company_mismatch', label: 'Company isn’t a fit' },
-  { id: 'other', label: 'Other' },
+  { id: 'not_a_person', label: 'Not a person' },
+  { id: 'wrong_industry', label: 'Wrong industry' },
+  { id: 'not_hiring_connected', label: 'Not someone connected to hiring' },
+  { id: 'wrong_location', label: 'Wrong location' },
+  { id: 'wrong_job_type', label: 'Wrong job type' },
 ] as const
+
+export const KEEP_REASONS = [
+  { id: 'great_location', label: 'Great location' },
+  { id: 'great_hiring_connection', label: 'Great hiring connection' },
+  { id: 'great_industry_match', label: 'Great industry match' },
+  { id: 'great_job_type_match', label: 'Great job type match' },
+] as const
+
+const REASON_LABEL: Record<string, string> = Object.fromEntries([
+  ...DISCARD_REASONS.map((r) => [r.id, r.label]),
+  ...KEEP_REASONS.map((r) => [r.id, r.label]),
+  ['company_mismatch', 'Company isn’t a fit'],
+])
+
+type SignalFeedback = {
+  signal: string
+  match_reason: string
+  reasons: string[]
+  decision: 'keep' | 'discard'
+  note?: string
+  at: string
+}
 
 type PrefBundle = {
   likes: {
@@ -25,17 +44,47 @@ type PrefBundle = {
     companies: string[]
     signals: string[]
     notes: string[]
+    signal_feedback: SignalFeedback[]
   }
   dislikes: {
     titles: string[]
     companies: string[]
     reasons: Record<string, number>
     notes: string[]
+    signal_feedback: SignalFeedback[]
   }
   likesDoc: string
   dislikesDoc: string
   reasonCounts: Record<string, number>
   aiSummary: string | null
+}
+
+function reasonLabels(reasons: string[]) {
+  return reasons.map((r) => REASON_LABEL[r] || r).join(', ')
+}
+
+function extractPickSignal(contact: {
+  filter_match_reason?: string | null
+  source_details?: Record<string, unknown> | null
+  title?: string | null
+  companies?: { hiring_signal_title?: string | null } | null
+}): { signal: string; matchReason: string } {
+  const details = contact.source_details || {}
+  const companySignal =
+    (typeof details.hiring_signal === 'string' && details.hiring_signal) ||
+    contact.companies?.hiring_signal_title ||
+    null
+  const matchReason =
+    (contact.filter_match_reason || '').trim() ||
+    (contact.title
+      ? `title match: ${contact.title}`
+      : 'unknown match reason')
+  const signal =
+    (companySignal || '').trim() ||
+    (matchReason.includes('signal:')
+      ? matchReason.split('signal:')[1]?.split(';')[0]?.trim() || matchReason
+      : matchReason)
+  return { signal, matchReason }
 }
 
 async function loadPreferenceBundle(
@@ -57,18 +106,23 @@ async function loadPreferenceBundle(
     pref = created
   }
 
-  const likes = (pref?.likes || {
-    titles: [],
-    companies: [],
-    signals: [],
-    notes: [],
-  }) as PrefBundle['likes']
-  const dislikes = (pref?.dislikes || {
-    titles: [],
-    companies: [],
-    reasons: {},
-    notes: [],
-  }) as PrefBundle['dislikes']
+  const likesRaw = (pref?.likes || {}) as Record<string, unknown>
+  const dislikesRaw = (pref?.dislikes || {}) as Record<string, unknown>
+
+  const likes = {
+    titles: (likesRaw.titles as string[]) || [],
+    companies: (likesRaw.companies as string[]) || [],
+    signals: (likesRaw.signals as string[]) || [],
+    notes: (likesRaw.notes as string[]) || [],
+    signal_feedback: (likesRaw.signal_feedback as SignalFeedback[]) || [],
+  }
+  const dislikes = {
+    titles: (dislikesRaw.titles as string[]) || [],
+    companies: (dislikesRaw.companies as string[]) || [],
+    reasons: (dislikesRaw.reasons as Record<string, number>) || {},
+    notes: (dislikesRaw.notes as string[]) || [],
+    signal_feedback: (dislikesRaw.signal_feedback as SignalFeedback[]) || [],
+  }
 
   return {
     pref: pref || {},
@@ -90,8 +144,10 @@ async function savePreferenceBundle(
   userId: string,
   bundle: PrefBundle,
 ) {
-  bundle.likesDoc = bundle.likesDoc.split('\n').slice(-80).join('\n')
-  bundle.dislikesDoc = bundle.dislikesDoc.split('\n').slice(-80).join('\n')
+  bundle.likesDoc = bundle.likesDoc.split('\n').slice(-100).join('\n')
+  bundle.dislikesDoc = bundle.dislikesDoc.split('\n').slice(-100).join('\n')
+  bundle.likes.signal_feedback = bundle.likes.signal_feedback.slice(-40)
+  bundle.dislikes.signal_feedback = bundle.dislikes.signal_feedback.slice(-40)
 
   await admin.from('preference_documents').upsert({
     user_id: userId,
@@ -118,6 +174,41 @@ async function savePreferencesAndSyncFilters(
   }
 }
 
+function appendSignalFeedback(
+  bundle: PrefBundle,
+  decision: 'keep' | 'discard',
+  entry: SignalFeedback,
+  stamp: string,
+) {
+  const why = entry.reasons.length
+    ? reasonLabels(entry.reasons)
+    : decision === 'keep'
+      ? 'kept (no reason chip)'
+      : 'discarded'
+  const line =
+    `[${stamp}] ${decision.toUpperCase()} pick_signal: "${entry.signal}"` +
+    `\n  match: ${entry.match_reason}` +
+    `\n  feedback: ${why}` +
+    (entry.note ? `\n  note: ${entry.note}` : '')
+
+  if (decision === 'keep') {
+    bundle.likes.signal_feedback.push(entry)
+    if (entry.signal && !bundle.likes.signals.includes(entry.signal)) {
+      bundle.likes.signals.push(entry.signal)
+    }
+    bundle.likesDoc = `${bundle.likesDoc}\n${line}`.trim()
+    if (entry.note) bundle.likes.notes.push(entry.note)
+  } else {
+    bundle.dislikes.signal_feedback.push(entry)
+    for (const r of entry.reasons) {
+      bundle.reasonCounts[r] = (bundle.reasonCounts[r] || 0) + 1
+      bundle.dislikes.reasons[r] = (bundle.dislikes.reasons[r] || 0) + 1
+    }
+    bundle.dislikesDoc = `${bundle.dislikesDoc}\n${line}`.trim()
+    if (entry.note) bundle.dislikes.notes.push(entry.note)
+  }
+}
+
 async function maybeRefreshAiSummary(
   admin: ReturnType<typeof adminClient>,
   userId: string,
@@ -136,20 +227,23 @@ async function maybeRefreshAiSummary(
       [
         {
           role: 'system',
-          content:
-            'You maintain a short preference memo for a job-seeker’s outreach targets. 4–8 sentences. Be concrete about titles to seek/avoid and company types they want vs avoid.',
+          content: `You maintain a short preference memo for FollowUp's contact picker.
+Focus on PICK SIGNALS (job posts / hiring signals / match reasons), not individual people.
+Explain which kinds of hiring signals and match rationales to prefer or avoid, and why
+(e.g. "when signal looks like internship postings, user marks wrong job type — downweight").
+4–8 concrete sentences. Plain text only.`,
         },
         {
           role: 'user',
-          content: `Update this preference memo.
+          content: `Update this preference memo about which pick signals to trust.
 
 Current summary:
 ${bundle.aiSummary || '(none yet)'}
 
-LIKES DOC:
+POSITIVE SIGNAL FEEDBACK:
 ${bundle.likesDoc || '(empty)'}
 
-DISLIKES DOC:
+NEGATIVE SIGNAL FEEDBACK:
 ${bundle.dislikesDoc || '(empty)'}
 
 Latest: ${latestLine}
@@ -191,7 +285,7 @@ Deno.serve(async (req) => {
     const { data: contact, error: cErr } = await admin
       .from('contacts')
       .select(
-        'id, full_name, title, email, company_id, companies(id, name, domain, hiring_signal_title)',
+        'id, full_name, title, email, company_id, filter_match_reason, source_details, companies(id, name, domain, hiring_signal_title)',
       )
       .eq('id', contactId)
       .eq('user_id', user.id)
@@ -205,6 +299,12 @@ Deno.serve(async (req) => {
     const companyId = contact.company_id as string
     const companyName = company?.name || 'Unknown company'
     const stamp = new Date().toISOString().slice(0, 10)
+    const pick = extractPickSignal({
+      filter_match_reason: contact.filter_match_reason,
+      source_details: contact.source_details as Record<string, unknown> | null,
+      title: contact.title,
+      companies: company,
+    })
 
     if (contactAction === 'archive' || contactAction === 'delete') {
       if (contactAction === 'archive') {
@@ -248,7 +348,9 @@ Deno.serve(async (req) => {
 
         const { data: pendingRows } = await admin
           .from('contacts')
-          .select('id')
+          .select(
+            'id, filter_match_reason, source_details, title, companies(hiring_signal_title)',
+          )
           .eq('user_id', user.id)
           .eq('company_id', companyId)
           .eq('review_status', 'pending')
@@ -267,22 +369,29 @@ Deno.serve(async (req) => {
               user_id: user.id,
               contact_id: id,
               decision: 'discard',
-              reasons: ['company_mismatch'],
+              reasons: ['wrong_industry'],
               note: 'discard all contacts at company',
             })),
           )
         }
 
+        // Feedback is on the company hiring signal, not each person
+        appendSignalFeedback(
+          bundle,
+          'discard',
+          {
+            signal: pick.signal || companyName,
+            match_reason: `company-wide discard @ ${companyName}`,
+            reasons: ['wrong_industry'],
+            decision: 'discard',
+            note: `discard all contacts at company (${pendingIds.length})`,
+            at: stamp,
+          },
+          stamp,
+        )
         if (companyName && !bundle.dislikes.companies.includes(companyName)) {
           bundle.dislikes.companies.push(companyName)
         }
-        bundle.reasonCounts.company_mismatch =
-          (bundle.reasonCounts.company_mismatch || 0) + 1
-        bundle.dislikes.reasons.company_mismatch =
-          (bundle.dislikes.reasons.company_mismatch || 0) + 1
-        const line = `[${stamp}] DISCARD ALL @ ${companyName} (${pendingIds.length} contacts)`
-        bundle.dislikesDoc = `${bundle.dislikesDoc}\n${line}`.trim()
-
         bundle.likes.companies = bundle.likes.companies.filter(
           (c) => c.toLowerCase() !== companyName.toLowerCase(),
         )
@@ -291,7 +400,7 @@ Deno.serve(async (req) => {
           admin,
           user.id,
           bundle,
-          `discard all at ${companyName}`,
+          `discard all pick signals at ${companyName}`,
         )
         await savePreferencesAndSyncFilters(admin, user.id, bundle)
 
@@ -317,19 +426,22 @@ Deno.serve(async (req) => {
         .eq('id', companyId)
         .eq('user_id', user.id)
 
+      appendSignalFeedback(
+        bundle,
+        'keep',
+        {
+          signal: pick.signal || companyName,
+          match_reason: `favorite company @ ${companyName}`,
+          reasons: ['great_industry_match', 'great_hiring_connection'],
+          decision: 'keep',
+          note: note || undefined,
+          at: stamp,
+        },
+        stamp,
+      )
       if (companyName && !bundle.likes.companies.includes(companyName)) {
         bundle.likes.companies.push(companyName)
       }
-      if (company?.hiring_signal_title) {
-        bundle.likes.signals.push(company.hiring_signal_title)
-      }
-      const line = `[${stamp}] FAVORITE COMPANY ${companyName}`
-      bundle.likesDoc = `${bundle.likesDoc}\n${line}`.trim()
-      if (note) {
-        bundle.likes.notes.push(note)
-        bundle.likesDoc += `\n  note: ${note}`
-      }
-
       bundle.dislikes.companies = bundle.dislikes.companies.filter(
         (c) => c.toLowerCase() !== companyName.toLowerCase(),
       )
@@ -338,7 +450,7 @@ Deno.serve(async (req) => {
         admin,
         user.id,
         bundle,
-        `favorite company ${companyName}`,
+        `favorite pick signal at ${companyName}`,
       )
       await savePreferencesAndSyncFilters(admin, user.id, bundle)
 
@@ -364,15 +476,11 @@ Deno.serve(async (req) => {
       return errorResponse('Pick at least one reason when discarding')
     }
 
-    const title = contact.title || 'unknown title'
-    const person = contact.full_name || 'Unknown'
-
     await admin.from('contact_decisions').insert({
       user_id: user.id,
       contact_id: contactId,
       decision,
-      reasons:
-        decision === 'discard' || decision === 'keep' ? reasons : [],
+      reasons: decision === 'discard' || decision === 'keep' ? reasons : [],
       note: note || null,
     })
 
@@ -386,46 +494,25 @@ Deno.serve(async (req) => {
 
     const { bundle } = await loadPreferenceBundle(admin, user.id)
 
-    if (decision === 'keep') {
-      if (title && !bundle.likes.titles.includes(title)) {
-        bundle.likes.titles.push(title)
-      }
-      if (companyName && !bundle.likes.companies.includes(companyName)) {
-        bundle.likes.companies.push(companyName)
-      }
-      if (company?.hiring_signal_title) {
-        bundle.likes.signals.push(company.hiring_signal_title)
-      }
-      const line = `[${stamp}] KEEP ${person} — ${title} @ ${companyName}`
-      bundle.likesDoc = `${bundle.likesDoc}\n${line}`.trim()
-      if (reasons.length > 0) {
-        bundle.likesDoc += `\n  why: ${reasons.join(', ')}`
-      }
-      if (note) {
-        bundle.likes.notes.push(note)
-        bundle.likesDoc += `\n  note: ${note}`
-      }
-    } else {
-      if (title) bundle.dislikes.titles.push(title)
-      if (companyName) bundle.dislikes.companies.push(companyName)
-      for (const r of reasons) {
-        bundle.reasonCounts[r] = (bundle.reasonCounts[r] || 0) + 1
-        bundle.dislikes.reasons[r] = (bundle.dislikes.reasons[r] || 0) + 1
-      }
-      const reasonLabels = reasons.join(', ')
-      const line = `[${stamp}] DISCARD ${person} — ${title} @ ${companyName} (${reasonLabels})`
-      bundle.dislikesDoc = `${bundle.dislikesDoc}\n${line}`.trim()
-      if (note) {
-        bundle.dislikes.notes.push(note)
-        bundle.dislikesDoc += `\n  note: ${note}`
-      }
-    }
+    appendSignalFeedback(
+      bundle,
+      decision,
+      {
+        signal: pick.signal,
+        match_reason: pick.matchReason,
+        reasons,
+        decision,
+        note: note || undefined,
+        at: stamp,
+      },
+      stamp,
+    )
 
     await maybeRefreshAiSummary(
       admin,
       user.id,
       bundle,
-      `${decision} ${person} @ ${companyName}`,
+      `${decision} pick_signal "${pick.signal}" → ${reasonLabels(reasons) || 'no chips'}`,
     )
     await savePreferencesAndSyncFilters(admin, user.id, bundle)
 
@@ -440,6 +527,7 @@ Deno.serve(async (req) => {
       decision,
       pending_remaining: pending || 0,
       preference_summary: bundle.aiSummary,
+      pick_signal: pick.signal,
     })
   } catch (e) {
     return errorResponse(e instanceof Error ? e.message : 'Unexpected error', 500)
