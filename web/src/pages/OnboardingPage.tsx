@@ -12,6 +12,7 @@ export function OnboardingPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const orientation = useOrientation()
+  const [loading, setLoading] = useState(true)
   const [fileName, setFileName] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [messages, setMessages] = useState<Msg[]>([])
@@ -59,7 +60,9 @@ export function OnboardingPage() {
 
   useEffect(() => {
     if (!user) return
+    let cancelled = false
     ;(async () => {
+      setLoading(true)
       const [{ data: resume }, { data: chat }, { data: sp }, { data: prof }] =
         await Promise.all([
           supabase
@@ -86,6 +89,8 @@ export function OnboardingPage() {
             .maybeSingle(),
         ])
 
+      if (cancelled) return
+
       if (resume) setFileName(resume.file_name)
       if (sp?.profile) {
         const p = sp.profile as SearchProfileData
@@ -104,12 +109,16 @@ export function OnboardingPage() {
           content: m.content,
         }))
       setMessages(loaded)
+      setLoading(false)
 
       if (resume && loaded.length === 0 && !bootstrapAttempted.current) {
         bootstrapAttempted.current = true
         await bootstrapChat()
       }
     })()
+    return () => {
+      cancelled = true
+    }
   }, [user])
 
   useEffect(() => {
@@ -200,6 +209,11 @@ export function OnboardingPage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  // Wait for resume lookup so upload hero does not flash
+  if (loading) {
+    return <div className="page-center muted">Loading profile…</div>
   }
 
   // Pre-upload: purpose + central upload
