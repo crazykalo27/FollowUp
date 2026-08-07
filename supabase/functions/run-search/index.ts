@@ -1242,10 +1242,14 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     const preferenceHint = [
-      prefRow?.ai_summary,
-      prefRow?.likes_doc ? `Liked: ${String(prefRow.likes_doc).slice(0, 400)}` : null,
+      prefRow?.ai_summary
+        ? `Pick-signal preferences: ${prefRow.ai_summary}`
+        : null,
+      prefRow?.likes_doc
+        ? `Rewarded pick signals: ${String(prefRow.likes_doc).slice(0, 400)}`
+        : null,
       prefRow?.dislikes_doc
-        ? `Disliked: ${String(prefRow.dislikes_doc).slice(0, 400)}`
+        ? `Rejected pick signals: ${String(prefRow.dislikes_doc).slice(0, 400)}`
         : null,
     ]
       .filter(Boolean)

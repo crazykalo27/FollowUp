@@ -33,25 +33,18 @@ type ContactRow = {
 }
 
 const DISCARD_REASONS = [
-  { id: 'recruiter_hr', label: 'Recruiter / HR' },
-  { id: 'wrong_seniority', label: 'Wrong seniority' },
-  { id: 'wrong_role', label: 'Wrong role / title' },
+  { id: 'not_a_person', label: 'Not a person' },
   { id: 'wrong_industry', label: 'Wrong industry' },
+  { id: 'not_hiring_connected', label: 'Not someone connected to hiring' },
   { id: 'wrong_location', label: 'Wrong location' },
-  { id: 'not_hiring_manager', label: 'Not a hiring manager' },
-  { id: 'company_mismatch', label: 'Company isn’t a fit' },
-  { id: 'other', label: 'Other' },
+  { id: 'wrong_job_type', label: 'Wrong job type' },
 ] as const
 
 const KEEP_REASONS = [
-  { id: 'right_role', label: 'Right role / title' },
-  { id: 'right_seniority', label: 'Right seniority' },
-  { id: 'right_industry', label: 'Right industry / company type' },
-  { id: 'hiring_fit', label: 'Likely hires for my roles' },
-  { id: 'strong_company', label: 'Strong company fit' },
-  { id: 'good_signal', label: 'Good hiring signal' },
-  { id: 'referrer_potential', label: 'Good referral / intro path' },
-  { id: 'other', label: 'Other' },
+  { id: 'great_location', label: 'Great location' },
+  { id: 'great_hiring_connection', label: 'Great hiring connection' },
+  { id: 'great_industry_match', label: 'Great industry match' },
+  { id: 'great_job_type_match', label: 'Great job type match' },
 ] as const
 
 function contactSources(r: ContactRow) {
@@ -1032,9 +1025,10 @@ export function ContactsPage() {
             aria-labelledby="keep-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="keep-title">What made this a good fit?</h2>
+            <h2 id="keep-title">What was right about this pick?</h2>
             <p className="muted small">
-              Optional — helps search learn what you want more of.
+              Optional — we learn from the hiring signal that led to this
+              contact, not just the person.
             </p>
             <div className="reason-grid">
               {KEEP_REASONS.map((r) => (
@@ -1054,7 +1048,7 @@ export function ContactsPage() {
                 rows={2}
                 value={keepNote}
                 onChange={(e) => setKeepNote(e.target.value)}
-                placeholder="What was especially right about this person?"
+                placeholder="Anything about this pick signal…"
               />
             </label>
             <div className="actions">
@@ -1147,11 +1141,10 @@ export function ContactsPage() {
             aria-labelledby="discard-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="discard-title">Why discard?</h2>
+            <h2 id="discard-title">Why discard this pick?</h2>
             <p className="muted small">
-              {discardSubject.review_status === 'kept'
-                ? 'Moving a kept contact to discard teaches the model what to avoid.'
-                : 'Pick one or more reasons — this updates your likes/dislikes docs so search gets smarter.'}
+              We attach your feedback to the hiring signal / match reason that
+              produced this contact, so search learns which pick types to avoid.
             </p>
             <div className="reason-grid">
               {DISCARD_REASONS.map((r) => (
@@ -1171,7 +1164,7 @@ export function ContactsPage() {
                 rows={2}
                 value={discardNote}
                 onChange={(e) => setDiscardNote(e.target.value)}
-                placeholder="Anything else the AI should know…"
+                placeholder="Anything else about this pick signal…"
               />
             </label>
             <div className="actions">

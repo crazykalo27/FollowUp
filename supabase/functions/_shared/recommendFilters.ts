@@ -20,7 +20,9 @@ The profile describes what JOBS and INDUSTRIES the user wants — not their resu
 include_titles must come primarily from profile.outreach_targets (who to email) and roles/industries they want.
 Prioritize people who refer or influence hiring: Director, Engineering Manager, Principal/Staff Engineer, Research Scientist, Senior Engineer, Lead Engineer.
 Broader technical titles when aligned. Recruiter / Talent Acquisition only as low-priority includes.
-exclude_titles reflect dislikes doc and patterns they discard.
+Preference docs describe PICK SIGNALS (hiring signals / match reasons) the user rewarded or rejected —
+NOT biographies of people. Use negative signal feedback (e.g. wrong job type on internship postings)
+to avoid those pick patterns; use positive signal feedback to reinforce good hiring-signal types.
 locations mirror profile.locations when present.
 exclude_titles: generic HR/People Ops/Staffing — do not blanket-exclude Recruiter if included.`
 
@@ -121,16 +123,16 @@ ${chatBits || '(none)'}
 Resume (${resume?.file_name || 'n/a'}):
 ${resumeText || '(none)'}
 
-Preference AI summary:
+Preference AI summary (about which hiring signals / pick types to trust):
 ${pref?.ai_summary || '(none yet)'}
 
-Likes doc:
+Positive pick-signal feedback (rewarded hiring signals + match reasons):
 ${pref?.likes_doc || '(empty)'}
 
-Dislikes doc:
+Negative pick-signal feedback (rejected hiring signals + why):
 ${pref?.dislikes_doc || '(empty)'}
 
-Discard reason counts:
+Discard/keep reason counts:
 ${JSON.stringify(pref?.discard_reason_counts || {})}`,
       },
     ],
