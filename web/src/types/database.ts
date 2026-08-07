@@ -18,10 +18,14 @@ export interface SearchProfileData {
   seniority: string
   employment_types?: string[]
   remote_preference?: string
+  /** large | medium | small | any */
+  company_size?: string
   must_haves: string[]
   tone: string
   notes?: string
   roles_confirmed?: boolean
+  /** Orientation question index 0–7 (7 = series done, awaiting save). */
+  orientation_q?: number
 }
 
 export interface SearchFiltersData {
@@ -62,9 +66,9 @@ export const DEFAULT_FILTERS: SearchFiltersData = {
   seniority: ['senior', 'executive'],
   max_companies_per_run: 10,
   max_contacts_per_company: 3,
-  require_verified_email: true,
+  require_verified_email: false,
   accept_accept_all: true,
-  enable_hunter: true,
+  enable_hunter: false,
 }
 
 export interface Database {
@@ -83,6 +87,8 @@ export interface Database {
           email_body_template: string | null
           profile_setup_complete: boolean
           onboarding_complete: boolean
+          orientation_step: string
+          orientation_complete: boolean
           created_at: string
           updated_at: string
         }
@@ -98,6 +104,8 @@ export interface Database {
           email_body_template?: string | null
           profile_setup_complete?: boolean
           onboarding_complete?: boolean
+          orientation_step?: string
+          orientation_complete?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -112,6 +120,8 @@ export interface Database {
           email_body_template?: string | null
           profile_setup_complete?: boolean
           onboarding_complete?: boolean
+          orientation_step?: string
+          orientation_complete?: boolean
           updated_at?: string
         }
       }

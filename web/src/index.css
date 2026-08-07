@@ -295,7 +295,8 @@ h3,
   gap: 0.35rem;
 }
 
-.side-nav a {
+.side-nav a,
+.side-nav .nav-locked {
   color: var(--muted);
   padding: 0.45rem 0.6rem;
   border-radius: 4px;
@@ -308,8 +309,81 @@ h3,
   background: rgba(196, 240, 76, 0.1);
 }
 
+.side-nav .nav-locked {
+  opacity: 0.35;
+  cursor: not-allowed;
+  user-select: none;
+}
+
 .side-footer {
   margin-top: auto;
+}
+
+.app-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.orientation-bar {
+  flex-shrink: 0;
+  padding: 0.75rem 1.75rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(
+    90deg,
+    rgba(196, 240, 76, 0.08),
+    transparent 60%
+  );
+}
+
+.orientation-bar-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.45rem;
+}
+
+.orientation-label {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+.orientation-step {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.orientation-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(232, 242, 236, 0.12);
+  overflow: hidden;
+}
+
+.orientation-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.35s ease;
+}
+
+.orientation-coach {
+  margin: 1rem 0 1.25rem;
+  padding: 1rem 1.15rem;
+  border-left: 3px solid var(--accent);
+  background: rgba(196, 240, 76, 0.07);
+  max-width: 42rem;
+}
+
+.orientation-coach p {
+  margin: 0 0 0.5rem;
+}
+
+.orientation-coach p:last-child {
+  margin-bottom: 0;
 }
 
 .app-main {
@@ -321,6 +395,7 @@ h3,
   overflow: auto;
   display: flex;
   flex-direction: column;
+  flex: 1;
 }
 
 .app-main > .profile-layout {
@@ -421,6 +496,83 @@ h3,
 
 .upload input {
   display: none;
+}
+
+.profile-hero {
+  max-width: 36rem;
+  margin: 4vh auto 0;
+  text-align: center;
+  padding: 2rem 1rem 3rem;
+}
+
+.profile-purpose {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin: 0 0 1rem;
+}
+
+.profile-purpose-sub {
+  margin: 0 auto 2rem;
+  font-size: 1.1rem;
+}
+
+.upload-hero {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 14rem;
+  padding: 1.15rem 1.75rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  border-color: var(--accent);
+  background: rgba(196, 240, 76, 0.12);
+  color: var(--ink);
+}
+
+.upload-hero:hover {
+  background: rgba(196, 240, 76, 0.2);
+}
+
+.profile-body-single {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.55fr);
+}
+
+.profile-side-thin {
+  font-size: 0.9rem;
+}
+
+.profile-side-thin h3 {
+  margin-top: 0;
+  font-size: 1rem;
+}
+
+.filter-section {
+  margin: 1.5rem 0;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.filter-section h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+}
+
+.filter-section label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+}
+
+.filter-section textarea,
+.filter-section input {
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--ink);
 }
 
 .profile-top .flash {
@@ -1720,6 +1872,14 @@ th {
     flex-wrap: wrap;
   }
 
+  .app-content {
+    overflow: visible;
+  }
+
+  .orientation-bar {
+    padding: 0.65rem 1rem;
+  }
+
   .app-main {
     overflow: visible;
   }
@@ -1729,9 +1889,14 @@ th {
     min-height: calc(100vh - 8rem);
   }
 
-  .profile-body {
+  .profile-body,
+  .profile-body-single {
     grid-template-columns: 1fr;
     min-height: 70vh;
+  }
+
+  .pref-grid {
+    grid-template-columns: 1fr;
   }
 
   .chat-pane {

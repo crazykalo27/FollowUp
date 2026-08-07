@@ -25,7 +25,7 @@ export function WelcomeSetupPage() {
         .eq('id', user.id)
         .maybeSingle()
       if (data?.profile_setup_complete && data.full_name) {
-        navigate('/app', { replace: true })
+        navigate('/app/onboarding', { replace: true })
         return
       }
       if (data?.full_name) setFullName(data.full_name)
@@ -46,25 +46,45 @@ export function WelcomeSetupPage() {
     setBusy(true)
     setError(null)
     const trim = (s: string) => s.trim() || null
-    const { error: upErr } = await supabase
+    const payload = {
+      full_name: name,
+      display_name: name,
+      linkedin_url: trim(linkedinUrl),
+      github_url: trim(githubUrl),
+      portfolio_url: trim(portfolioUrl),
+      website_url: trim(websiteUrl),
+      profile_setup_complete: true,
+      orientation_step: 'profile',
+      orientation_complete: false,
+      updated_at: new Date().toISOString(),
+    }
+    let { error: upErr } = await supabase
       .from('profiles')
-      .update({
-        full_name: name,
-        display_name: name,
-        linkedin_url: trim(linkedinUrl),
-        github_url: trim(githubUrl),
-        portfolio_url: trim(portfolioUrl),
-        website_url: trim(websiteUrl),
-        profile_setup_complete: true,
-        updated_at: new Date().toISOString(),
-      })
+      .update(payload)
       .eq('id', user.id)
+    // Orientation columns may not exist until migration is applied
+    if (upErr && /orientation_/i.test(upErr.message)) {
+      const retry = await supabase
+        .from('profiles')
+        .update({
+          full_name: name,
+          display_name: name,
+          linkedin_url: trim(linkedinUrl),
+          github_url: trim(githubUrl),
+          portfolio_url: trim(portfolioUrl),
+          website_url: trim(websiteUrl),
+          profile_setup_complete: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id)
+      upErr = retry.error
+    }
     setBusy(false)
     if (upErr) {
       setError(upErr.message)
       return
     }
-    navigate('/app', { replace: true })
+    navigate('/app/onboarding', { replace: true })
   }
 
   return (
@@ -72,9 +92,9 @@ export function WelcomeSetupPage() {
       <div className="panel welcome-panel">
         <h1>Welcome to FollowUp</h1>
         <p className="lede">
-          Your full name goes in every outreach email signature. Add links only
-          if you want them included — we never put placeholder text in drafts.
-          You can change these anytime under Settings.
+          We help you find direct contacts — not black-hole applications.
+          Your full name signs every outreach email. Add links only if you want
+          them included.
         </p>
 
         <label>

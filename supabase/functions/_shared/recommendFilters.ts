@@ -50,7 +50,7 @@ function normalizeFilters(parsed: Record<string, unknown>) {
     company_size_max: (parsed.company_size_max as number | null) ?? null,
     max_companies_per_run: Number(parsed.max_companies_per_run) || 6,
     max_contacts_per_company: Number(parsed.max_contacts_per_company) || 3,
-    require_verified_email: parsed.require_verified_email !== false,
+    require_verified_email: parsed.require_verified_email === true,
     accept_accept_all: parsed.accept_accept_all !== false,
     rationale: (parsed.rationale as string) || '',
   }
@@ -148,15 +148,11 @@ ${JSON.stringify(pref?.discard_reason_counts || {})}`,
   const prev = (existingRow?.filters || {}) as Record<string, unknown>
 
   const preservedToggles = {
-    ...(prev.enable_hunter !== undefined
-      ? { enable_hunter: prev.enable_hunter !== false }
-      : {}),
-    ...(prev.require_verified_email !== undefined
-      ? { require_verified_email: prev.require_verified_email !== false }
-      : {}),
+    enable_hunter: prev.enable_hunter === true,
+    require_verified_email: prev.require_verified_email === true,
     ...(prev.accept_accept_all !== undefined
       ? { accept_accept_all: prev.accept_accept_all !== false }
-      : {}),
+      : { accept_accept_all: true }),
   }
 
   const filtersToStore = {

@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
+import { useOrientation } from '../lib/orientationContext'
 import type { DraftStatus } from '../types/database'
 import {
   applyTemplate,
@@ -38,17 +40,24 @@ function formatSentDate(sentAt: string | null) {
 
 export function DraftsPage() {
   const { user } = useAuth()
+  const orientation = useOrientation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const orientContactId = searchParams.get('contact')
+  const inOrientation = !orientation.complete
   const [drafts, setDrafts] = useState<DraftRow[]>([])
   const [active, setActive] = useState<DraftRow | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [resumeFileName, setResumeFileName] = useState<string | null>(null)
+  const [contactName, setContactName] = useState<string | null>(null)
   const [subjectTemplate, setSubjectTemplate] = useState(
     DEFAULT_EMAIL_SUBJECT_TEMPLATE,
   )
   const [bodyTemplate, setBodyTemplate] = useState(DEFAULT_EMAIL_BODY_TEMPLATE)
   const [savingTemplate, setSavingTemplate] = useState(false)
+  const orientDraftStarted = useRef(false)
 
   const templatePreview = useMemo(() => {
     return {
@@ -95,6 +104,52 @@ export function DraftsPage() {
     if (active) {
       const refreshed = mapped.find((d) => d.id === active.id) || null
       setActive(refreshed)
+    } else if (orientContactId) {
+      const forContact = mapped.find((d) => d.contact_id === orientContactId)
+      if (forContact) setActive(forContact)
+    }
+    return mapped
+  }
+
+  async function completeOrientationIfNeeded(hasDraft: boolean) {
+    if (!inOrientation || !hasDraft) return
+    await orientation.markComplete()
+    setMsg(
+      'Orientation complete — the full app is unlocked. Edit, send, or generate more drafts anytime.',
+    )
+    if (orientContactId) {
+      searchParams.delete('contact')
+      setSearchParams(searchParams, { replace: true })
+    }
+  }
+
+  async function generateForContact(contactId: string) {
+    setGenerating(true)
+    setMsg(null)
+    try {
+      const res = await invokeFunction<{
+        drafts: DraftRow[]
+        skipped_already_sent?: unknown[]
+      }>('draft-emails', { contact_ids: [contactId] })
+      const mapped = await load()
+      const created = res.drafts?.[0]
+      if (created) {
+        const row =
+          mapped?.find((d) => d.id === created.id) ||
+          mapped?.find((d) => d.contact_id === contactId) ||
+          null
+        if (row) setActive(row)
+        setMsg('Draft generated from your template.')
+        await completeOrientationIfNeeded(true)
+      } else if ((mapped || []).some((d) => d.contact_id === contactId)) {
+        await completeOrientationIfNeeded(true)
+      } else {
+        setMsg('No draft was created — try again or check the contact has an email.')
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Could not generate draft')
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -125,6 +180,28 @@ export function DraftsPage() {
     })()
     void load()
   }, [user])
+
+  useEffect(() => {
+    if (!user || !orientContactId || orientDraftStarted.current) return
+    orientDraftStarted.current = true
+    void (async () => {
+      const { data: contact } = await supabase
+        .from('contacts')
+        .select('full_name, email')
+        .eq('id', orientContactId)
+        .maybeSingle()
+      setContactName(contact?.full_name || contact?.email || 'this contact')
+
+      const mapped = await load()
+      const existing = mapped?.find((d) => d.contact_id === orientContactId)
+      if (existing) {
+        setActive(existing)
+        await completeOrientationIfNeeded(true)
+        return
+      }
+      // Wait for user to press Generate during orientation coaching
+    })()
+  }, [user, orientContactId])
 
   async function saveTemplate() {
     if (!user) return
@@ -215,10 +292,31 @@ export function DraftsPage() {
       <header className="drafts-header">
         <h1>Drafts</h1>
         <p className="muted small">
-          Template drives new emails; pick a draft to review and send.
-          Drafts are filled from your saved template only — no AI text.
+          {inOrientation
+            ? 'Generate an outreach draft for the contact you kept. That finishes orientation.'
+            : 'Template drives new emails; pick a draft to review and send. Drafts are filled from your saved template only — no AI text.'}
         </p>
       </header>
+
+      {inOrientation && orientContactId && (
+        <div className="orientation-coach">
+          <p>
+            Press <strong>Generate draft</strong> for{' '}
+            {contactName || 'your kept contact'}. We fill your email template
+            with their name, company, and title.
+          </p>
+          <div className="actions">
+            <button
+              type="button"
+              className="btn primary"
+              disabled={generating}
+              onClick={() => void generateForContact(orientContactId)}
+            >
+              {generating ? 'Generating…' : 'Generate draft'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {msg && <p className="flash drafts-flash">{msg}</p>}
 

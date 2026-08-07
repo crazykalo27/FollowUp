@@ -9,27 +9,22 @@ import {
 import { recommendFiltersForUser } from '../_shared/recommendFilters.ts'
 
 type Profile = {
-  /** Job titles the user wants to land (not their past titles). */
   roles: string[]
-  /** Industries / domains they want to work in next. */
   industries: string[]
-  /** Company kinds they want (startups, national lab, semiconductor, etc.). */
   company_types: string[]
-  /** People to contact at target companies (hiring managers, referrers, senior ICs). */
   outreach_targets: string[]
-  /** Resume background — context only; not the primary search target. */
   skills: string[]
   locations: string[]
-  /** Seniority level of the job they want. */
   seniority: string
-  /** Level they want (internship, full-time, part-time, contract). */
   employment_types: string[]
-  /** remote | hybrid | onsite | flexible */
   remote_preference: string
+  company_size: string
   must_haves: string[]
   tone: string
   notes?: string
   roles_confirmed?: boolean
+  /** 0 = locations … 6 = roles; 7 = series complete awaiting save */
+  orientation_q?: number
 }
 
 const EMPTY_PROFILE: Profile = {
@@ -42,41 +37,66 @@ const EMPTY_PROFILE: Profile = {
   seniority: '',
   employment_types: [],
   remote_preference: '',
+  company_size: '',
   must_haves: [],
   tone: 'professional and concise',
   notes: '',
   roles_confirmed: false,
+  orientation_q: 0,
 }
 
-const TOPIC_ORDER = [
-  'roles',
-  'industries',
-  'company_types',
-  'outreach_targets',
-  'locations',
-  'employment_types',
-  'remote_preference',
-  'seniority',
-  'must_haves',
-  'tone',
-] as const
+const SERIES_DONE = 7
 
-function nextMissingTopic(profile: Profile): string | null {
-  for (const key of TOPIC_ORDER) {
-    if (key === 'employment_types') {
-      if (!profile.employment_types?.length) return key
-      continue
-    }
-    if (key === 'remote_preference') {
-      if (!profile.remote_preference?.trim()) return key
-      continue
-    }
-    const val = profile[key as keyof Profile]
-    if (Array.isArray(val) && val.length === 0) return key
-    if (typeof val === 'string' && !val.trim()) return key
-  }
-  return null
-}
+const QUESTIONS: {
+  key: string
+  ask: (p: Profile) => string
+}[] = [
+  {
+    key: 'locations',
+    ask: () =>
+      'Do you have location priorities for your next job? If so, what are they (cities, regions, or “no preference”)?',
+  },
+  {
+    key: 'employment_types',
+    ask: () =>
+      'What type of job are you hoping to find: full-time, part-time, or internship?',
+  },
+  {
+    key: 'remote_preference',
+    ask: () =>
+      'Are you looking for remote, in-person, or hybrid?',
+  },
+  {
+    key: 'company_size',
+    ask: () =>
+      'Are you looking for large, medium, or small company size?',
+  },
+  {
+    key: 'seniority',
+    ask: () =>
+      'Are you looking for entry, mid-level, or experienced positions?',
+  },
+  {
+    key: 'industries',
+    ask: (p) => {
+      const list =
+        p.industries.length > 0
+          ? p.industries.map((i) => `• ${i}`).join('\n')
+          : '• (none confidently extracted — tell me what you want)'
+      return `From your resume I inferred these industries:\n${list}\n\nWhich industries are you actually looking for? Confirm, edit, or replace the list.`
+    },
+  },
+  {
+    key: 'roles',
+    ask: (p) => {
+      const list =
+        p.roles.length > 0
+          ? p.roles.map((r) => `• ${r}`).join('\n')
+          : '• (suggest a few titles you’d want)'
+      return `Based on those industries and your resume, here are job titles I suggest we search for:\n${list}\n\nWhich titles should we use? Confirm, edit, or replace them.`
+    },
+  },
+]
 
 function mergeProfile(base: Profile, patch: Partial<Profile> | null | undefined): Profile {
   if (!patch) return base
@@ -98,6 +118,9 @@ function mergeProfile(base: Profile, patch: Partial<Profile> | null | undefined)
     remote_preference: patch.remote_preference?.trim()
       ? patch.remote_preference
       : base.remote_preference,
+    company_size: patch.company_size?.trim()
+      ? patch.company_size
+      : base.company_size,
     must_haves: patch.must_haves?.length ? patch.must_haves : base.must_haves,
     tone: patch.tone?.trim() ? patch.tone : base.tone,
     notes: patch.notes ?? base.notes ?? '',
@@ -105,6 +128,10 @@ function mergeProfile(base: Profile, patch: Partial<Profile> | null | undefined)
       typeof patch.roles_confirmed === 'boolean'
         ? patch.roles_confirmed
         : Boolean(base.roles_confirmed),
+    orientation_q:
+      typeof patch.orientation_q === 'number'
+        ? patch.orientation_q
+        : base.orientation_q ?? 0,
   }
 }
 
@@ -122,6 +149,45 @@ function stripFences(raw: string) {
   } catch {
     return null
   }
+}
+
+function ensureSingleQuestion(text: string): string {
+  const cleaned = text.replace(/\n{3,}/g, '\n\n').trim()
+  const numbered = cleaned.match(/(?:^|\n)\s*(?:1[\).:]|[-*])\s+([^\n]+\?)/)
+  if (numbered && /\n\s*2[\).:]/.test(cleaned)) {
+    const intro = cleaned.split(/\n\s*1[\).:]/)[0].trim()
+    const q = numbered[1].trim()
+    return [intro, q].filter(Boolean).join('\n\n')
+  }
+  const questions = cleaned.match(/[^.!?\n]*\?/g) || []
+  if (questions.length <= 1) return cleaned
+  const idx = cleaned.indexOf('?')
+  return cleaned.slice(0, idx + 1).trim()
+}
+
+function ensureNoQuestion(text: string): string {
+  return text
+    .replace(/\?\s*$/g, '.')
+    .replace(/\?/g, '.')
+    .trim()
+}
+
+function applyCompanySizeToTypes(profile: Profile): Profile {
+  const size = (profile.company_size || '').toLowerCase()
+  if (!size) return profile
+  const label =
+    size.includes('large') || size.includes('big')
+      ? 'large company'
+      : size.includes('small') || size.includes('startup')
+        ? 'small company'
+        : size.includes('medium') || size.includes('mid')
+          ? 'medium company'
+          : ''
+  if (!label) return profile
+  const rest = (profile.company_types || []).filter(
+    (t) => !/^(large|medium|small)\s+company$/i.test(t),
+  )
+  return { ...profile, company_types: [label, ...rest] }
 }
 
 async function loadState(admin: ReturnType<typeof adminClient>, userId: string) {
@@ -172,7 +238,11 @@ async function saveProfile(
   if (markComplete) {
     await admin
       .from('profiles')
-      .update({ onboarding_complete: true })
+      .update({
+        onboarding_complete: true,
+        orientation_step: 'filters',
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', userId)
   }
 }
@@ -195,19 +265,16 @@ Deno.serve(async (req) => {
     const state = await loadState(admin, user.id)
     const resumeSnippet = (state.resume?.extracted_text || '').slice(0, 12000)
 
-    // Bootstrap: scan resume, seed profile, ask first question (no user message)
     if (action === 'bootstrap') {
       if (state.history.length > 0) {
         const last = state.history[state.history.length - 1]
-        const userMsgs = state.history.filter((m) => m.role === 'user').length
-        const awaiting =
-          !state.profile.roles_confirmed && userMsgs === 0
+        const q = state.profile.orientation_q ?? 0
         return jsonResponse({
           reply: last.role === 'assistant' ? last.content : null,
           profile: state.profile,
-          next_topic: awaiting ? 'roles' : nextMissingTopic(state.profile),
-          ready: false,
-          awaiting_role_confirm: awaiting,
+          next_topic: q < SERIES_DONE ? QUESTIONS[q]?.key ?? null : null,
+          ready: q >= SERIES_DONE && Boolean(state.profile.roles_confirmed),
+          series_complete: q >= SERIES_DONE,
           already_started: true,
         })
       }
@@ -222,35 +289,36 @@ Resume file: ${state.resume.file_name}
 Resume text:
 ${resumeSnippet || '(little/no text extracted)'}
 
-Use the resume only to INFER plausible next-step targets (what jobs/industries fit their trajectory). Do NOT mirror their past job titles as goals unless clearly still what they want.
+Use the resume only to INFER plausible next-step targets. Do NOT treat past titles as confirmed goals.
 
 Return JSON only:
 {
   "profile": {
-    "roles": [],           // 3–8 JOB TITLES THEY WANT (e.g. "Quantum Software Engineer", not "Student")
-    "industries": [],      // 2–8 industries/domains they want to work IN (e.g. "quantum computing", "semiconductors")
-    "company_types": [],   // 2–6 kinds of employers (e.g. "quantum hardware startup", "national lab", "GPU company")
-    "outreach_targets": [], // 4–10 TYPES OF PEOPLE to email at those companies (e.g. "Engineering Manager", "Director of Quantum", "Principal Scientist", "Staff Engineer who refers")
-    "skills": [],          // optional background from resume for context only (max 12) — not the main focus
+    "roles": [],
+    "industries": [],
+    "company_types": [],
+    "outreach_targets": [],
+    "skills": [],
     "locations": [],
-    "employment_types": [],  // e.g. full-time, internship, part-time, contract
-    "remote_preference": "", // remote | hybrid | onsite | flexible
-    "seniority": "",       // level they are targeting for their next job
+    "employment_types": [],
+    "remote_preference": "",
+    "company_size": "",
+    "seniority": "",
     "must_haves": [],
     "tone": "professional and concise",
-    "notes": ""            // 1 sentence: what they're looking for + who to contact
+    "notes": ""
   }
 }
 
-Be specific on outreach_targets — these become search filters for people at companies.
-Do not invent employers or degrees not in the resume.`
+Seed roles (3–8 desired titles) and industries (2–8) for later confirmation. Leave locations/employment/remote/company_size/seniority empty — we ask those first.
+Be specific on outreach_targets. Do not invent employers or degrees not in the resume.`
 
       const extractRaw = await openaiChat(
         [
           {
             role: 'system',
             content:
-              'You infer job-search TARGETS from resumes: desired jobs, industries, company types, and who to contact at those companies. Return valid JSON only. Focus on what they want next, not a skills dump.',
+              'You infer job-search TARGETS from resumes. Return valid JSON only.',
           },
           { role: 'user', content: extractPrompt },
         ],
@@ -258,35 +326,15 @@ Do not invent employers or degrees not in the resume.`
       )
 
       const extracted = stripFences(extractRaw) || {}
-      const profile = mergeProfile(EMPTY_PROFILE, {
+      let profile = mergeProfile(EMPTY_PROFILE, {
         ...(extracted.profile || {}),
         roles_confirmed: false,
+        orientation_q: 0,
       })
 
-      const roleList =
-        profile.roles.length > 0
-          ? profile.roles.map((r) => `• ${r}`).join('\n')
-          : '• (I could not infer clear titles — tell me what you want)'
-      const industryBit =
-        profile.industries.length > 0
-          ? ` Target industries: ${profile.industries.slice(0, 4).join(', ')}.`
-          : ''
-      const outreachBit =
-        profile.outreach_targets.length > 0
-          ? `\n\nPeople we should reach out to at those companies:\n${profile.outreach_targets
-              .slice(0, 6)
-              .map((t) => `• ${t}`)
-              .join('\n')}`
-          : ''
-
+      const q0 = QUESTIONS[0].ask(profile)
       const safeReply = ensureSingleQuestion(
-        `I read your resume as a clue about what you want next — not as the final answer.
-
-**Jobs you're likely targeting:**
-${roleList}
-${industryBit}${outreachBit}
-
-Reply to confirm or change the job titles and industries. Then we'll fine-tune company types and who to email (managers, senior engineers, researchers — not HR).`,
+        `I scanned your resume. I'll ask a short series of questions so we can find the right people to contact.\n\n${q0}`,
       )
 
       await admin.from('profile_chat_messages').insert({
@@ -299,88 +347,117 @@ Reply to confirm or change the job titles and industries. Then we'll fine-tune c
       return jsonResponse({
         reply: safeReply,
         profile,
-        next_topic: 'roles',
+        next_topic: QUESTIONS[0].key,
         ready: false,
-        awaiting_role_confirm: true,
+        series_complete: false,
         already_started: false,
         filters: null,
       })
     }
 
-    // Reply / finalize turns
     if (!finalize && !message) {
       return errorResponse('message is required')
     }
 
-    const userMsgCount = state.history.filter((m) => m.role === 'user').length
-    const rolesConfirmed = Boolean(state.profile.roles_confirmed) || userMsgCount > 0
+    const qIndex = Math.min(
+      SERIES_DONE,
+      typeof state.profile.orientation_q === 'number'
+        ? state.profile.orientation_q
+        : 0,
+    )
 
-    if (finalize && !rolesConfirmed && userMsgCount === 0) {
-      return errorResponse(
-        'Confirm or change the target roles with at least one reply before locking the profile.',
-        400,
+    if (finalize) {
+      if (qIndex < SERIES_DONE && !state.profile.roles_confirmed) {
+        return errorResponse(
+          'Finish the orientation questions before saving your profile.',
+          400,
+        )
+      }
+
+      const userContent =
+        message ||
+        'Please lock the profile with what you have so far. Do not ask another question.'
+
+      await admin.from('profile_chat_messages').insert({
+        user_id: user.id,
+        role: 'user',
+        content: userContent,
+      })
+
+      let profile = applyCompanySizeToTypes({
+        ...state.profile,
+        roles_confirmed: true,
+        orientation_q: SERIES_DONE,
+      })
+      if (!profile.outreach_targets?.length) {
+        profile = {
+          ...profile,
+          outreach_targets: [
+            'Engineering Manager',
+            'Hiring Manager',
+            'Director',
+            'Team Lead',
+          ],
+        }
+      }
+
+      const reply = ensureNoQuestion(
+        `Profile saved. Next we'll review company and contact targets on Filters — then you can run a search for direct contacts.`,
       )
+
+      await admin.from('profile_chat_messages').insert({
+        user_id: user.id,
+        role: 'assistant',
+        content: reply,
+      })
+      await saveProfile(admin, user.id, profile, reply, true)
+      const filters = await recommendFiltersForUser(admin, user.id)
+
+      return jsonResponse({
+        reply,
+        profile,
+        next_topic: null,
+        ready: true,
+        series_complete: true,
+        filters,
+      })
     }
 
-    const userContent = finalize
-      ? message ||
-        'Please lock the profile with what you have so far. Do not ask another question.'
-      : message
-
+    // Normal reply: update current question field, advance to next
     await admin.from('profile_chat_messages').insert({
       user_id: user.id,
       role: 'user',
-      content: userContent,
+      content: message,
     })
 
-    const awaitingRoleConfirm = !state.profile.roles_confirmed
-    const missing = nextMissingTopic(state.profile)
+    const currentKey = qIndex < SERIES_DONE ? QUESTIONS[qIndex].key : 'done'
 
-    const turnPrompt = awaitingRoleConfirm
-      ? `You are FollowUp's profile builder. Focus on what the user WANTS (jobs, industries, who to contact) — not cataloging their resume skills.
+    const turnPrompt = `You are FollowUp's orientation interviewer. The user is answering question ${qIndex + 1} of 7 about: ${currentKey}.
 
 Current profile JSON:
 ${JSON.stringify(state.profile)}
 
-User reply (confirm / change target jobs & industries):
-${userContent}
-
-Resume excerpt (background context only):
-${resumeSnippet || '(none)'}
-
-Rules:
-- Update profile.roles = job titles they WANT.
-- Update profile.industries = where they want to work.
-- Infer/refine company_types and outreach_targets from roles+industries if user gives hints.
-- Set roles_confirmed=true.
-- Do NOT ask them to list skills unless needed to clarify target jobs.
-- Reply: acknowledge confirmed jobs/industries, then ONE question about next missing topic (company_types, outreach_targets, locations, seniority).
-- finalize=${finalize}: if true, set ready=true, ask no question.
-- NEVER more than one question.
-
-Return JSON only:
-{"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":true},"next_topic":"industries|null","ready":false}`
-      : `You are FollowUp's profile builder. Clarify what jobs/industries they want and WHO to email at target companies.
-
-Current profile JSON:
-${JSON.stringify({ ...state.profile, roles_confirmed: true })}
-
-Suggested next topic: ${missing || 'none — profile looks complete'}
-finalize=${finalize}
+User reply:
+${message}
 
 Resume excerpt (background only):
 ${resumeSnippet || '(none)'}
 
 Rules:
-- roles = jobs they want; industries/company_types = where; outreach_targets = people to contact (titles like Engineering Manager, Director, Principal Scientist, Staff Engineer).
-- skills = background context only — do not prioritize expanding skills.
-- Merge user answers; keep roles_confirmed=true.
-- Conversational reply + exactly ONE question about the next missing topic.
-- If finalize=true or profile complete: ready=true, no question, confirm we'll find those companies and people.
-- NEVER more than one question.
+- Update ONLY the fields relevant to "${currentKey}" from the user's reply (you may lightly refine related fields).
+- For locations: set locations[] (use ["no preference"] if they have none).
+- For employment_types: full-time / part-time / internship (array).
+- For remote_preference: remote | in-person | hybrid | flexible.
+- For company_size: large | medium | small (or mix).
+- For seniority: entry | mid | experienced (normalize their words).
+- For industries: set industries[] from their clarification.
+- For roles: set roles[] from their clarification and set roles_confirmed=true.
+- Set orientation_q to ${Math.min(SERIES_DONE, qIndex + 1)}.
+- reply: brief acknowledgment + if orientation_q < ${SERIES_DONE}, ask the NEXT question only (we will inject the exact next question text if needed). If orientation_q >= ${SERIES_DONE}, tell them the profile is complete — they can clarify anything else or press Save profile. No extra questions when complete.
+- NEVER ask more than one question.
 
 Return JSON only:
-{"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":true},"next_topic":"company_types|null","ready":false}`
+{"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","company_size":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":false,"orientation_q":0}}`
 
     const historyMsgs = [
       { role: 'system', content: 'Return valid JSON only. One question max per reply.' },
@@ -388,39 +465,70 @@ Return JSON only:
         role: m.role === 'assistant' ? 'assistant' : 'user',
         content: m.content,
       })),
-      { role: 'user', content: `${userContent}\n\n---\n${turnPrompt}` },
+      { role: 'user', content: `${message}\n\n---\n${turnPrompt}` },
     ]
 
     const raw = await openaiChat(historyMsgs, {
-      temperature: 0.35,
+      temperature: 0.3,
       response_format: { type: 'json_object' },
     })
 
     const parsed = stripFences(raw) || {}
-    let profile = mergeProfile(state.profile, {
-      ...(parsed.profile || {}),
-      roles_confirmed: true,
-    })
-    // After first user message, roles are always confirmed
-    profile = { ...profile, roles_confirmed: true }
+    let profile = mergeProfile(state.profile, parsed.profile || {})
+    const nextQ = Math.min(
+      SERIES_DONE,
+      typeof parsed.profile?.orientation_q === 'number'
+        ? parsed.profile.orientation_q
+        : qIndex + 1,
+    )
+    profile = {
+      ...profile,
+      orientation_q: nextQ,
+      roles_confirmed: nextQ >= SERIES_DONE ? true : Boolean(profile.roles_confirmed),
+    }
+    profile = applyCompanySizeToTypes(profile)
 
-    let ready = Boolean(parsed.ready) || finalize || !nextMissingTopic(profile)
-    let reply = (parsed.reply as string) || ''
-
-    if (ready || finalize) {
-      ready = true
-      reply =
-        ensureNoQuestion(
-          reply ||
-            `Got it — we'll find companies in your target industries and people like: ${profile.outreach_targets.slice(0, 4).join(', ') || 'engineering leaders and senior ICs'} for jobs such as ${profile.roles.slice(0, 4).join(', ') || 'your targets'}.`,
-        )
-    } else {
-      reply = ensureSingleQuestion(
-        reply ||
-          (awaitingRoleConfirm
-            ? `Locked in: ${profile.roles.slice(0, 5).join(', ') || 'your roles'}. ${questionForTopic(nextMissingTopic(profile) || 'industries')}`
-            : `Thanks — noted. ${questionForTopic(nextMissingTopic(profile) || 'roles')}`),
+    // After industries confirmed (step 5 answered → nextQ 6), refresh role suggestions if empty
+    if (nextQ === 6 && profile.roles.length === 0) {
+      const suggestRaw = await openaiChat(
+        [
+          {
+            role: 'system',
+            content: 'Suggest job titles as JSON {"roles":[]} only.',
+          },
+          {
+            role: 'user',
+            content: `Industries: ${profile.industries.join(', ')}\nResume:\n${resumeSnippet.slice(0, 6000)}\nReturn 4–8 desired job titles.`,
+          },
+        ],
+        { temperature: 0.3, response_format: { type: 'json_object' } },
       )
+      const suggested = stripFences(suggestRaw)
+      if (suggested?.roles?.length) {
+        profile = { ...profile, roles: suggested.roles }
+      }
+    }
+
+    let reply = (parsed.reply as string) || ''
+    const seriesComplete = nextQ >= SERIES_DONE
+
+    if (seriesComplete) {
+      reply = ensureNoQuestion(
+        reply ||
+          `Your profile looks complete. Clarify anything else in chat, or press Save profile to continue to Filters.`,
+      )
+      if (!/save profile/i.test(reply)) {
+        reply += ' Press Save profile when you are ready.'
+      }
+      reply = ensureNoQuestion(reply)
+    } else {
+      const nextAsk = QUESTIONS[nextQ].ask(profile)
+      // Prefer our scripted next question for consistency
+      const ack = reply.split(/\?/)[0].replace(/\s+$/, '')
+      const ackClean = ack
+        ? ensureNoQuestion(ack.endsWith('.') || ack.endsWith('!') ? ack : `${ack}.`)
+        : 'Got it.'
+      reply = ensureSingleQuestion(`${ackClean}\n\n${nextAsk}`)
     }
 
     await admin.from('profile_chat_messages').insert({
@@ -428,74 +536,21 @@ Return JSON only:
       role: 'assistant',
       content: reply,
     })
-    await saveProfile(admin, user.id, profile, reply, ready)
+    await saveProfile(admin, user.id, profile, reply, false)
 
-    // Sync filters whenever profile is updated from chat
-    const filters = await recommendFiltersForUser(admin, user.id)
+    const filters = seriesComplete
+      ? await recommendFiltersForUser(admin, user.id)
+      : null
 
     return jsonResponse({
       reply,
       profile,
-      next_topic: ready ? null : nextMissingTopic(profile),
-      ready,
-      awaiting_role_confirm: false,
+      next_topic: seriesComplete ? null : QUESTIONS[nextQ]?.key ?? null,
+      ready: false,
+      series_complete: seriesComplete,
       filters,
     })
   } catch (e) {
     return errorResponse(e instanceof Error ? e.message : 'Unexpected error', 500)
   }
 })
-
-function questionForTopic(topic: string): string {
-  switch (topic) {
-    case 'roles':
-      return 'What job titles are you actually trying to land?'
-    case 'industries':
-      return 'Which industries or domains do you want to work in?'
-    case 'company_types':
-      return 'What kinds of companies should we prioritize (startups, big tech, research labs, hardware vendors, etc.)?'
-    case 'outreach_targets':
-      return 'Who should we email at those companies — e.g. Engineering Manager, Director, Principal Scientist, Staff Engineer who refers?'
-    case 'locations':
-      return 'Where do you want to work (cities or remote)?'
-    case 'employment_types':
-      return 'What are you looking for — full-time, internship, part-time, contract, or a mix?'
-    case 'remote_preference':
-      return 'Do you want remote, hybrid, onsite, or are you flexible?'
-    case 'seniority':
-      return 'What seniority are you targeting for your next role?'
-    case 'must_haves':
-      return 'Any must-haves for the job or company?'
-    case 'tone':
-      return 'What tone should outreach emails use — formal, friendly, or mixed?'
-    default:
-      return 'Anything else about the jobs or people you want us to find?'
-  }
-}
-
-function ensureSingleQuestion(text: string): string {
-  const cleaned = text.replace(/\n{3,}/g, '\n\n').trim()
-  // If model emitted a numbered list of questions, collapse to first question only
-  const numbered = cleaned.match(
-    /(?:^|\n)\s*(?:1[\).:]|[-*])\s+([^\n]+\?)/,
-  )
-  if (numbered && /\n\s*2[\).:]/.test(cleaned)) {
-    const intro = cleaned.split(/\n\s*1[\).:]/)[0].trim()
-    const q = numbered[1].trim()
-    return [intro, q].filter(Boolean).join('\n\n')
-  }
-
-  const questions = cleaned.match(/[^.!?\n]*\?/g) || []
-  if (questions.length <= 1) return cleaned
-
-  // Keep prose before first ?, plus that one question
-  const idx = cleaned.indexOf('?')
-  return cleaned.slice(0, idx + 1).trim()
-}
-
-function ensureNoQuestion(text: string): string {
-  return text
-    .replace(/\?\s*$/g, '.')
-    .replace(/\?/g, '.')
-    .trim()
-}

@@ -8,12 +8,12 @@ export type SearchEmailSettings = {
 }
 
 export const DEFAULT_SEARCH_EMAIL_SETTINGS: SearchEmailSettings = {
-  enable_hunter: true,
-  require_verified_email: true,
+  enable_hunter: false,
+  require_verified_email: false,
   accept_accept_all: true,
 }
 
-/** Read booleans from stored JSON (explicit `false` must stay false). */
+/** Read booleans from stored JSON — missing hunter/verified keys default OFF. */
 export function emailSettingsFromFilters(
   raw: Record<string, unknown> | null | undefined,
 ): SearchEmailSettings {
@@ -21,8 +21,8 @@ export function emailSettingsFromFilters(
     return { ...DEFAULT_SEARCH_EMAIL_SETTINGS }
   }
   return {
-    enable_hunter: raw.enable_hunter !== false,
-    require_verified_email: raw.require_verified_email !== false,
+    enable_hunter: raw.enable_hunter === true,
+    require_verified_email: raw.require_verified_email === true,
     accept_accept_all: raw.accept_accept_all !== false,
   }
 }

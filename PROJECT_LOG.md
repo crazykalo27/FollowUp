@@ -95,3 +95,11 @@ Conceptual milestones (not a commit-by-commit diary).
 - People search at those companies prioritizes similar roles: filter include titles, outreach targets, and the user’s target roles.
 - Removed template/sector query scraping + static knowledge-graph seeding from the hot path; job boards still supplement hiring signals.
 - Going forward: redeploy touched Edge Functions after function changes (`npx supabase functions deploy <name> --project-ref czakwfzjkhsaysvqeswc`).
+
+## 2026-08-07 — Orientation-guided UI
+
+- Progressive unlock: Welcome → Profile → Filters → Search → Contacts → Drafts; sidebar greys out locked pages; Orientation progress bar until first draft.
+- Profile: resume-first hero (“find direct contacts”), then fixed AI question series (location, employment type, remote, company size, seniority, industries, job titles) + Save profile.
+- Filters simplified to Company targets / Contact targets with Continue during orientation; Overview renamed Search with run coaching.
+- Contacts: discard locked until Keep one; handoff to Drafts to generate first draft and complete orientation.
+- Defaults: Hunter and require verified emails off (client + edge + migration).
