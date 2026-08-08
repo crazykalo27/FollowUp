@@ -2351,7 +2351,7 @@ Deno.serve(async (req) => {
     const how = {
       method:
         meta.search_mode === 'company'
-          ? `Specific-company search for “${meta.target_company || '—'}”. Skips industry discovery; finds people at that employer in roles similar to yours (LinkedIn via Bing/Serper → OSINT → optional Hunter) — useful after you applied.`,
+          ? `Specific-company search for "${meta.target_company || '—'}". Skips industry discovery; finds people at that employer in roles similar to yours (LinkedIn via Bing/Serper → OSINT → optional Hunter) — useful after you applied.`
           : 'Queued search (one company per step). AI reads your profile + filters, runs live web search for employers, then finds people in similar roles at those companies (LinkedIn via Bing/Serper → OSINT → optional Hunter).',
       search_mode: meta.search_mode || 'general',
       target_company: meta.target_company || null,
