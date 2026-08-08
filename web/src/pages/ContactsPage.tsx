@@ -863,7 +863,12 @@ export function ContactsPage() {
         return
       }
       setDraftedContactIds((prev) => new Set(prev).add(id))
-      setMsg('Draft ready — press Go to drafts to review it.')
+      if (pickKeptForDraft) {
+        setMsg('Draft ready — opening outbox…')
+        navigate(`/app/drafts?contact=${id}`)
+      } else {
+        setMsg('Draft ready — press Go to drafts to review it.')
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Drafting failed')
     } finally {
@@ -1342,7 +1347,7 @@ export function ContactsPage() {
                 rows={2}
                 value={keepNote}
                 onChange={(e) => setKeepNote(e.target.value)}
-                placeholder="Anything about this pick signal…"
+                placeholder='e.g. "great embedded automotive fit"'
               />
             </label>
             <div className="actions">
@@ -1460,14 +1465,17 @@ export function ContactsPage() {
               ))}
             </div>
             <label>
-              Optional note
+              Why this niche is wrong (optional note)
               <textarea
                 rows={2}
                 value={discardNote}
                 onChange={(e) => setDiscardNote(e.target.value)}
-                placeholder="Anything else about this pick signal…"
+                placeholder='e.g. "fusion not embedded automotive" (reject … not … want)'
               />
             </label>
+            <p className="muted small" style={{ marginTop: '0.35rem' }}>
+              Use “X not Y” so we know X is wrong and Y is what you want.
+            </p>
             <div className="actions">
               <button
                 type="button"

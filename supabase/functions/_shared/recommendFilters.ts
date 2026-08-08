@@ -134,6 +134,9 @@ ${pref?.likes_doc || '(empty)'}
 Negative pick-signal feedback (rejected hiring signals + why):
 ${pref?.dislikes_doc || '(empty)'}
 
+IMPORTANT polarity: preference docs may say "REJECT niches: …" and "PREFER niches: …".
+Treat REJECT as industries/signals to avoid; PREFER as targets to reinforce — even when the PREFER line came from a discard note like "fusion not embedded automotive" (reject fusion, prefer embedded automotive).
+
 Discard/keep reason counts:
 ${JSON.stringify(pref?.discard_reason_counts || {})}`,
       },

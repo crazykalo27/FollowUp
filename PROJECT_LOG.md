@@ -1,3 +1,8 @@
+## 2026-08-08 — Contrastive discard-note polarity
+
+- Notes like “fusion not embedded automotive” parse as REJECT fusion / PREFER embedded automotive.
+- Preference docs, gradient refine, and filter rewrite all use that polarity explicitly.
+
 ## 2026-08-08 — Orientation search lock + full second review
 
 - After a calibration search finishes, Search only offers Review contacts (no second run).

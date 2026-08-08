@@ -52,6 +52,10 @@ function normKey(s: string) {
   return s.trim().replace(/\s+/g, ' ')
 }
 
+function unique(arr: string[]) {
+  return Array.from(new Set(arr.map(normKey).filter(Boolean)))
+}
+
 /** Deterministic 0–99 from string (FNV-1a style). */
 export function hashPercent(input: string): number {
   let h = 2166136261
@@ -80,20 +84,111 @@ function bump(
   weights[k] = clamp01(cur + delta)
 }
 
-function extractIndustryHint(d: RefineDecision): string | null {
-  const blob = [d.hiring_signal, d.match_reason, d.company_name, d.note]
-    .filter(Boolean)
-    .join(' ')
-  // Prefer explicit note fragments; otherwise use hiring signal as niche proxy
-  if (d.note?.trim()) {
-    const n = normKey(d.note)
-    if (n.length >= 3 && n.length <= 80) return n
+export type PolarNote = {
+  reject: string[]
+  prefer: string[]
+  /** True when we parsed an explicit contrast (A not B, want X not Y, …). */
+  contrastive: boolean
+  raw: string
+}
+
+/**
+ * Interpret free-text keep/discard notes into REJECT vs PREFER niches.
+ * Example: "fusion not embedded automotive" → reject fusion, prefer embedded automotive.
+ */
+export function parsePolarFeedbackNote(
+  note: string | null | undefined,
+  decision: 'keep' | 'discard' = 'discard',
+): PolarNote {
+  const raw = normKey(note || '')
+  if (!raw) return { reject: [], prefer: [], contrastive: false, raw: '' }
+
+  const reject: string[] = []
+  const prefer: string[] = []
+
+  const push = (arr: string[], v: string | undefined) => {
+    const k = normKey(v || '')
+    if (k.length >= 2 && k.length <= 80) arr.push(k)
   }
+
+  // "want/looking for/prefer X, not Y" / "want X not Y"
+  let m = raw.match(
+    /(?:want|looking for|prefer|need|seeking)\s+(.+?)(?:\s*[,;:—-]+\s*|\s+)not\s+(.+)$/i,
+  )
+  if (m) {
+    push(prefer, m[1])
+    push(reject, m[2])
+    return { reject: unique(reject), prefer: unique(prefer), contrastive: true, raw }
+  }
+
+  // "not X, want/looking for Y" / "not X — Y"
+  m = raw.match(
+    /^not\s+(.+?)(?:\s*[,;:—-]+\s*|\s+)(?:want|looking for|prefer|need|seeking|=|->)?\s*(.+)$/i,
+  )
+  if (m) {
+    push(reject, m[1])
+    push(prefer, m[2])
+    return { reject: unique(reject), prefer: unique(prefer), contrastive: true, raw }
+  }
+
+  // "X instead of Y" / "X rather than Y"
+  m = raw.match(/^(.+?)\s+(?:instead of|rather than)\s+(.+)$/i)
+  if (m) {
+    push(prefer, m[1])
+    push(reject, m[2])
+    return { reject: unique(reject), prefer: unique(prefer), contrastive: true, raw }
+  }
+
+  // "wrong: X; want: Y" / "reject X / prefer Y"
+  m = raw.match(
+    /(?:wrong|reject|avoid|dislike)\s*:?\s*(.+?)(?:\s*[,;/|]+\s*|\s+)(?:want|prefer|like|need)\s*:?\s*(.+)$/i,
+  )
+  if (m) {
+    push(reject, m[1])
+    push(prefer, m[2])
+    return { reject: unique(reject), prefer: unique(prefer), contrastive: true, raw }
+  }
+
+  // Default contrast: "X not Y" (e.g. "fusion not embedded automotive")
+  m = raw.match(/^(.+?)\s+not\s+(.+)$/i)
+  if (m) {
+    push(reject, m[1])
+    push(prefer, m[2])
+    return { reject: unique(reject), prefer: unique(prefer), contrastive: true, raw }
+  }
+
+  // Non-contrastive: whole note is a niche label with polarity from decision
+  if (decision === 'discard') push(reject, raw)
+  else push(prefer, raw)
+  return {
+    reject: unique(reject),
+    prefer: unique(prefer),
+    contrastive: false,
+    raw,
+  }
+}
+
+/** Human-readable polarity line for preference docs / AI memos. */
+export function formatPolarNoteLine(polar: PolarNote): string {
+  if (!polar.raw) return ''
+  const bits: string[] = []
+  if (polar.reject.length) bits.push(`REJECT niches: ${polar.reject.join('; ')}`)
+  if (polar.prefer.length) bits.push(`PREFER niches: ${polar.prefer.join('; ')}`)
+  if (!bits.length) return `note: ${polar.raw}`
+  return `note "${polar.raw}" → ${bits.join(' | ')}`
+}
+
+/** Fallback hiring-signal / company hint when note has no usable niches. */
+function extractIndustryHint(d: RefineDecision): string | null {
   if (d.hiring_signal?.trim()) {
     const s = normKey(d.hiring_signal)
     return s.length > 90 ? s.slice(0, 90) : s
   }
-  if (blob.length > 8) return normKey(blob).slice(0, 80)
+  if (d.company_name?.trim()) return normKey(d.company_name)
+  if (d.match_reason?.trim()) {
+    const s = normKey(d.match_reason)
+    return s.length > 90 ? s.slice(0, 90) : s
+  }
   return null
 }
 
@@ -162,14 +257,31 @@ export function applyDecisionGradient(
   const reduced: string[] = []
 
   for (const d of decisions) {
-    const hint = extractIndustryHint(d)
+    const polar = parsePolarFeedbackNote(d.note, d.decision)
+    const signalHint = extractIndustryHint(d)
     const title = d.contact_title ? normKey(d.contact_title) : null
     const reasons = new Set(d.reasons || [])
 
     if (d.decision === 'keep') {
-      if (reasons.has('great_industry_match') || reasons.size === 0) {
-        bump(next.industries, hint, lr * 0.9)
-        if (hint) boosted.push(hint)
+      const prefer =
+        polar.prefer.length > 0
+          ? polar.prefer
+          : signalHint
+            ? [signalHint]
+            : []
+      if (
+        reasons.has('great_industry_match') ||
+        polar.prefer.length > 0 ||
+        reasons.size === 0
+      ) {
+        for (const p of prefer) {
+          bump(next.industries, p, lr * 0.9)
+          boosted.push(p)
+        }
+        for (const r of polar.reject) {
+          bump(next.industries, r, -lr * 0.7)
+          reduced.push(r)
+        }
         // Soft-boost all current high industries slightly (momentum toward mode)
         for (const [k, v] of Object.entries(next.industries)) {
           if (v >= 0.5) next.industries[k] = clamp01(v + lr * 0.08)
@@ -184,9 +296,28 @@ export function applyDecisionGradient(
         bump(next.include_titles, title, lr * 0.6)
       }
     } else {
-      if (reasons.has('wrong_industry')) {
-        bump(next.industries, hint, -lr)
-        if (hint) reduced.push(hint)
+      // Discard: apply contrastive note polarity first (REJECT vs PREFER)
+      if (
+        reasons.has('wrong_industry') ||
+        polar.contrastive ||
+        polar.reject.length > 0 ||
+        polar.prefer.length > 0
+      ) {
+        const rejects =
+          polar.reject.length > 0
+            ? polar.reject
+            : signalHint
+              ? [signalHint]
+              : []
+        for (const r of rejects) {
+          bump(next.industries, r, -lr)
+          reduced.push(r)
+        }
+        for (const p of polar.prefer) {
+          // User said they want this niche instead — boost it even on a discard
+          bump(next.industries, p, lr * 0.85)
+          boosted.push(p)
+        }
         // Pull mass away from middling industries (sharpen the peak)
         for (const [k, v] of Object.entries(next.industries)) {
           if (v < 0.45) next.industries[k] = clamp01(v - lr * 0.12)
@@ -206,10 +337,6 @@ export function applyDecisionGradient(
   }
 
   return { state: next, boosted: unique(boosted), reduced: unique(reduced) }
-}
-
-function unique(arr: string[]) {
-  return Array.from(new Set(arr.map(normKey).filter(Boolean)))
 }
 
 /** Pick top-k plus ~10% exploration slots (deterministic). */
@@ -262,10 +389,11 @@ async function proposeExplorationIndustries(
   decisions: RefineDecision[],
 ): Promise<string[]> {
   const feedback = decisions
-    .map(
-      (d) =>
-        `${d.decision}: ${(d.reasons || []).join(',')} @ ${d.company_name || '?'} / ${d.contact_title || '?'} / ${d.hiring_signal || ''}`,
-    )
+    .map((d) => {
+      const polar = parsePolarFeedbackNote(d.note, d.decision)
+      const polarLine = formatPolarNoteLine(polar)
+      return `${d.decision}: ${(d.reasons || []).join(',')} @ ${d.company_name || '?'} / ${d.contact_title || '?'} / signal=${d.hiring_signal || ''}${polarLine ? ` | ${polarLine}` : ''}`
+    })
     .join('\n')
     .slice(0, 2500)
 

@@ -7,6 +7,10 @@ import {
   requireUser,
 } from '../_shared/cors.ts'
 import { recommendFiltersForUser } from '../_shared/recommendFilters.ts'
+import {
+  formatPolarNoteLine,
+  parsePolarFeedbackNote,
+} from '../_shared/preferenceGradient.ts'
 
 export const DISCARD_REASONS = [
   { id: 'not_a_person', label: 'Not a person' },
@@ -185,11 +189,17 @@ function appendSignalFeedback(
     : decision === 'keep'
       ? 'kept (no reason chip)'
       : 'discarded'
+  const polar = parsePolarFeedbackNote(entry.note, decision)
+  const polarLine = formatPolarNoteLine(polar)
   const line =
     `[${stamp}] ${decision.toUpperCase()} pick_signal: "${entry.signal}"` +
     `\n  match: ${entry.match_reason}` +
     `\n  feedback: ${why}` +
-    (entry.note ? `\n  note: ${entry.note}` : '')
+    (polarLine
+      ? `\n  ${polarLine}`
+      : entry.note
+        ? `\n  note: ${entry.note}`
+        : '')
 
   if (decision === 'keep') {
     bundle.likes.signal_feedback.push(entry)
@@ -198,6 +208,11 @@ function appendSignalFeedback(
     }
     bundle.likesDoc = `${bundle.likesDoc}\n${line}`.trim()
     if (entry.note) bundle.likes.notes.push(entry.note)
+    for (const p of polar.prefer) {
+      if (!bundle.likes.signals.includes(`prefer:${p}`)) {
+        bundle.likes.signals.push(`prefer:${p}`)
+      }
+    }
   } else {
     bundle.dislikes.signal_feedback.push(entry)
     for (const r of entry.reasons) {
@@ -206,6 +221,19 @@ function appendSignalFeedback(
     }
     bundle.dislikesDoc = `${bundle.dislikesDoc}\n${line}`.trim()
     if (entry.note) bundle.dislikes.notes.push(entry.note)
+    for (const r of polar.reject) {
+      if (!bundle.dislikes.notes.includes(`reject:${r}`)) {
+        bundle.dislikes.notes.push(`reject:${r}`)
+      }
+    }
+    // Preferred niches mentioned on a discard still count as positive intent
+    for (const p of polar.prefer) {
+      if (!bundle.likes.signals.includes(`prefer:${p}`)) {
+        bundle.likes.signals.push(`prefer:${p}`)
+      }
+      const preferLine = `[${stamp}] IMPLIED PREFER from discard note: "${p}" (user rejected contrasting niche)`
+      bundle.likesDoc = `${bundle.likesDoc}\n${preferLine}`.trim()
+    }
   }
 }
 
@@ -228,27 +256,29 @@ async function maybeRefreshAiSummary(
         {
           role: 'system',
           content: `You maintain a short preference memo for FollowUp's contact picker.
-Focus on PICK SIGNALS (job posts / hiring signals / match reasons), not individual people.
-Explain which kinds of hiring signals and match rationales to prefer or avoid, and why
-(e.g. "when signal looks like internship postings, user marks wrong job type — downweight").
+Focus on PICK SIGNALS (job posts / hiring signals / match reasons) and INDUSTRY NICHES, not individual people.
+User notes may be contrastive — parse polarity carefully:
+- "fusion not embedded automotive" means REJECT fusion / PREFER embedded automotive (not the reverse).
+- Lines marked REJECT niches / PREFER niches are authoritative.
+Explain which niches and hiring-signal patterns to prefer or avoid, and why.
 4–8 concrete sentences. Plain text only.`,
         },
         {
           role: 'user',
-          content: `Update this preference memo about which pick signals to trust.
+          content: `Update this preference memo about which niches and pick signals to trust.
 
 Current summary:
 ${bundle.aiSummary || '(none yet)'}
 
-POSITIVE SIGNAL FEEDBACK:
+POSITIVE SIGNAL FEEDBACK (includes IMPLIED PREFER from contrastive discard notes):
 ${bundle.likesDoc || '(empty)'}
 
-NEGATIVE SIGNAL FEEDBACK:
+NEGATIVE SIGNAL FEEDBACK (REJECT niches are things to avoid):
 ${bundle.dislikesDoc || '(empty)'}
 
 Latest: ${latestLine}
 
-Return plain text only — the updated memo.`,
+Return plain text only — the updated memo. Be explicit about which niches are positive vs negative.`,
         },
       ],
       { temperature: 0.3 },
