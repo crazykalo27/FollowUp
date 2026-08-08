@@ -47,6 +47,7 @@ Conceptual milestones (not a commit-by-commit diary).
 - Welcome setup: required full name + optional links for email signatures; drafts never use placeholder brackets.
 - Review UI keeps Tinder swipe/buttons on a highlighted card; all pending contacts show below and clicking one promotes it to the carousel.
 - Contacts cards: labeled detail grid (role, company, email, LinkedIn, signal, why surfaced); carousel shows one neighbor each side at ~80% scale recessed behind center.
+- Contact `location` on cards (DB column + LinkedIn/Proxycurl capture on new searches; older websearch rows infer from snippet when possible).
 
 ## 2026-08-05 — Settings mirrors profile + sender
 

@@ -20,6 +20,7 @@ type ContactRow = {
   filter_match_reason: string | null
   discovery_source: string | null
   linkedin_url: string | null
+  location: string | null
   sources: string[] | null
   review_status: string | null
   created_at?: string | null
@@ -27,6 +28,8 @@ type ContactRow = {
     hiring_signal?: string
     hiring_signal_url?: string
     job_source?: string
+    location?: string
+    websearch?: { location?: string; snippet?: string }
   } | null
   companies: {
     id: string
@@ -75,6 +78,32 @@ function formatSourceLabel(source: string) {
   return labels[source] || source.replace(/_/g, ' ')
 }
 
+function locationFromSnippet(snippet: string): string | null {
+  const head = snippet.split('·')[0]?.trim()
+  if (!head || head.length > 96) return null
+  if (/^experience:/i.test(head)) return null
+  if (/,/.test(head) || /\b(Area|Region|Metropolitan)\b/i.test(head)) {
+    return head
+  }
+  return null
+}
+
+function contactLocation(contact: ContactRow): string | null {
+  if (contact.location?.trim()) return contact.location.trim()
+  const sd = contact.source_details
+  if (!sd) return null
+  if (typeof sd.location === 'string' && sd.location.trim()) {
+    return sd.location.trim()
+  }
+  const wsLoc = sd.websearch?.location
+  if (typeof wsLoc === 'string' && wsLoc.trim()) return wsLoc.trim()
+  const snippet = sd.websearch?.snippet
+  if (typeof snippet === 'string') {
+    return locationFromSnippet(snippet)
+  }
+  return null
+}
+
 function ContactDetail({
   contact,
   compact = false,
@@ -93,6 +122,7 @@ function ContactDetail({
   const sources = contactSources(contact)
   const companyName = contact.companies?.name || '—'
   const companyDomain = contact.companies?.domain
+  const location = contactLocation(contact)
 
   return (
     <div
@@ -134,6 +164,9 @@ function ContactDetail({
             )}
           </span>
         </dd>
+
+        <dt>Location</dt>
+        <dd>{location || '—'}</dd>
 
         <dt>Email</dt>
         <dd>
@@ -247,7 +280,7 @@ export function ContactsPage() {
       supabase
         .from('contacts')
         .select(
-          'id, company_id, full_name, title, email, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, created_at, source_details, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
+          'id, company_id, full_name, title, email, location, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, created_at, source_details, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
         )
         .eq('user_id', user.id)
         .order('created_at', { ascending: false }),

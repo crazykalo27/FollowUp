@@ -279,6 +279,7 @@ type Candidate = {
   title: string | null
   email: string | null
   linkedin_url: string | null
+  location: string | null
   verification_status: string | null
   sources: string[]
   source_details: Record<string, unknown>
@@ -398,6 +399,7 @@ function mergeCandidate(into: Candidate, from: Candidate): Candidate {
     title: into.title || from.title,
     email: into.email || from.email,
     linkedin_url: into.linkedin_url || from.linkedin_url,
+    location: into.location || from.location,
     verification_status: into.verification_status || from.verification_status,
     sources: [...new Set([...into.sources, ...from.sources])],
     source_details: { ...into.source_details, ...from.source_details },
@@ -610,6 +612,7 @@ async function searchHunter(
         title: p.position || null,
         email: p.value || null,
         linkedin_url: p.linkedin || null,
+        location: null,
         verification_status: p.verification?.status || null,
         sources: ['hunter'],
         source_details: {
@@ -675,26 +678,62 @@ async function hunterEmailVerifier(
   }
 }
 
+function parseLocationFromLinkedInSnippet(snippet: string): string | null {
+  const head = snippet.split('·')[0]?.trim()
+  if (!head || head.length > 96) return null
+  if (/^experience:/i.test(head)) return null
+  if (/,/.test(head) || /\b(Area|Region|Metropolitan)\b/i.test(head)) {
+    return head
+  }
+  return null
+}
+
+function formatProfileLocation(profile: {
+  city?: string
+  state?: string
+  country?: string
+  country_full_name?: string
+}): string | null {
+  const parts = [
+    profile.city,
+    profile.state,
+    profile.country_full_name || profile.country,
+  ].filter((p) => p && String(p).trim())
+  return parts.length ? parts.join(', ') : null
+}
+
 function parseLinkedInTitle(title: string, companyName: string): {
   full_name: string | null
   person_title: string | null
+  location: string | null
 } {
   // Typical: "Jane Doe - Engineering Manager - Acme | LinkedIn"
+  // Or: "Jane Doe - Engineering Manager - Acme - San Francisco Bay Area | LinkedIn"
   const cleaned = title
     .replace(/\s*\|\s*LinkedIn.*$/i, '')
     .replace(/\s*-\s*LinkedIn.*$/i, '')
     .trim()
   const parts = cleaned.split(/\s[-–—]\s/).map((p) => p.trim()).filter(Boolean)
-  if (parts.length === 0) return { full_name: null, person_title: null }
+  if (parts.length === 0) {
+    return { full_name: null, person_title: null, location: null }
+  }
 
   const full_name = parts[0] || null
   let person_title: string | null = null
+  let location: string | null = null
+  const companyLower = companyName.toLowerCase()
+
   for (let i = 1; i < parts.length; i++) {
-    if (parts[i].toLowerCase() === companyName.toLowerCase()) continue
-    person_title = parts[i]
+    const segment = parts[i]
+    if (segment.toLowerCase() === companyLower) continue
+    if (!person_title) {
+      person_title = segment
+      continue
+    }
+    location = segment
     break
   }
-  return { full_name, person_title }
+  return { full_name, person_title, location }
 }
 
 function extractLinkedInUrl(url: string): string | null {
@@ -775,6 +814,11 @@ async function searchWebLinkedIn(
         if (!li || seen.has(li)) continue
         seen.add(li)
         const parsed = parseLinkedInTitle(item.title || '', companyName)
+        const snippet = item.snippet || ''
+        const location =
+          parsed.location ||
+          parseLocationFromLinkedInSnippet(snippet) ||
+          null
         const names = splitName(parsed.full_name)
         out.push({
           first_name: names.first_name,
@@ -783,6 +827,7 @@ async function searchWebLinkedIn(
           title: parsed.person_title,
           email: null,
           linkedin_url: li,
+          location,
           verification_status: null,
           sources: ['websearch'],
           source_details: {
@@ -790,7 +835,8 @@ async function searchWebLinkedIn(
               via,
               query: q,
               domain,
-              snippet: item.snippet || null,
+              snippet: snippet || null,
+              location,
             },
           },
         })
@@ -844,6 +890,10 @@ async function searchProxycurl(
         first_name?: string
         last_name?: string
         occupation?: string
+        city?: string
+        state?: string
+        country?: string
+        country_full_name?: string
         experiences?: Array<{ title?: string }>
       }
     }>
@@ -863,6 +913,7 @@ async function searchProxycurl(
         title,
         email: null,
         linkedin_url: r.linkedin_profile_url || null,
+        location: formatProfileLocation(profile),
         verification_status: null,
         sources: ['proxycurl'],
         source_details: {
@@ -2012,6 +2063,7 @@ Deno.serve(async (req) => {
           title: cand.title,
           email: cand.email,
           linkedin_url: cand.linkedin_url,
+          location: cand.location,
           verification_status: cand.verification_status,
           filter_match_reason: reason,
           discovery_source: primary,
@@ -2019,6 +2071,7 @@ Deno.serve(async (req) => {
           review_status: 'pending',
           source_details: {
             ...cand.source_details,
+            location: cand.location,
             hiring_signal: company.hiring_signal || null,
             hiring_signal_url: company.url,
             job_source: company.source,
