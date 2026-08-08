@@ -61,7 +61,27 @@ function contactSources(r: ContactRow) {
       : []
 }
 
-function ContactDetail({ contact }: { contact: ContactRow }) {
+function formatSourceLabel(source: string) {
+  const labels: Record<string, string> = {
+    hunter: 'Hunter.io',
+    websearch: 'Web search',
+    proxycurl: 'Proxycurl',
+    site_crawl: 'Company site',
+    pattern: 'Email pattern',
+    verify_mx: 'MX verified',
+    osint: 'OSINT',
+    osint_worker: 'OSINT',
+  }
+  return labels[source] || source.replace(/_/g, ' ')
+}
+
+function ContactDetail({
+  contact,
+  compact = false,
+}: {
+  contact: ContactRow
+  compact?: boolean
+}) {
   const hiring =
     contact.source_details?.hiring_signal ||
     contact.companies?.hiring_signal_title ||
@@ -70,81 +90,117 @@ function ContactDetail({ contact }: { contact: ContactRow }) {
     contact.source_details?.hiring_signal_url ||
     contact.companies?.hiring_signal_url ||
     null
+  const sources = contactSources(contact)
+  const companyName = contact.companies?.name || '—'
+  const companyDomain = contact.companies?.domain
 
   return (
-    <>
-      <header className="contact-card-top">
-        <span className="contact-name">{contact.full_name || 'Unknown'}</span>
-        <div className="source-pills">
-          {contactSources(contact).map((s) => (
-            <span key={s} className={`pill source-${s}`}>
-              {s}
-            </span>
-          ))}
-        </div>
+    <div
+      className={`contact-detail${compact ? ' contact-detail-compact' : ''}`}
+    >
+      <header className="contact-detail-header">
+        <h2 className="contact-detail-name">
+          {contact.full_name || 'Unknown'}
+        </h2>
+        {sources.length > 0 && (
+          <div className="source-pills contact-detail-sources">
+            {sources.map((s) => (
+              <span key={s} className={`pill source-${s}`} title="Found via">
+                {formatSourceLabel(s)}
+              </span>
+            ))}
+          </div>
+        )}
       </header>
 
-      <p className="contact-title">{contact.title || 'Title unknown'}</p>
-      <p className="muted company-line">
-        {contact.companies?.name}
-        {contact.companies?.domain ? ` · ${contact.companies.domain}` : ''}
-        {contact.companies?.user_flag === 'favorite' && (
-          <span className="pill company-favorite">Favorite</span>
-        )}
-        {contact.companies?.user_flag === 'avoid' && (
-          <span className="pill company-avoid">Avoid</span>
-        )}
-      </p>
+      <dl className="contact-detail-grid">
+        <dt>Role</dt>
+        <dd className="contact-detail-role">
+          {contact.title || 'Title unknown'}
+        </dd>
 
-      {hiring && (
-        <p className="hiring-signal">
-          Hiring signal:{' '}
-          {hiringUrl ? (
-            <a href={hiringUrl} target="_blank" rel="noreferrer">
-              {hiring}
+        <dt>Company</dt>
+        <dd>
+          <span className="company-line">
+            <span>{companyName}</span>
+            {companyDomain && (
+              <span className="muted small"> · {companyDomain}</span>
+            )}
+            {contact.companies?.user_flag === 'favorite' && (
+              <span className="pill company-favorite">Favorite</span>
+            )}
+            {contact.companies?.user_flag === 'avoid' && (
+              <span className="pill company-avoid">Avoid</span>
+            )}
+          </span>
+        </dd>
+
+        <dt>Email</dt>
+        <dd>
+          <div className="contact-detail-email">
+            {contact.email ? (
+              <a
+                href={`mailto:${contact.email}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {contact.email}
+              </a>
+            ) : (
+              '—'
+            )}
+          </div>
+          {contact.verification_status && (
+            <span className="muted small contact-detail-verify">
+              {contact.verification_status}
+            </span>
+          )}
+        </dd>
+
+        <dt>LinkedIn</dt>
+        <dd>
+          {contact.linkedin_url ? (
+            <a
+              href={contact.linkedin_url}
+              target="_blank"
+              rel="noreferrer"
+              className="contact-detail-link"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View profile
             </a>
           ) : (
-            hiring
+            '—'
           )}
-        </p>
-      )}
+        </dd>
 
-      <p className="small muted why">{contact.filter_match_reason}</p>
+        {hiring && (
+          <>
+            <dt>Hiring signal</dt>
+            <dd className="contact-detail-signal">
+              {hiringUrl ? (
+                <a
+                  href={hiringUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {hiring}
+                </a>
+              ) : (
+                hiring
+              )}
+            </dd>
+          </>
+        )}
+      </dl>
 
-      <div className="contact-meta">
-        <div>
-          <span className="muted small">Email</span>
-          <div>{contact.email || '—'}</div>
-          {contact.verification_status && (
-            <span className="muted small">{contact.verification_status}</span>
-          )}
+      {contact.filter_match_reason && (
+        <div className="contact-detail-why">
+          <span className="contact-detail-why-label">Why we surfaced them</span>
+          <p>{contact.filter_match_reason}</p>
         </div>
-      </div>
-
-      {contact.linkedin_url && (
-        <a
-          className="btn"
-          href={contact.linkedin_url}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          LinkedIn
-        </a>
       )}
-    </>
-  )
-}
-
-function ContactPeek({ contact }: { contact: ContactRow }) {
-  return (
-    <>
-      <span className="contact-name peek-name">
-        {contact.full_name || 'Unknown'}
-      </span>
-      <p className="small muted">{contact.title || 'Title unknown'}</p>
-      <p className="small muted">{contact.companies?.name || '—'}</p>
-    </>
+    </div>
   )
 }
 
@@ -317,14 +373,14 @@ export function ContactsPage() {
     return pending.findIndex((p) => p.id === current.id)
   }, [pending, current])
 
-  const leftPeeks = useMemo(() => {
-    if (currentIndex <= 0) return []
-    return pending.slice(Math.max(0, currentIndex - 2), currentIndex)
+  const prevContact = useMemo(() => {
+    if (currentIndex <= 0) return null
+    return pending[currentIndex - 1] ?? null
   }, [pending, currentIndex])
 
-  const rightPeeks = useMemo(() => {
-    if (currentIndex < 0) return []
-    return pending.slice(currentIndex + 1, currentIndex + 3)
+  const nextContact = useMemo(() => {
+    if (currentIndex < 0 || currentIndex >= pending.length - 1) return null
+    return pending[currentIndex + 1] ?? null
   }, [pending, currentIndex])
 
   const pendingAtCompany = useMemo(() => {
@@ -755,7 +811,7 @@ export function ContactsPage() {
       <p className="lede">
         {orientLockDiscard
           ? 'Review the people we found. Keep someone worth emailing to continue.'
-          : 'Swipe or use Keep / Discard on the center card. Click a side card to review that contact.'}
+          : 'Swipe or use Keep / Discard on the center card. Click the card to the left or right to jump to that contact.'}
       </p>
 
       {orientLockDiscard && (
@@ -829,18 +885,21 @@ export function ContactsPage() {
                 </p>
                 <div className="carousel-viewport">
                   <div className="carousel-track">
-                    <div className="carousel-side left" aria-hidden={leftPeeks.length === 0}>
-                      {leftPeeks.map((c, i) => (
+                    <div
+                      className="carousel-side left"
+                      aria-hidden={!prevContact}
+                    >
+                      {prevContact && (
                         <button
-                          key={c.id}
+                          key={prevContact.id}
                           type="button"
-                          className={`carousel-peek swipe-card peek-left depth-${leftPeeks.length - i}`}
+                          className="carousel-peek swipe-card peek-left"
                           disabled={busy}
-                          onClick={() => selectContact(c.id)}
+                          onClick={() => selectContact(prevContact.id)}
                         >
-                          <ContactPeek contact={c} />
+                          <ContactDetail contact={prevContact} compact />
                         </button>
-                      ))}
+                      )}
                     </div>
 
                     <div className="carousel-center">
@@ -868,18 +927,21 @@ export function ContactsPage() {
                       </article>
                     </div>
 
-                    <div className="carousel-side right" aria-hidden={rightPeeks.length === 0}>
-                      {rightPeeks.map((c, i) => (
+                    <div
+                      className="carousel-side right"
+                      aria-hidden={!nextContact}
+                    >
+                      {nextContact && (
                         <button
-                          key={c.id}
+                          key={nextContact.id}
                           type="button"
-                          className={`carousel-peek swipe-card peek-right depth-${i + 1}`}
+                          className="carousel-peek swipe-card peek-right"
                           disabled={busy}
-                          onClick={() => selectContact(c.id)}
+                          onClick={() => selectContact(nextContact.id)}
                         >
-                          <ContactPeek contact={c} />
+                          <ContactDetail contact={nextContact} compact />
                         </button>
-                      ))}
+                      )}
                     </div>
                   </div>
                 </div>
