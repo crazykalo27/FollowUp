@@ -7,6 +7,7 @@ import { useOrientation } from '../lib/orientationContext'
 import {
   SEARCH_DEPTHS,
   SEARCH_MODES,
+  USER_SEARCH_DEPTHS,
   COMPANY_PEOPLE_TARGETS,
   depthPreset,
   loadActiveCompanyPeopleTarget,
@@ -170,6 +171,10 @@ export function OverviewPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [summary, setSummary] = useState<SearchSummary | null>(null)
   const [depth, setDepth] = useState<SearchDepth>('standard')
+  const inOrientationSearch =
+    !orientation.complete &&
+    (orientation.step === 'search' || orientation.step === 'search2')
+  const isSecondCalibration = orientation.step === 'search2'
   const [searchMode, setSearchMode] = useState<SearchMode>('general')
   const [targetCompany, setTargetCompany] = useState('')
   const [companyPeopleTarget, setCompanyPeopleTarget] =
@@ -206,6 +211,15 @@ export function OverviewPage() {
     prefillSpecificCompanySearch(company)
   }, [searchParams])
 
+  useEffect(() => {
+    if (inOrientationSearch) {
+      setDepth('orientation')
+      setSearchMode('general')
+      saveActiveRunDepth('orientation')
+      saveActiveRunMode('general')
+    }
+  }, [inOrientationSearch])
+
   function stopPoll() {
     if (pollRef.current != null) {
       window.clearInterval(pollRef.current)
@@ -228,7 +242,11 @@ export function OverviewPage() {
     stopPoll()
     setErrorMsg(null)
     if (!orientation.complete && next.contacts_created > 0) {
-      void orientation.advanceTo('contacts').then(() => setOrientPrompt(true))
+      const nextStep =
+        orientation.step === 'search2' || orientation.step === 'refine'
+          ? 'contacts2'
+          : 'contacts'
+      void orientation.advanceTo(nextStep).then(() => setOrientPrompt(true))
     }
   }
 
@@ -508,7 +526,8 @@ export function OverviewPage() {
       return
     }
 
-    const preset = depthPreset(depth)
+    const runDepth: SearchDepth = inOrientationSearch ? 'orientation' : depth
+    const preset = depthPreset(runDepth)
     const companyLabel = targetCompany.trim()
     setSearching(true)
     setSummary(null)
@@ -518,7 +537,11 @@ export function OverviewPage() {
       message:
         searchMode === 'company'
           ? `Preparing search at ${companyLabel}…`
-          : `Preparing ${preset.label.toLowerCase()} search…`,
+          : inOrientationSearch
+            ? isSecondCalibration
+              ? 'Preparing refined calibration search (4 people)…'
+              : 'Preparing calibration search (4 people)…'
+            : `Preparing ${preset.label.toLowerCase()} search…`,
       detail:
         searchMode === 'company'
           ? `Goal: ${companyPeopleTarget} people at one employer · ${preset.eta}`
@@ -539,7 +562,9 @@ export function OverviewPage() {
         message:
           searchMode === 'company'
             ? `Starting search at ${companyLabel}…`
-            : `Preparing ${preset.label.toLowerCase()} search…`,
+            : inOrientationSearch
+              ? 'Starting calibration search…'
+              : `Preparing ${preset.label.toLowerCase()} search…`,
         detail:
           searchMode === 'company'
             ? `${companyPeopleTarget} people target`
@@ -556,10 +581,10 @@ export function OverviewPage() {
     }
 
     saveActiveRunId(run.id)
-    saveActiveRunDepth(depth)
-    saveActiveRunMode(searchMode)
+    saveActiveRunDepth(runDepth)
+    saveActiveRunMode(inOrientationSearch ? 'general' : searchMode)
     saveActiveRunTargetCompany(
-      searchMode === 'company' ? companyLabel : null,
+      !inOrientationSearch && searchMode === 'company' ? companyLabel : null,
     )
     setActiveRunId(run.id)
     startPolling(run.id)
@@ -572,9 +597,9 @@ export function OverviewPage() {
       accepted?: boolean
     }>('run-search', {
       run_id: run.id,
-      depth,
-      search_mode: searchMode,
-      ...(searchMode === 'company'
+      depth: runDepth,
+      search_mode: inOrientationSearch ? 'general' : searchMode,
+      ...(!inOrientationSearch && searchMode === 'company'
         ? {
             target_company: companyLabel,
             company_people_target: companyPeopleTarget,
@@ -633,20 +658,32 @@ export function OverviewPage() {
     return i >= 0 ? i : 0
   }
 
-  const selectedDepth = depthPreset(depth)
+  const selectedDepth = depthPreset(
+    inOrientationSearch ? 'orientation' : depth,
+  )
+  const depthChoices = orientation.complete ? USER_SEARCH_DEPTHS : SEARCH_DEPTHS
+  const pageTitle = inOrientationSearch
+    ? isSecondCalibration
+      ? 'Second calibration search'
+      : 'Calibration search'
+    : 'Search'
   const selectedModeMeta =
     SEARCH_MODES.find((m) => m.id === searchMode) ?? SEARCH_MODES[0]
 
   return (
     <div className="panel search-page">
       <header className="search-page-header">
-        <h1>Search</h1>
+        <h1>{pageTitle}</h1>
         <p className="lede">
-          {searchMode === 'company'
-            ? 'Name the employer you applied to (or want to reach). We find people there for a thoughtful follow-up — not a spray-and-pray blast.'
-            : orientation.complete
-              ? 'We find companies in your target industries, then people to contact directly — not job-board black holes. Search keeps running if you leave this page.'
-              : 'Run a search to discover companies and direct contacts based on your profile and filters. When it finishes, review contacts next.'}
+          {inOrientationSearch
+            ? isSecondCalibration
+              ? 'We updated your niches from your keep/discard feedback. This second search uses those refined targets — still about four people.'
+              : 'We will find about four people in your stated niches. Keep or discard each one with a reason so we can climb toward what you actually want.'
+            : searchMode === 'company'
+              ? 'Name the employer you applied to (or want to reach). We find people there for a thoughtful follow-up — not a spray-and-pray blast.'
+              : orientation.complete
+                ? 'We find companies in your target industries, then people to contact directly — not job-board black holes. Search keeps running if you leave this page.'
+                : 'Run a search to discover companies and direct contacts based on your profile and filters. When it finishes, review contacts next.'}
         </p>
       </header>
 
@@ -680,10 +717,25 @@ export function OverviewPage() {
 
       {!orientation.complete && (
         <div className="search-orient-coach">
-          <p>
-            Choose a search size below, then press <strong>Run search</strong>.
-            Stay on this page or leave — progress continues either way.
-          </p>
+          {inOrientationSearch ? (
+            <>
+              <p>
+                <strong>How we find your niche:</strong> resume → specific
+                industries you confirm → a small 4-person search → your
+                keep/discard feedback nudges the targets (with ~10% exploration)
+                → a second search with the update.
+              </p>
+              <p>
+                Press <strong>Run calibration search</strong> for about four
+                people. Stay or leave — progress continues either way.
+              </p>
+            </>
+          ) : (
+            <p>
+              Choose a search size below, then press <strong>Run search</strong>.
+              Stay on this page or leave — progress continues either way.
+            </p>
+          )}
         </div>
       )}
 
@@ -708,6 +760,23 @@ export function OverviewPage() {
       )}
 
       <section className="search-run-card">
+        {inOrientationSearch ? (
+          <>
+            <h3>Calibration batch</h3>
+            <p className="muted small" style={{ marginBottom: '1rem' }}>
+              Fixed size: <strong>4 companies × 1 person</strong> (~4 contacts).
+              {isSecondCalibration
+                ? ' Uses your gradient-updated industries and filters.'
+                : ' After you review all four, we refine niches and run one more search.'}
+            </p>
+            <p className="small depth-summary">
+              Selected: <strong>{selectedDepth.label}</strong> — ~
+              {selectedDepth.webSearchCredits} web searches,{' '}
+              {selectedDepth.estimatePeople}, {selectedDepth.eta}
+            </p>
+          </>
+        ) : (
+          <>
         <h3>What kind of search?</h3>
         <div
           className="search-mode-toggle"
@@ -764,7 +833,7 @@ export function OverviewPage() {
             </p>
             <div className="depth-picker">
               <div className="depth-grid">
-                {SEARCH_DEPTHS.map((d) => (
+                {depthChoices.map((d) => (
                   <button
                     key={d.id}
                     type="button"
@@ -833,6 +902,8 @@ export function OverviewPage() {
             </p>
           </>
         )}
+          </>
+        )}
       </section>
 
       <div className="search-actions-bar">
@@ -848,9 +919,13 @@ export function OverviewPage() {
         >
           {searching
             ? 'Search running…'
-            : searchMode === 'company'
-              ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
-              : `Run search (${selectedDepth.label.toLowerCase()})`}
+            : inOrientationSearch
+              ? isSecondCalibration
+                ? 'Run second calibration search'
+                : 'Run calibration search'
+              : searchMode === 'company'
+                ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
+                : `Run search (${selectedDepth.label.toLowerCase()})`}
         </button>
         {showCancel && (
           <button
@@ -885,8 +960,9 @@ export function OverviewPage() {
 
       {orientPrompt && (
         <div className="flash orientation-coach">
-          Search found contacts. Open Contacts to review them — keep one that
-          looks right to continue orientation.
+          {orientation.step === 'contacts2' || isSecondCalibration
+            ? 'Second search found contacts. Keep someone worth emailing to continue to drafts.'
+            : 'Calibration search found people. Review all of them — keep or discard each with a reason — so we can refine your niches.'}
           <div className="actions" style={{ marginTop: '0.75rem' }}>
             <button
               type="button"

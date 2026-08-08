@@ -11,6 +11,7 @@ import { FiltersPage } from './pages/FiltersPage'
 import { ContactsPage } from './pages/ContactsPage'
 import { DraftsPage } from './pages/DraftsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { RefinePage } from './pages/RefinePage'
 import './index.css'
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
                 <Route path="search" element={<OverviewPage />} />
                 <Route path="onboarding" element={<OnboardingPage />} />
                 <Route path="filters" element={<FiltersPage />} />
+                <Route path="refine" element={<RefinePage />} />
                 <Route path="contacts" element={<ContactsPage />} />
                 <Route path="drafts" element={<DraftsPage />} />
                 <Route path="settings" element={<SettingsPage />} />

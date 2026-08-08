@@ -17,7 +17,9 @@ Return JSON only:
   "rationale": string
 }
 The profile describes what JOBS and INDUSTRIES the user wants — not their resume skills.
+Industries must stay SPECIFIC niches (never collapse to "tech" / "software" / "engineering").
 include_titles must come primarily from profile.outreach_targets (who to email) and roles/industries they want.
+Prefer concrete titles tied to those niches (e.g. "FPGA Design Lead", "Director of Silicon Engineering") over vague ones.
 Prioritize people who refer or influence hiring: Director, Engineering Manager, Principal/Staff Engineer, Research Scientist, Senior Engineer, Lead Engineer.
 Broader technical titles when aligned. Recruiter / Talent Acquisition only as low-priority includes.
 Preference docs describe PICK SIGNALS (hiring signals / match reasons) the user rewarded or rejected —

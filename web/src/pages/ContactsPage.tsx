@@ -241,9 +241,14 @@ export function ContactsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const orientation = useOrientation()
-  const orientLockDiscard = !orientation.complete
+  const calibrationReview = !orientation.complete && orientation.step === 'contacts'
+  const secondPassReview =
+    !orientation.complete && orientation.step === 'contacts2'
+  const requireKeepReasons = calibrationReview
   const [rows, setRows] = useState<ContactRow[]>([])
   const [busy, setBusy] = useState(false)
+  const [refining, setRefining] = useState(false)
+  const refineStarted = useRef(false)
   const [draftingId, setDraftingId] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [discardOpen, setDiscardOpen] = useState(false)
@@ -531,23 +536,30 @@ export function ContactsPage() {
     target?: ContactRow,
   ) {
     const subject = target || current
-    if (!subject || busy) return
+    if (!subject || busy || refining) return
 
-    if (decision === 'discard' && orientLockDiscard) {
-      setMsg('During orientation, find one contact to Keep — Discard unlocks after.')
+    if (decision === 'discard' && reasons.length === 0 && !note.trim()) {
       return
     }
 
-    if (decision === 'discard' && reasons.length === 0 && !note.trim()) {
+    if (
+      decision === 'keep' &&
+      requireKeepReasons &&
+      reasons.length === 0 &&
+      !note.trim()
+    ) {
+      setMsg('Pick at least one reason so we can refine your industries.')
+      setKeepOpen(true)
       return
     }
 
     const deciding = subject
     const decidingId = deciding.id
     const isReviewQueue = (deciding.review_status || 'pending') === 'pending'
-    const nextId = isReviewQueue
-      ? pending.find((p) => p.id !== decidingId)?.id || null
-      : null
+    const remainingPending = isReviewQueue
+      ? pending.filter((p) => p.id !== decidingId)
+      : pending
+    const nextId = remainingPending[0]?.id || null
     const reviewStatus = decision === 'keep' ? 'kept' : 'discarded'
 
     setBusy(true)
@@ -583,7 +595,8 @@ export function ContactsPage() {
       deciding,
     )
 
-    if (decision === 'keep' && orientLockDiscard) {
+    // Second orientation pass: one Keep unlocks drafts
+    if (decision === 'keep' && secondPassReview) {
       void orientation.advanceTo('drafts').then(() => {
         navigate(`/app/drafts?contact=${decidingId}`)
       })
@@ -604,6 +617,48 @@ export function ContactsPage() {
       )
     }
   }
+
+  async function runCalibrationRefine() {
+    if (refineStarted.current || refining) return
+    refineStarted.current = true
+    setRefining(true)
+    setMsg('Updating your industry targets from this feedback…')
+    try {
+      const res = await invokeFunction<{
+        steps?: string[]
+        industries?: string[]
+      }>('refine-targets', {})
+      await orientation.advanceTo('refine')
+      setMsg(
+        res.industries?.length
+          ? `Refined niches: ${res.industries.slice(0, 3).join(', ')}…`
+          : 'Targets refined.',
+      )
+      navigate('/app/refine')
+    } catch (e) {
+      refineStarted.current = false
+      setMsg(
+        e instanceof Error
+          ? e.message
+          : 'Could not refine targets — try again from Refine.',
+      )
+    } finally {
+      setRefining(false)
+    }
+  }
+
+  // After all calibration contacts are reviewed, run gradient refine
+  useEffect(() => {
+    if (!calibrationReview || refining || busy) return
+    if (rows.length === 0) return
+    if (pending.length > 0) return
+    const reviewed = rows.filter(
+      (r) => r.review_status === 'kept' || r.review_status === 'discarded',
+    )
+    if (reviewed.length === 0) return
+    void runCalibrationRefine()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calibrationReview, pending.length, rows, busy, refining])
 
   function archiveContact(row: ContactRow) {
     if (busy) return
@@ -712,10 +767,6 @@ export function ContactsPage() {
   }
 
   function openDiscard(target?: ContactRow) {
-    if (orientLockDiscard) {
-      setMsg('During orientation, find one contact to Keep — Discard unlocks after.')
-      return
-    }
     setSelectedReasons([])
     setDiscardNote('')
     setDiscardTargetId(target?.id ?? current?.id ?? null)
@@ -745,8 +796,7 @@ export function ContactsPage() {
 
   function onPointerMove(e: ReactPointerEvent<HTMLElement>) {
     if (!dragging || !dragStart.current) return
-    let dx = e.clientX - dragStart.current.x
-    if (orientLockDiscard && dx < 0) dx = 0
+    const dx = e.clientX - dragStart.current.x
     setDragX(dx)
   }
 
@@ -755,8 +805,13 @@ export function ContactsPage() {
     setDragging(false)
     dragStart.current = null
     if (dragX > 110) {
-      applyDecision('keep')
-    } else if (dragX < -110 && !orientLockDiscard) {
+      if (requireKeepReasons) {
+        openKeep()
+        setDragX(0)
+      } else {
+        applyDecision('keep')
+      }
+    } else if (dragX < -110) {
       openDiscard()
       setDragX(0)
     } else {
@@ -844,23 +899,35 @@ export function ContactsPage() {
     <div className="panel">
       <h1>Contacts</h1>
       <p className="lede">
-        {orientLockDiscard
-          ? 'Review the people we found. Keep someone worth emailing to continue.'
-          : 'Swipe or use Keep / Discard on the center card. Click the card to the left or right to jump to that contact.'}
+        {calibrationReview
+          ? 'Review every person from the calibration search. Keep or discard each one with a reason — that feedback steers your industries.'
+          : secondPassReview
+            ? 'These contacts use your refined targets. Keep someone worth emailing to continue to drafts.'
+            : 'Swipe or use Keep / Discard on the center card. Click the card to the left or right to jump to that contact.'}
       </p>
 
-      {orientLockDiscard && (
+      {calibrationReview && (
         <div className="orientation-coach">
           <p>
-            <strong>Keep</strong> means this person is a good outreach target —
-            we’ll draft an email to them next.
+            <strong>Step:</strong> rate all {pending.length} remaining people.
+            Keep = good niche/person; Discard = teach us what to avoid.
           </p>
+          <p className="muted small">
+            Reasons are required. When the queue is empty we run a preference
+            gradient update (~10% exploration) and show you what changed.
+          </p>
+          {refining && (
+            <p className="muted small">Refining your industry targets…</p>
+          )}
+        </div>
+      )}
+
+      {secondPassReview && (
+        <div className="orientation-coach">
           <p>
-            <strong>Discard</strong> removes people who aren’t a fit and teaches
-            the search what to avoid. Discard stays locked until you Keep one
-            contact and finish orientation.
+            <strong>Keep</strong> someone to email next. Discard still teaches
+            the model if a pick is off.
           </p>
-          <p className="muted small">Find one contact to Keep to continue.</p>
         </div>
       )}
 
@@ -872,7 +939,7 @@ export function ContactsPage() {
         >
           Review ({pending.length})
         </button>
-        {!orientLockDiscard && (
+        {!calibrationReview && (
           <>
             <button
               type="button"
@@ -955,7 +1022,7 @@ export function ContactsPage() {
                         onPointerCancel={onPointerUp}
                       >
                         {dragX > 40 && <span className="swipe-stamp keep">Keep</span>}
-                        {dragX < -40 && !orientLockDiscard && (
+                        {dragX < -40 && (
                           <span className="swipe-stamp discard">Discard</span>
                         )}
                         <ContactDetail contact={current} />
@@ -985,12 +1052,7 @@ export function ContactsPage() {
                   <button
                     type="button"
                     className="btn swipe-discard"
-                    disabled={busy || orientLockDiscard}
-                    title={
-                      orientLockDiscard
-                        ? 'Discard unlocks after orientation'
-                        : undefined
-                    }
+                    disabled={busy || refining}
                     onClick={() => openDiscard()}
                   >
                     Discard
@@ -998,38 +1060,37 @@ export function ContactsPage() {
                   <button
                     type="button"
                     className="btn primary swipe-keep"
-                    disabled={busy}
+                    disabled={busy || refining}
                     onClick={openKeep}
                   >
                     Keep
                   </button>
                 </div>
 
-                {!orientLockDiscard && (
-                  <div className="company-actions">
-                    <button
-                      type="button"
-                      className="btn ghost small"
-                      disabled={
-                        busy ||
-                        current.companies?.user_flag === 'favorite'
-                      }
-                      onClick={() => applyFavoriteCompany()}
-                    >
-                      {current.companies?.user_flag === 'favorite'
-                        ? 'Company favorited'
-                        : 'Favorite company'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn ghost small company-discard-all"
-                      disabled={busy || pendingAtCompany < 1}
-                      onClick={() => setDiscardCompanyOpen(true)}
-                    >
-                      Discard all at company ({pendingAtCompany})
-                    </button>
-                  </div>
-                )}
+                <div className="company-actions">
+                  <button
+                    type="button"
+                    className="btn ghost small"
+                    disabled={
+                      busy ||
+                      refining ||
+                      current.companies?.user_flag === 'favorite'
+                    }
+                    onClick={() => applyFavoriteCompany()}
+                  >
+                    {current.companies?.user_flag === 'favorite'
+                      ? 'Company favorited'
+                      : 'Favorite company'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn ghost small company-discard-all"
+                    disabled={busy || refining || pendingAtCompany < 1}
+                    onClick={() => setDiscardCompanyOpen(true)}
+                  >
+                    Discard all at company ({pendingAtCompany})
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -1214,8 +1275,9 @@ export function ContactsPage() {
           >
             <h2 id="keep-title">What was right about this pick?</h2>
             <p className="muted small">
-              Optional — we learn from the hiring signal that led to this
-              contact, not just the person.
+              {requireKeepReasons
+                ? 'Required during calibration — we learn from the hiring signal that led here.'
+                : 'Optional — we learn from the hiring signal that led to this contact, not just the person.'}
             </p>
             <div className="reason-grid">
               {KEEP_REASONS.map((r) => (
@@ -1247,18 +1309,25 @@ export function ContactsPage() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                className="btn ghost"
-                disabled={busy}
-                onClick={() => applyDecision('keep', [], '', current)}
-              >
-                Quick keep
-              </button>
+              {!requireKeepReasons && (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={busy}
+                  onClick={() => applyDecision('keep', [], '', current)}
+                >
+                  Quick keep
+                </button>
+              )}
               <button
                 type="button"
                 className="btn primary swipe-keep"
-                disabled={busy}
+                disabled={
+                  busy ||
+                  (requireKeepReasons &&
+                    selectedKeepReasons.length === 0 &&
+                    !keepNote.trim())
+                }
                 onClick={() =>
                   applyDecision('keep', selectedKeepReasons, keepNote, current)
                 }

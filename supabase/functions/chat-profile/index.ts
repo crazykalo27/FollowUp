@@ -82,8 +82,8 @@ const QUESTIONS: {
       const list =
         p.industries.length > 0
           ? p.industries.map((i) => `• ${i}`).join('\n')
-          : '• (none confidently extracted — tell me what you want)'
-      return `From your resume I inferred these industries:\n${list}\n\nWhich industries are you actually looking for? Confirm, edit, or replace the list.`
+          : '• (none confidently extracted — tell me specific niches)'
+      return `From your resume I inferred these SPECIFIC industry niches (not generic labels):\n${list}\n\nWhich niches are you actually targeting? Confirm, edit, or replace with equally specific industries (e.g. “radar signal processing”, not “engineering”).`
     },
   },
   {
@@ -310,19 +310,25 @@ Return JSON only:
   }
 }
 
-Seed roles (3–8 desired titles) and industries (2–8) for later confirmation. Leave locations/employment/remote/company_size/seniority empty — we ask those first.
-Be specific on outreach_targets. Do not invent employers or degrees not in the resume.`
+CRITICAL — industries must be SPECIFIC niches (4–8 items), not generic buckets.
+Good: "FPGA semiconductor design", "edge AI inference hardware", "quantum control electronics".
+Bad: "technology", "software", "engineering", "IT", "business".
+Each industry should be a concrete sector a recruiter could search.
+
+Seed roles (4–8 desired titles that fit those niches) and industries (4–8 specific niches) for later confirmation.
+Leave locations/employment/remote/company_size/seniority empty — we ask those first.
+Be specific on outreach_targets (who to email at those companies). Do not invent employers or degrees not in the resume.`
 
       const extractRaw = await openaiChat(
         [
           {
             role: 'system',
             content:
-              'You infer job-search TARGETS from resumes. Return valid JSON only.',
+              'You infer SPECIFIC job-search TARGET niches from resumes. Never return generic industries. Return valid JSON only.',
           },
           { role: 'user', content: extractPrompt },
         ],
-        { temperature: 0.2, response_format: { type: 'json_object' } },
+        { temperature: 0.25, response_format: { type: 'json_object' } },
       )
 
       const extracted = stripFences(extractRaw) || {}
@@ -334,7 +340,7 @@ Be specific on outreach_targets. Do not invent employers or degrees not in the r
 
       const q0 = QUESTIONS[0].ask(profile)
       const safeReply = ensureSingleQuestion(
-        `I scanned your resume. I'll ask a short series of questions so we can find the right people to contact.\n\n${q0}`,
+        `I scanned your resume for specific niches we can search — not generic labels. I'll ask a short series of questions, then we'll calibrate with a small search.\n\n${q0}`,
       )
 
       await admin.from('profile_chat_messages').insert({

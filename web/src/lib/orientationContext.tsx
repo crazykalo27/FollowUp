@@ -49,8 +49,15 @@ export function OrientationProvider({ children }: { children: ReactNode }) {
     }
     setLoading(true)
     try {
-      const [{ data: prof, error: profErr }, { count: resumeCount }, { count: keptCount }, { count: draftCount }, { count: contactCount }, { data: doneRun }] =
-        await Promise.all([
+      const [
+        { data: prof, error: profErr },
+        { count: resumeCount },
+        { count: keptCount },
+        { count: draftCount },
+        { count: contactCount },
+        { data: doneRun },
+        { data: pref },
+      ] = await Promise.all([
         supabase
           .from('profiles')
           .select(
@@ -83,9 +90,13 @@ export function OrientationProvider({ children }: { children: ReactNode }) {
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle(),
+        supabase
+          .from('preference_documents')
+          .select('last_refine_steps, last_refined_at')
+          .eq('user_id', user.id)
+          .maybeSingle(),
       ])
 
-      // Fallback if orientation columns not migrated yet
       let profileRow = prof
       if (profErr) {
         const { data: fallback } = await supabase
@@ -96,7 +107,8 @@ export function OrientationProvider({ children }: { children: ReactNode }) {
         profileRow = fallback
           ? {
               ...fallback,
-              orientation_step: draftCount && draftCount > 0 ? 'complete' : 'profile',
+              orientation_step:
+                draftCount && draftCount > 0 ? 'complete' : 'profile',
               orientation_complete: Boolean(draftCount && draftCount > 0),
             }
           : null
@@ -107,12 +119,20 @@ export function OrientationProvider({ children }: { children: ReactNode }) {
         Boolean(contactCount && contactCount > 0) ||
         Boolean(summary && (summary.contacts_created || 0) > 0)
 
-      const storedStep = (profileRow?.orientation_step as OrientationStep) || 'profile'
+      const storedStep =
+        (profileRow?.orientation_step as OrientationStep) || 'profile'
       const filtersContinued =
         storedStep === 'search' ||
         storedStep === 'contacts' ||
+        storedStep === 'refine' ||
+        storedStep === 'search2' ||
+        storedStep === 'contacts2' ||
         storedStep === 'drafts' ||
         storedStep === 'complete'
+
+      const refineSteps = (pref?.last_refine_steps as string[] | null) || []
+      const hasRefined =
+        Boolean(pref?.last_refined_at) || refineSteps.length > 0
 
       const next = deriveOrientationStep({
         orientation_complete: Boolean(profileRow?.orientation_complete),
@@ -124,12 +144,12 @@ export function OrientationProvider({ children }: { children: ReactNode }) {
         has_draft: Boolean(draftCount && draftCount > 0),
         has_search_with_contacts: hasSearchWithContacts,
         filters_continued: filtersContinued,
+        has_refined: hasRefined,
       })
 
       setStep(next)
       setComplete(next === 'complete')
 
-      // Persist derived step if ahead of stored (skip when columns missing)
       if (
         !profErr &&
         profileRow &&

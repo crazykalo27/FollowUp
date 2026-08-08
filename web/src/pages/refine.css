@@ -1,0 +1,55 @@
+.refine-page {
+  max-width: 40rem;
+}
+
+.refine-header h1 {
+  margin-bottom: 0.35rem;
+}
+
+.refine-steps-card {
+  margin-top: 1.25rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+}
+
+.refine-steps-card h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.refine-steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  line-height: 1.45;
+  font-size: 0.95rem;
+}
+
+.refine-industries {
+  margin-top: 1.25rem;
+}
+
+.refine-industries h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.refine-industries ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.92rem;
+}
+
+.refine-actions {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}

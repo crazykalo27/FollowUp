@@ -1,4 +1,4 @@
-/** Guided first-run orientation: progressive page unlock until a draft exists. */
+/** Guided first-run orientation: progressive unlock with calibration gradient loop. */
 
 export type OrientationStep =
   | 'welcome'
@@ -6,6 +6,9 @@ export type OrientationStep =
   | 'filters'
   | 'search'
   | 'contacts'
+  | 'refine'
+  | 'search2'
+  | 'contacts2'
   | 'drafts'
   | 'complete'
 
@@ -14,6 +17,7 @@ export type AppPage =
   | 'filters'
   | 'search'
   | 'contacts'
+  | 'refine'
   | 'drafts'
   | 'settings'
 
@@ -23,6 +27,9 @@ export const ORIENTATION_STEPS: OrientationStep[] = [
   'filters',
   'search',
   'contacts',
+  'refine',
+  'search2',
+  'contacts2',
   'drafts',
   'complete',
 ]
@@ -31,8 +38,11 @@ export const STEP_LABELS: Record<OrientationStep, string> = {
   welcome: 'Welcome',
   profile: 'Build your profile',
   filters: 'Review filters',
-  search: 'Run a search',
-  contacts: 'Keep a contact',
+  search: 'Calibration search',
+  contacts: 'Review 4 people',
+  refine: 'Refine targets',
+  search2: 'Second search',
+  contacts2: 'Keep a contact',
   drafts: 'Generate a draft',
   complete: 'Ready',
 }
@@ -44,8 +54,19 @@ const UNLOCKS: Record<OrientationStep, AppPage[]> = {
   filters: ['profile', 'filters'],
   search: ['profile', 'filters', 'search'],
   contacts: ['profile', 'filters', 'search', 'contacts'],
-  drafts: ['profile', 'filters', 'search', 'contacts', 'drafts'],
-  complete: ['profile', 'filters', 'search', 'contacts', 'drafts', 'settings'],
+  refine: ['profile', 'filters', 'search', 'contacts', 'refine'],
+  search2: ['profile', 'filters', 'search', 'contacts', 'refine'],
+  contacts2: ['profile', 'filters', 'search', 'contacts', 'refine'],
+  drafts: ['profile', 'filters', 'search', 'contacts', 'refine', 'drafts'],
+  complete: [
+    'profile',
+    'filters',
+    'search',
+    'contacts',
+    'refine',
+    'drafts',
+    'settings',
+  ],
 }
 
 export function pagesForStep(step: OrientationStep): Set<AppPage> {
@@ -64,7 +85,6 @@ export function stepIndex(step: OrientationStep): number {
 
 export function progressFraction(step: OrientationStep): number {
   if (step === 'complete') return 1
-  // welcome → drafts = 6 active steps (index 0..5); complete is 100%
   const active = ORIENTATION_STEPS.length - 1
   return Math.min(1, stepIndex(step) / active)
 }
@@ -78,9 +98,13 @@ export function pathForStep(step: OrientationStep): string {
     case 'filters':
       return '/app/filters'
     case 'search':
+    case 'search2':
       return '/app/search'
     case 'contacts':
+    case 'contacts2':
       return '/app/contacts'
+    case 'refine':
+      return '/app/refine'
     case 'drafts':
       return '/app/drafts'
     case 'complete':
@@ -92,13 +116,28 @@ export function pageFromPath(pathname: string): AppPage | 'welcome' | null {
   if (pathname.includes('/welcome')) return 'welcome'
   if (pathname.includes('/onboarding')) return 'profile'
   if (pathname.includes('/filters')) return 'filters'
+  if (pathname.includes('/refine')) return 'refine'
   if (pathname.includes('/contacts')) return 'contacts'
   if (pathname.includes('/drafts')) return 'drafts'
   if (pathname.includes('/settings')) return 'settings'
-  if (pathname.endsWith('/app') || pathname.endsWith('/app/') || pathname.includes('/search')) {
+  if (
+    pathname.endsWith('/app') ||
+    pathname.endsWith('/app/') ||
+    pathname.includes('/search')
+  ) {
     return 'search'
   }
   return null
+}
+
+/** True when this orientation step is a calibration (first) pass. */
+export function isCalibrationPass(step: OrientationStep): boolean {
+  return step === 'search' || step === 'contacts'
+}
+
+/** True when this step is the post-refine second search/review. */
+export function isSecondPass(step: OrientationStep): boolean {
+  return step === 'search2' || step === 'contacts2'
 }
 
 export type OrientationFacts = {
@@ -111,6 +150,7 @@ export type OrientationFacts = {
   has_draft: boolean
   has_search_with_contacts: boolean
   filters_continued: boolean
+  has_refined: boolean
 }
 
 /**
@@ -125,22 +165,34 @@ export function deriveOrientationStep(facts: OrientationFacts): OrientationStep 
 
   let derived: OrientationStep = 'profile'
   if (facts.onboarding_complete) derived = 'filters'
-  if (facts.filters_continued || (facts.onboarding_complete && facts.has_search_with_contacts)) {
-    // filters_continued is explicit; search-with-contacts implies they passed filters
-    if (facts.filters_continued) derived = 'search'
-  }
+  if (facts.filters_continued) derived = 'search'
   if (facts.has_search_with_contacts) derived = 'contacts'
-  if (facts.has_kept_contact) derived = 'drafts'
+  // After refine, default forward to second search — never skip to drafts
+  // just because calibration keeps already exist.
+  if (facts.has_refined) derived = 'search2'
+  // Legacy path (kept a contact before refine existed)
+  if (facts.has_kept_contact && !facts.has_refined) derived = 'drafts'
 
-  // Advance stored step if facts are ahead; never regress past stored if still valid
-  if (stepIndex(derived) > stepIndex(stored)) return derived
-  // If stored is ahead of derived but facts don't support it, clamp to derived
-  // Exception: allow stored filters/search before search facts exist
+  if (stepIndex(derived) > stepIndex(stored)) {
+    // Don't skip the refine explanation page once it was reached
+    if (stored === 'refine' && facts.has_refined) return 'refine'
+    // Don't skip contacts2 once second search landed
+    if (stored === 'contacts2' && facts.has_refined) return 'contacts2'
+    return derived
+  }
+
   if (stored === 'filters' && facts.onboarding_complete) return 'filters'
-  if (stored === 'search' && facts.onboarding_complete && facts.filters_continued) {
+  if (
+    stored === 'search' &&
+    facts.onboarding_complete &&
+    facts.filters_continued
+  ) {
     return 'search'
   }
   if (stored === 'contacts' && facts.has_search_with_contacts) return 'contacts'
+  if (stored === 'refine' && facts.onboarding_complete) return 'refine'
+  if (stored === 'search2' && facts.has_refined) return 'search2'
+  if (stored === 'contacts2' && facts.has_refined) return 'contacts2'
   if (stored === 'drafts' && facts.has_kept_contact) return 'drafts'
   if (stored === 'profile') return 'profile'
 

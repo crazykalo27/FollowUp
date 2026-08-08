@@ -254,7 +254,11 @@ export function FiltersPage() {
       setContinuing(false)
       return
     }
-    const next = mergeFilters({})
+    // Calibration search expects a tight 4-person batch
+    const next = mergeFilters({
+      max_companies_per_run: 4,
+      max_contacts_per_company: 1,
+    })
     await persistFilters(next, { message: '' })
     await orientation.advanceTo('search')
     setContinuing(false)
@@ -289,7 +293,7 @@ export function FiltersPage() {
         <h1>Filters</h1>
         <p className="lede">
           {inOrientation
-            ? 'Review company targets and who we should contact. Continue when these look right — or update and save first.'
+            ? 'Confirm specific company niches and who to contact. Next we run a small 4-person calibration search so your keep/discard feedback can refine these targets.'
             : 'Company targets drive which employers we hunt. Contact targets narrow who qualifies at each company.'}
         </p>
       </header>
@@ -446,7 +450,7 @@ export function FiltersPage() {
               disabled={continuing || savingTargets}
               onClick={() => void continueOrientation()}
             >
-              {continuing ? 'Continuing…' : 'Continue'}
+              {continuing ? 'Continuing…' : 'Continue to calibration search'}
             </button>
             <button
               type="button"

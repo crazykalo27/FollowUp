@@ -1,4 +1,4 @@
-export type SearchDepth = 'quick' | 'standard' | 'deep'
+export type SearchDepth = 'quick' | 'standard' | 'deep' | 'orientation'
 
 export type SearchMode = 'general' | 'company'
 
@@ -63,6 +63,18 @@ function webCredits(companies: number): number {
 
 export const SEARCH_DEPTHS: DepthPreset[] = [
   {
+    id: 'orientation',
+    label: 'Calibration',
+    companies: 4,
+    perCompany: 1,
+    webSearchCredits: webCredits(4),
+    hunterDomainCalls: 4,
+    hunterMaxFindVerify: 4,
+    eta: '~1–3 min',
+    estimatePeople: 'exactly ~4 contacts',
+    blurb: 'Orientation calibration: four people to keep or discard.',
+  },
+  {
     id: 'quick',
     label: 'Low credits',
     companies: 3,
@@ -101,8 +113,13 @@ export const SEARCH_DEPTHS: DepthPreset[] = [
 ]
 
 export function depthPreset(id: SearchDepth): DepthPreset {
-  return SEARCH_DEPTHS.find((d) => d.id === id) || SEARCH_DEPTHS[1]
+  return SEARCH_DEPTHS.find((d) => d.id === id) || SEARCH_DEPTHS[2]
 }
+
+/** Depths shown in the normal (post-orientation) picker. */
+export const USER_SEARCH_DEPTHS: DepthPreset[] = SEARCH_DEPTHS.filter(
+  (d) => d.id !== 'orientation',
+)
 
 const ACTIVE_RUN_KEY = 'followup_active_search_run'
 const ACTIVE_DEPTH_KEY = 'followup_active_search_depth'
@@ -121,7 +138,8 @@ export function saveActiveRunDepth(depth: SearchDepth) {
 export function loadActiveRunDepth(): SearchDepth {
   try {
     const d = sessionStorage.getItem(ACTIVE_DEPTH_KEY) as SearchDepth | null
-    if (d === 'quick' || d === 'standard' || d === 'deep') return d
+    if (d === 'quick' || d === 'standard' || d === 'deep' || d === 'orientation')
+      return d
   } catch {
     // ignore
   }

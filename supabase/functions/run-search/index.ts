@@ -1221,11 +1221,14 @@ Deno.serve(async (req) => {
     }
 
     const depthCaps: Record<string, { companies: number; per: number }> = {
+      orientation: { companies: 4, per: 1 },
       quick: { companies: 3, per: 2 },
       standard: { companies: 6, per: 3 },
       deep: { companies: 8, per: 4 },
     }
     const caps = depthCaps[depth] || depthCaps.standard
+    const orientationCap =
+      depth === 'orientation' ? 4 : Number.POSITIVE_INFINITY
 
     if (!runId) {
       const { data: created, error: createErr } = await admin
@@ -2548,6 +2551,19 @@ Deno.serve(async (req) => {
       quotaExhausted: hunterState.quotaExhausted,
       quotaNote: hunterState.quotaNote,
     }
+
+    // Orientation calibration: stop once we have ~4 people
+    if (
+      Number.isFinite(orientationCap) &&
+      contactsCreated >= orientationCap
+    ) {
+      pipeline!.company_index = selected.length
+      pushProgressLog(
+        progressMeta,
+        `Orientation cap reached (${contactsCreated}/${orientationCap} contacts) — finishing`,
+      )
+    }
+
     await savePipelineState(admin, runId!, pipeline!)
 
     const cancelledAfterChunk = await runWasCancelled(admin, runId)

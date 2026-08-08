@@ -114,6 +114,7 @@ export function AppShell() {
 function pageFromNav(pathname: string): AppPage | null {
   if (pathname.includes('/onboarding')) return 'profile'
   if (pathname.includes('/filters')) return 'filters'
+  if (pathname.includes('/refine')) return 'refine'
   if (pathname.includes('/contacts')) return 'contacts'
   if (pathname.includes('/drafts')) return 'drafts'
   if (pathname.includes('/settings')) return 'settings'

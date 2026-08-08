@@ -1,3 +1,10 @@
+## 2026-08-08 — Orientation preference gradient calibration
+
+- Resume bootstrap extracts SPECIFIC industry niches (not generic “tech”).
+- Orientation flow: profile → filters → 4-person calibration search → review all with reasons → preference gradient refine (~10% exploration) → second search → keep a contact → drafts.
+- New `refine-targets` Edge Function + `preferenceGradient` module updates industries/roles/filters from keep/discard signals.
+- Refine page explains the optimization steps in plain language; search depth `orientation` caps ~4 contacts.
+
 ## 2026-08-08 — Gmail bounce detection + draft recovery
 
 - Gmail OAuth adds **readonly** scope; reconnect in Settings to scan threads for delivery failures.
