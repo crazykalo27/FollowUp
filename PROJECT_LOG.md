@@ -1,9 +1,16 @@
+<<<<<<< HEAD
 ## 2026-08-08 — Orientation preference gradient calibration
 
 - Resume bootstrap extracts SPECIFIC industry niches (not generic “tech”).
 - Orientation flow: profile → filters → 4-person calibration search → review all with reasons → preference gradient refine (~10% exploration) → second search → keep a contact → drafts.
 - New `refine-targets` Edge Function + `preferenceGradient` module updates industries/roles/filters from keep/discard signals.
 - Refine page explains the optimization steps in plain language; search depth `orientation` caps ~4 contacts.
+=======
+## 2026-08-08 — Orientation quick-answer buttons
+
+- Profile chat: closed-ended orientation questions (employment type, remote, company size, seniority; plus “No preference” for location) show clickable options that auto-send.
+- Open-ended steps (industries, roles) stay free-text; typing still available on button steps.
+>>>>>>> origin/cursor/orientation-quick-answers-9a4d
 
 ## 2026-08-08 — Gmail bounce detection + draft recovery
 
