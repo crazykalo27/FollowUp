@@ -547,8 +547,8 @@ export function DraftsPage() {
       </div>
 
       <div className="drafts-workspace">
-        <aside className="drafts-list-col" aria-label="All drafts">
-          <h2 className="drafts-section-title">Inbox</h2>
+        <aside className="drafts-list-col" aria-label="Outbox">
+          <h2 className="drafts-section-title">Outbox</h2>
           <p className="muted small drafts-list-hint">
             {drafts.length} draft{drafts.length === 1 ? '' : 's'}
           </p>
@@ -755,7 +755,7 @@ export function DraftsPage() {
             <div className="drafts-editor-empty">
               <h2 className="drafts-editor-recipient">Pick a draft</h2>
               <p className="muted">
-                Choose someone from the inbox, or create drafts from Contacts.
+                Choose someone from the outbox, or create drafts from Contacts.
               </p>
             </div>
           )}
