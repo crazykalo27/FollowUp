@@ -5,7 +5,6 @@ import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
 import {
-  SEARCH_DEPTHS,
   SEARCH_MODES,
   USER_SEARCH_DEPTHS,
   COMPANY_PEOPLE_TARGETS,
@@ -217,8 +216,12 @@ export function OverviewPage() {
       setSearchMode('general')
       saveActiveRunDepth('orientation')
       saveActiveRunMode('general')
+    } else if (depth === 'orientation') {
+      // Calibration is orientation-only — never leave it selected in the picker
+      setDepth('standard')
+      saveActiveRunDepth('standard')
     }
-  }, [inOrientationSearch])
+  }, [inOrientationSearch, depth])
 
   function stopPoll() {
     if (pollRef.current != null) {
@@ -659,9 +662,14 @@ export function OverviewPage() {
   }
 
   const selectedDepth = depthPreset(
-    inOrientationSearch ? 'orientation' : depth,
+    inOrientationSearch
+      ? 'orientation'
+      : depth === 'orientation'
+        ? 'standard'
+        : depth,
   )
-  const depthChoices = orientation.complete ? USER_SEARCH_DEPTHS : SEARCH_DEPTHS
+  // Calibration depth is forced during orientation only — never shown as a choice
+  const depthChoices = USER_SEARCH_DEPTHS
   const pageTitle = inOrientationSearch
     ? isSecondCalibration
       ? 'Second calibration search'

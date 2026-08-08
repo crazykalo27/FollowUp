@@ -1,3 +1,7 @@
+## 2026-08-08 — Hide calibration depth from Search picker
+
+- Search size cards never offer Calibration; orientation still forces that depth automatically.
+
 ## 2026-08-08 — Profile chat padding + drafts Outbox
 
 - Profile conversation: more bottom padding so the last message isn’t flush with the composer edge.
