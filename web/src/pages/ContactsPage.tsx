@@ -244,11 +244,14 @@ export function ContactsPage() {
   const calibrationReview = !orientation.complete && orientation.step === 'contacts'
   const secondPassReview =
     !orientation.complete && orientation.step === 'contacts2'
-  const requireKeepReasons = calibrationReview
+  const pickKeptForDraft =
+    !orientation.complete && orientation.step === 'drafts'
+  const requireKeepReasons = calibrationReview || secondPassReview
   const [rows, setRows] = useState<ContactRow[]>([])
   const [busy, setBusy] = useState(false)
   const [refining, setRefining] = useState(false)
   const refineStarted = useRef(false)
+  const secondPassDone = useRef(false)
   const [draftingId, setDraftingId] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [discardOpen, setDiscardOpen] = useState(false)
@@ -371,6 +374,10 @@ export function ContactsPage() {
     () => rows.filter((r) => r.review_status === 'archived'),
     [rows],
   )
+  /** Hide Kept/Archived while a full keep/discard queue is still in progress. */
+  const reviewingQueue =
+    calibrationReview || (secondPassReview && pending.length > 0)
+  const showKeptPicker = pickKeptForDraft || (secondPassReview && pending.length === 0)
 
   // Keep activeId valid; do not reset to first when a saved id is still pending
   useEffect(() => {
@@ -548,7 +555,7 @@ export function ContactsPage() {
       reasons.length === 0 &&
       !note.trim()
     ) {
-      setMsg('Pick at least one reason so we can refine your industries.')
+      setMsg('Pick at least one reason for this pick.')
       setKeepOpen(true)
       return
     }
@@ -594,13 +601,6 @@ export function ContactsPage() {
       },
       deciding,
     )
-
-    // Second orientation pass: one Keep unlocks drafts
-    if (decision === 'keep' && secondPassReview) {
-      void orientation.advanceTo('drafts').then(() => {
-        navigate(`/app/drafts?contact=${decidingId}`)
-      })
-    }
 
     if (isReviewQueue) {
       window.setTimeout(() => {
@@ -659,6 +659,32 @@ export function ContactsPage() {
     void runCalibrationRefine()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calibrationReview, pending.length, rows, busy, refining])
+
+  // After second-pass review of everyone, open Kept so they can draft one
+  useEffect(() => {
+    if (!secondPassReview || busy || secondPassDone.current) return
+    if (rows.length === 0) return
+    if (pending.length > 0) return
+    const reviewed = rows.filter(
+      (r) => r.review_status === 'kept' || r.review_status === 'discarded',
+    )
+    if (reviewed.length === 0) return
+    secondPassDone.current = true
+    setTab('kept')
+    setMsg(
+      kept.length > 0
+        ? 'Review complete. Pick a Kept contact and draft an email to continue.'
+        : 'You discarded everyone this round — keep at least one person next time, or draft from an earlier Kept contact if you have one.',
+    )
+    void orientation.advanceTo('drafts')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondPassReview, pending.length, rows, busy, kept.length])
+
+  // Orientation drafts step: land on Kept to pick someone
+  useEffect(() => {
+    if (!pickKeptForDraft) return
+    setTab('kept')
+  }, [pickKeptForDraft])
 
   function archiveContact(row: ContactRow) {
     if (busy) return
@@ -902,8 +928,10 @@ export function ContactsPage() {
         {calibrationReview
           ? 'Review every person from the calibration search. Keep or discard each one with a reason — that feedback steers your industries.'
           : secondPassReview
-            ? 'These contacts use your refined targets. Keep someone worth emailing to continue to drafts.'
-            : 'Swipe or use Keep / Discard on the center card. Click the card to the left or right to jump to that contact.'}
+            ? 'Review every person from the refined search. Keep or discard each with a reason — then pick someone from Kept to draft.'
+            : pickKeptForDraft
+              ? 'Pick a Kept contact and create a draft to finish orientation.'
+              : 'Swipe or use Keep / Discard on the center card. Click the card to the left or right to jump to that contact.'}
       </p>
 
       {calibrationReview && (
@@ -914,7 +942,7 @@ export function ContactsPage() {
           </p>
           <p className="muted small">
             Reasons are required. When the queue is empty we run a preference
-            gradient update (~10% exploration) and show you what changed.
+            gradient update (~10% exploration), then a second search.
           </p>
           {refining && (
             <p className="muted small">Refining your industry targets…</p>
@@ -925,8 +953,21 @@ export function ContactsPage() {
       {secondPassReview && (
         <div className="orientation-coach">
           <p>
-            <strong>Keep</strong> someone to email next. Discard still teaches
-            the model if a pick is off.
+            <strong>Step:</strong> review all {pending.length} remaining people
+            from the refined search.
+          </p>
+          <p className="muted small">
+            When you finish, we open Kept so you can draft outreach to one
+            person.
+          </p>
+        </div>
+      )}
+
+      {pickKeptForDraft && (
+        <div className="orientation-coach">
+          <p>
+            <strong>Almost done:</strong> open a Kept contact and press{' '}
+            <strong>Draft email</strong> to continue to the outbox.
           </p>
         </div>
       )}
@@ -939,7 +980,7 @@ export function ContactsPage() {
         >
           Review ({pending.length})
         </button>
-        {!calibrationReview && (
+        {!reviewingQueue && (
           <>
             <button
               type="button"
@@ -948,16 +989,20 @@ export function ContactsPage() {
             >
               Kept ({kept.length})
             </button>
-            <button
-              type="button"
-              className={`tab ${tab === 'archived' ? 'active' : ''}`}
-              onClick={() => setTab('archived')}
-            >
-              Archived ({archived.length})
-            </button>
-            <Link className="btn" to="/app/drafts">
-              Open drafts
-            </Link>
+            {!showKeptPicker && (
+              <button
+                type="button"
+                className={`tab ${tab === 'archived' ? 'active' : ''}`}
+                onClick={() => setTab('archived')}
+              >
+                Archived ({archived.length})
+              </button>
+            )}
+            {!showKeptPicker && (
+              <Link className="btn" to="/app/drafts">
+                Open drafts
+              </Link>
+            )}
           </>
         )}
         <button type="button" className="btn ghost" onClick={() => void load()}>

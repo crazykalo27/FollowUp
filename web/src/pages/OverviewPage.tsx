@@ -196,6 +196,16 @@ export function OverviewPage() {
   const [cancelling, setCancelling] = useState(false)
   const [orientPrompt, setOrientPrompt] = useState(false)
 
+  /** After a calibration run finishes, block another run until they review contacts. */
+  const orientationAwaitingReview =
+    !orientation.complete &&
+    (orientation.step === 'contacts' ||
+      orientation.step === 'contacts2' ||
+      orientation.step === 'refine' ||
+      orientation.step === 'drafts' ||
+      (orientPrompt && (summary?.contacts_created ?? 0) > 0))
+  const orientationSearchLocked = orientationAwaitingReview && !searching
+
   useEffect(() => {
     setSearchMode(loadActiveRunMode())
     setTargetCompany(loadActiveRunTargetCompany())
@@ -490,6 +500,10 @@ export function OverviewPage() {
 
   async function runSearch() {
     if (!user || searching) return
+    if (orientationSearchLocked) {
+      setErrorMsg('Review the contacts from this search before running another.')
+      return
+    }
 
     if (searchMode === 'company' && !targetCompany.trim()) {
       setErrorMsg('Enter a company name for a specific-company search.')
@@ -725,13 +739,28 @@ export function OverviewPage() {
 
       {!orientation.complete && (
         <div className="search-orient-coach">
-          {inOrientationSearch ? (
+          {orientationSearchLocked ? (
+            <>
+              <p>
+                <strong>Next:</strong> review every contact from this search
+                (keep or discard with a reason). That feedback updates your
+                niches
+                {isSecondCalibration || orientation.step === 'contacts2'
+                  ? ', then you will pick someone from Kept to draft.'
+                  : ', then we run one more refined search.'}
+              </p>
+              <p className="muted small">
+                Another search is locked until you finish reviewing.
+              </p>
+            </>
+          ) : inOrientationSearch ? (
             <>
               <p>
                 <strong>How we find your niche:</strong> resume → specific
                 industries you confirm → a small 4-person search → your
                 keep/discard feedback nudges the targets (with ~10% exploration)
-                → a second search with the update.
+                → a second search with the update → review again → pick one Kept
+                contact to draft.
               </p>
               <p>
                 Press <strong>Run calibration search</strong> for about four
@@ -915,26 +944,36 @@ export function OverviewPage() {
       </section>
 
       <div className="search-actions-bar">
-        <button
-          type="button"
-          className="btn primary"
-          disabled={
-            searching ||
-            !stats.onboarding ||
-            (searchMode === 'company' && !targetCompany.trim())
-          }
-          onClick={runSearch}
-        >
-          {searching
-            ? 'Search running…'
-            : inOrientationSearch
-              ? isSecondCalibration
-                ? 'Run second calibration search'
-                : 'Run calibration search'
-              : searchMode === 'company'
-                ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
-                : `Run search (${selectedDepth.label.toLowerCase()})`}
-        </button>
+        {orientationSearchLocked ? (
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => navigate('/app/contacts')}
+          >
+            Review contacts
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn primary"
+            disabled={
+              searching ||
+              !stats.onboarding ||
+              (searchMode === 'company' && !targetCompany.trim())
+            }
+            onClick={runSearch}
+          >
+            {searching
+              ? 'Search running…'
+              : inOrientationSearch
+                ? isSecondCalibration
+                  ? 'Run second calibration search'
+                  : 'Run calibration search'
+                : searchMode === 'company'
+                  ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
+                  : `Run search (${selectedDepth.label.toLowerCase()})`}
+          </button>
+        )}
         {showCancel && (
           <button
             type="button"
@@ -955,7 +994,8 @@ export function OverviewPage() {
             {cancelling ? 'Cancelling…' : 'Cancel stuck search'}
           </button>
         )}
-        {(orientation.canAccess('contacts') || orientPrompt) && (
+        {!orientationSearchLocked &&
+          (orientation.canAccess('contacts') || orientPrompt) && (
           <button
             type="button"
             className="btn"
@@ -968,8 +1008,9 @@ export function OverviewPage() {
 
       {orientPrompt && (
         <div className="flash orientation-coach">
-          {orientation.step === 'contacts2' || isSecondCalibration
-            ? 'Second search found contacts. Keep someone worth emailing to continue to drafts.'
+          {orientation.step === 'contacts2' ||
+          (isSecondCalibration && orientationAwaitingReview)
+            ? 'Second search found contacts. Review all of them, then pick someone from Kept to draft.'
             : 'Calibration search found people. Review all of them — keep or discard each with a reason — so we can refine your niches.'}
           <div className="actions" style={{ marginTop: '0.75rem' }}>
             <button

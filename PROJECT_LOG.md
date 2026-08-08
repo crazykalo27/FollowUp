@@ -1,3 +1,8 @@
+## 2026-08-08 — Orientation search lock + full second review
+
+- After a calibration search finishes, Search only offers Review contacts (no second run).
+- Second contact pass reviews everyone again, then opens Kept to pick one for a draft.
+
 ## 2026-08-08 — Hide calibration depth from Search picker
 
 - Search size cards never offer Calibration; orientation still forces that depth automatically.

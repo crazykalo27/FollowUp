@@ -42,7 +42,7 @@ export const STEP_LABELS: Record<OrientationStep, string> = {
   contacts: 'Review 4 people',
   refine: 'Refine targets',
   search2: 'Second search',
-  contacts2: 'Keep a contact',
+  contacts2: 'Review refined contacts',
   drafts: 'Generate a draft',
   complete: 'Ready',
 }
