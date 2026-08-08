@@ -323,44 +323,35 @@ export function OnboardingPage() {
 
   return (
     <div className="profile-page">
-      <div className="profile-chat-shell">
-        <header className="profile-chat-header">
-          <div className="profile-chat-header-title">
-            <ProfileCoachAvatar size={36} />
-            <div>
-              <h1>Profile chat</h1>
-              <p className="profile-chat-header-sub">
-                Talk to update your search anytime
-              </p>
-            </div>
-          </div>
-          <div className="profile-chat-header-actions">
-            <span className="profile-resume-chip" title={fileName}>
-              {fileName}
+      <div className="profile-guide-panel">
+        <CoachWelcome
+          orientationComplete={orientation.complete}
+          profile={profile}
+        />
+        <div className="profile-guide-meta">
+          <span className="profile-resume-chip" title={fileName}>
+            {fileName}
+          </span>
+          <label className="upload">
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,application/pdf,text/plain"
+              disabled={uploading || bootstrapping}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void onUpload(f)
+              }}
+            />
+            <span>
+              {uploading || bootstrapping ? 'Working…' : 'Replace resume'}
             </span>
-            <label className="upload">
-              <input
-                type="file"
-                accept=".pdf,.doc,.docx,.txt,application/pdf,text/plain"
-                disabled={uploading || bootstrapping}
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) void onUpload(f)
-                }}
-              />
-              <span>
-                {uploading || bootstrapping ? 'Working…' : 'Replace resume'}
-              </span>
-            </label>
-          </div>
-        </header>
+          </label>
+        </div>
+      </div>
 
+      <div className="profile-chat-shell">
+        <div className="profile-chat-label">Conversation</div>
         <div className="profile-chat-main" ref={chatLogRef}>
-          <CoachWelcome
-            orientationComplete={orientation.complete}
-            profile={profile}
-          />
-
           {seriesComplete && showSaveProfile && (
             <p className="profile-series-banner">
               Interview complete. Add any final details below, or save your profile

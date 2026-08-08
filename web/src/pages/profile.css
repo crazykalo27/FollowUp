@@ -64,6 +64,27 @@
   box-sizing: border-box;
 }
 
+.profile-guide-panel {
+  flex-shrink: 0;
+  margin-bottom: 1rem;
+}
+
+.profile-guide-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.profile-guide-meta .upload {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  border-style: solid;
+  border-color: var(--line);
+}
+
 .profile-chat-shell {
   flex: 1;
   min-height: 0;
@@ -76,34 +97,15 @@
   overflow: hidden;
 }
 
-.profile-chat-header {
+.profile-chat-label {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
+  padding: 0.55rem 1rem;
   border-bottom: 1px solid var(--line);
   background: var(--bg-2);
-}
-
-.profile-chat-header-title {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  min-width: 0;
-}
-
-.profile-chat-header-title h1 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  font-weight: 700;
-}
-
-.profile-chat-header-sub {
-  margin: 0.1rem 0 0;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--muted);
 }
 
@@ -111,7 +113,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  max-width: 11rem;
+  max-width: min(100%, 18rem);
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
   border: 1px solid var(--line);
@@ -120,21 +122,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.profile-chat-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
-.profile-chat-header-actions .upload {
-  margin: 0;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.82rem;
-  border-style: solid;
-  border-color: var(--line);
 }
 
 .profile-chat-main {
@@ -299,7 +286,7 @@
 }
 
 .profile-series-banner {
-  margin: 0 1rem 0;
+  margin: 0 0 0.75rem;
   padding: 0.65rem 0.85rem;
   border-radius: 8px;
   border: 1px solid rgba(196, 240, 76, 0.25);
@@ -313,8 +300,9 @@
 }
 
 @media (max-width: 720px) {
-  .profile-chat-header {
-    flex-wrap: wrap;
+  .profile-guide-meta {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .profile-resume-chip {
