@@ -17,6 +17,12 @@ import {
   passesEmailVerification,
 } from '../_shared/email_discovery.ts'
 import {
+  formatProfileLocation,
+  parseLocationFromLinkedInSnippet,
+  pickBetterLocation,
+  looksLikeLocationString,
+} from '../_shared/linkedin_location.ts'
+import {
   isServiceChainRequest,
   loadPipelineState,
   savePipelineState,
@@ -399,7 +405,7 @@ function mergeCandidate(into: Candidate, from: Candidate): Candidate {
     title: into.title || from.title,
     email: into.email || from.email,
     linkedin_url: into.linkedin_url || from.linkedin_url,
-    location: into.location || from.location,
+    location: pickBetterLocation(into, from),
     verification_status: into.verification_status || from.verification_status,
     sources: [...new Set([...into.sources, ...from.sources])],
     source_details: { ...into.source_details, ...from.source_details },
@@ -678,28 +684,56 @@ async function hunterEmailVerifier(
   }
 }
 
-function parseLocationFromLinkedInSnippet(snippet: string): string | null {
-  const head = snippet.split('·')[0]?.trim()
-  if (!head || head.length > 96) return null
-  if (/^experience:/i.test(head)) return null
-  if (/,/.test(head) || /\b(Area|Region|Metropolitan)\b/i.test(head)) {
-    return head
+async function fetchProxycurlProfileLocation(
+  linkedinUrl: string,
+): Promise<string | null> {
+  const key = Deno.env.get('PROXYCURL_API_KEY')
+  if (!key) return null
+  try {
+    const url = new URL('https://nubela.co/proxycurl/api/linkedin')
+    url.searchParams.set('url', linkedinUrl)
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${key}` },
+    })
+    if (!res.ok) return null
+    const body = await res.json()
+    return formatProfileLocation(body)
+  } catch {
+    return null
   }
-  return null
 }
 
-function formatProfileLocation(profile: {
-  city?: string
-  state?: string
-  country?: string
-  country_full_name?: string
-}): string | null {
-  const parts = [
-    profile.city,
-    profile.state,
-    profile.country_full_name || profile.country,
-  ].filter((p) => p && String(p).trim())
-  return parts.length ? parts.join(', ') : null
+async function backfillLinkedInLocations(
+  candidates: Iterable<Candidate>,
+  maxProfiles: number,
+): Promise<void> {
+  if (!Deno.env.get('PROXYCURL_API_KEY')) return
+  const need = [...candidates]
+    .filter(
+      (c) =>
+        c.linkedin_url &&
+        !c.location?.trim() &&
+        !c.sources.includes('proxycurl'),
+    )
+    .slice(0, maxProfiles)
+  await Promise.all(
+    need.map(async (c) => {
+      const loc = await fetchProxycurlProfileLocation(c.linkedin_url!)
+      if (!loc) return
+      c.location = loc
+      c.sources = [...new Set([...c.sources, 'proxycurl'])]
+      c.source_details = {
+        ...c.source_details,
+        proxycurl: {
+          ...(typeof c.source_details?.proxycurl === 'object'
+            ? (c.source_details.proxycurl as Record<string, unknown>)
+            : {}),
+          via: 'v2/linkedin',
+          location: loc,
+        },
+      }
+    }),
+  )
 }
 
 function parseLinkedInTitle(title: string, companyName: string): {
@@ -730,8 +764,10 @@ function parseLinkedInTitle(title: string, companyName: string): {
       person_title = segment
       continue
     }
-    location = segment
-    break
+    if (looksLikeLocationString(segment)) {
+      location = segment
+      break
+    }
   }
   return { full_name, person_title, location }
 }
@@ -816,9 +852,9 @@ async function searchWebLinkedIn(
         const parsed = parseLinkedInTitle(item.title || '', companyName)
         const snippet = item.snippet || ''
         const location =
-          parsed.location ||
-          parseLocationFromLinkedInSnippet(snippet) ||
-          null
+          [parsed.location, parseLocationFromLinkedInSnippet(snippet)].find(
+            (l) => l && looksLikeLocationString(l),
+          ) || null
         const names = splitName(parsed.full_name)
         out.push({
           first_name: names.first_name,
@@ -1813,6 +1849,8 @@ Deno.serve(async (req) => {
         const prev = merged.get(key)
         merged.set(key, prev ? mergeCandidate(prev, c) : c)
       }
+
+      await backfillLinkedInLocations(merged.values(), 5)
 
       const peopleForOsint = [...merged.values()]
         .filter((c) => c.first_name && c.last_name)

@@ -78,28 +78,28 @@ function formatSourceLabel(source: string) {
   return labels[source] || source.replace(/_/g, ' ')
 }
 
-function locationFromSnippet(snippet: string): string | null {
-  const head = snippet.split('·')[0]?.trim()
-  if (!head || head.length > 96) return null
-  if (/^experience:/i.test(head)) return null
-  if (/,/.test(head) || /\b(Area|Region|Metropolitan)\b/i.test(head)) {
-    return head
-  }
-  return null
-}
+import {
+  looksLikeLocationString,
+  parseLocationFromLinkedInSnippet,
+} from '../lib/linkedin_location'
 
 function contactLocation(contact: ContactRow): string | null {
-  if (contact.location?.trim()) return contact.location.trim()
+  const stored = contact.location?.trim()
+  if (stored && looksLikeLocationString(stored)) return stored
   const sd = contact.source_details
-  if (!sd) return null
+  if (!sd) return stored || null
   if (typeof sd.location === 'string' && sd.location.trim()) {
-    return sd.location.trim()
+    const fromSd = sd.location.trim()
+    if (looksLikeLocationString(fromSd)) return fromSd
   }
   const wsLoc = sd.websearch?.location
-  if (typeof wsLoc === 'string' && wsLoc.trim()) return wsLoc.trim()
+  if (typeof wsLoc === 'string' && wsLoc.trim()) {
+    const fromWs = wsLoc.trim()
+    if (looksLikeLocationString(fromWs)) return fromWs
+  }
   const snippet = sd.websearch?.snippet
   if (typeof snippet === 'string') {
-    return locationFromSnippet(snippet)
+    return parseLocationFromLinkedInSnippet(snippet)
   }
   return null
 }

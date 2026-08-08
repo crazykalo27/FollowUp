@@ -1,6 +1,8 @@
-# FollowUp — project log
+## 2026-08-07 — LinkedIn contact location parsing
 
-Conceptual milestones (not a commit-by-commit diary).
+- Fixed web-search location heuristics: no longer treat first snippet segment (often About) as location; scan for geo patterns and segment before “connections”.
+- Merge prefers Proxycurl location over Bing/Serper guesses; optional Proxycurl profile lookup (≤5/company) when URL known but location missing.
+
 
 ## 2026-08-05 — Greenfield MVP
 
