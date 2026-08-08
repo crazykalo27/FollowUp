@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useReveal } from '../lib/useReveal'
+import { FollowUpLogo } from '../components/FollowUpLogo'
 import './landing.css'
 
 function PrimaryCta({
@@ -125,7 +126,8 @@ export function LandingPage() {
 
       <header className={`lp-nav ${navSolid ? 'is-solid' : ''}`}>
         <Link className="lp-nav-logo" to="/">
-          FollowUp
+          <FollowUpLogo size={28} alt="" />
+          <span>FollowUp</span>
         </Link>
         <nav className="lp-nav-links" aria-label="Primary">
           <a
@@ -338,7 +340,10 @@ export function LandingPage() {
             <div className="lp-mock-wrap">
               <div className="lp-mock">
                 <aside className="lp-mock-side" aria-hidden>
-                  <div className="lp-mock-brand">FollowUp</div>
+                  <div className="lp-mock-brand">
+                    <FollowUpLogo size={22} alt="" />
+                    <span>FollowUp</span>
+                  </div>
                   <div className="lp-mock-nav-item">Profile</div>
                   <div className="lp-mock-nav-item">Filters</div>
                   <div className="lp-mock-nav-item">Search</div>

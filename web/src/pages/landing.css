@@ -69,6 +69,9 @@ html {
   font-weight: 700;
   color: var(--ink);
   text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .lp-nav-logo:hover {
@@ -463,6 +466,9 @@ button.lp-nav-sign {
   font-size: 1.1rem;
   padding: 0.25rem 0.5rem 0.75rem;
   margin-bottom: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .lp-mock-nav-item {

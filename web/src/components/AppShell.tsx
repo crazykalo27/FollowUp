@@ -2,6 +2,7 @@ import { Navigate, Outlet, NavLink, useLocation, useNavigate } from 'react-route
 import { useAuth } from '../lib/auth'
 import { useOrientation } from '../lib/orientationContext'
 import { pathForStep, type AppPage } from '../lib/orientation'
+import { FollowUpLogo } from './FollowUpLogo'
 
 export function RequireAuth() {
   const { user, loading } = useAuth()
@@ -55,6 +56,7 @@ export function AppShell() {
             )
           }
         >
+          <FollowUpLogo size={26} alt="" />
           FollowUp
         </button>
         <nav className="side-nav">
