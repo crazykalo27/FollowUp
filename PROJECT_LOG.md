@@ -131,3 +131,8 @@ Conceptual milestones (not a commit-by-commit diary).
 ## 2026-08-07 — Drafts layout
 
 - Collapsible email template strip at top; inbox list + current draft editor as the main workspace.
+
+## 2026-08-07 — Marketing landing page
+
+- Rebuilt `/` landing: dark forest-green system (Fraunces + Source Sans 3), sticky nav, hero contrast visual, problem / journey / product mockup / positioning sections, scroll reveals.
+- Dedicated `landing.css` + `useReveal`; removed legacy minimal landing styles from `index.css`.
