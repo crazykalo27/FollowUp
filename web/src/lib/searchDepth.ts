@@ -1,5 +1,32 @@
 export type SearchDepth = 'quick' | 'standard' | 'deep'
 
+export type SearchMode = 'general' | 'company'
+
+export type SearchModeOption = {
+  id: SearchMode
+  label: string
+  /** Why you’d pick this mode */
+  purpose: string
+  detail: string
+}
+
+export const SEARCH_MODES: SearchModeOption[] = [
+  {
+    id: 'general',
+    label: 'General search',
+    purpose: 'Discover employers that fit your profile',
+    detail:
+      'We search your industries and roles, rank companies, then find people in similar positions at each — best for broad outreach.',
+  },
+  {
+    id: 'company',
+    label: 'Specific company',
+    purpose: 'Follow up after you applied somewhere',
+    detail:
+      'You name one employer (e.g. Nvidia). We skip industry discovery and focus contacts there — hiring managers, team leads, or recruiters who can help your application.',
+  },
+]
+
 /** Industry discovery queries per run (see run-search / companyWebSearchQueryBudget). */
 const PLAN_WEB_SEARCHES = 8
 /** LinkedIn + email snippet search per company (Bing preferred over Serper). */
@@ -71,6 +98,8 @@ export function depthPreset(id: SearchDepth): DepthPreset {
 
 const ACTIVE_RUN_KEY = 'followup_active_search_run'
 const ACTIVE_DEPTH_KEY = 'followup_active_search_depth'
+const ACTIVE_MODE_KEY = 'followup_active_search_mode'
+const ACTIVE_TARGET_KEY = 'followup_active_search_target'
 
 export function saveActiveRunDepth(depth: SearchDepth) {
   try {
@@ -88,6 +117,41 @@ export function loadActiveRunDepth(): SearchDepth {
     // ignore
   }
   return 'standard'
+}
+
+export function saveActiveRunMode(mode: SearchMode) {
+  try {
+    sessionStorage.setItem(ACTIVE_MODE_KEY, mode)
+  } catch {
+    // ignore
+  }
+}
+
+export function loadActiveRunMode(): SearchMode {
+  try {
+    const m = sessionStorage.getItem(ACTIVE_MODE_KEY) as SearchMode | null
+    if (m === 'general' || m === 'company') return m
+  } catch {
+    // ignore
+  }
+  return 'general'
+}
+
+export function saveActiveRunTargetCompany(name: string | null) {
+  try {
+    if (name?.trim()) sessionStorage.setItem(ACTIVE_TARGET_KEY, name.trim())
+    else sessionStorage.removeItem(ACTIVE_TARGET_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export function loadActiveRunTargetCompany(): string {
+  try {
+    return sessionStorage.getItem(ACTIVE_TARGET_KEY) || ''
+  } catch {
+    return ''
+  }
 }
 
 export function saveActiveRunId(id: string | null) {

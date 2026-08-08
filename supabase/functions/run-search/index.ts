@@ -554,6 +554,60 @@ function slugDomainGuess(company: string): string | null {
   return slug.length >= 2 ? `${slug}.com` : null
 }
 
+function companyNameMatchesTarget(companyName: string, target: string): boolean {
+  const a = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const b = target.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  if (!a || !b) return false
+  return a === b || a.includes(b) || b.includes(a)
+}
+
+async function resolveUserTargetCompany(
+  rawName: string,
+  webConfigured: boolean,
+): Promise<CompanyHit> {
+  const company_name = rawName.trim()
+  let domain: string | null = slugDomainGuess(company_name)
+  let url = domain ? `https://${domain}` : ''
+
+  if (webConfigured) {
+    try {
+      const hits = await runWebSearch(
+        `"${company_name}" company official site OR careers`,
+        6,
+        { preferBing: true },
+      )
+      for (const item of hits) {
+        const link = item.link || item.url
+        if (!link) continue
+        if (/linkedin\.com\/company\//i.test(link)) {
+          if (!url) url = link
+          continue
+        }
+        const d = extractDomain(link)
+        if (d && isEmployerCorporateHost(d)) {
+          domain = d
+          url = link
+          break
+        }
+      }
+    } catch {
+      // keep slug guess
+    }
+  }
+
+  if (!url && domain) url = `https://${domain}`
+  if (!url) url = 'https://example.com'
+
+  return {
+    company_name,
+    domain,
+    url,
+    source: 'user_target',
+    hiring_signal: 'You chose this employer to follow up after applying.',
+    relevance: 12,
+  }
+}
+
 /** Free Hunter plans cap domain-search at 10 — request 10 and soft-handle the notice. */
 async function searchHunter(
   domain: string,
@@ -1055,6 +1109,10 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}))
     runId = typeof body.run_id === 'string' ? body.run_id : null
     const depth = (body.depth as string) || 'standard'
+    const searchModeInput =
+      body.search_mode === 'company' ? 'company' : 'general'
+    const targetCompanyInput =
+      typeof body.target_company === 'string' ? body.target_company.trim() : ''
     const chain = body.chain === true && isServiceChainRequest(req)
     const continueRun =
       body.continue_run === true && !chain && Boolean(runId)
@@ -1174,20 +1232,33 @@ Deno.serve(async (req) => {
     const filters = (filterRow?.filters || {}) as Filters
     const include = filters.include_titles || []
     const exclude = filters.exclude_titles || []
-    const maxCompanies = Math.min(
+    let maxCompanies = Math.min(
       caps.companies,
       filters.max_companies_per_run || caps.companies,
       10,
     )
-    const maxPerCompany = Math.min(
+    let maxPerCompany = Math.min(
       caps.per,
       filters.max_contacts_per_company || caps.per,
       5,
     )
 
+    let searchMode: 'general' | 'company' = searchModeInput
+    let targetCompanyName = targetCompanyInput
+
+    if (searchMode === 'company') {
+      maxCompanies = 1
+    }
+
     await syncProgress(admin, runId, progressMeta, {
-      detail: `Depth: ${depth} · up to ${maxCompanies} companies × ${maxPerCompany} contacts`,
-      logLine: `Search depth: ${depth} · max ${maxCompanies} companies`,
+      detail:
+        searchMode === 'company'
+          ? `Specific company · ${targetCompanyName || '—'} · up to ${maxPerCompany} contacts`
+          : `Depth: ${depth} · up to ${maxCompanies} companies × ${maxPerCompany} contacts`,
+      logLine:
+        searchMode === 'company'
+          ? `Target employer: ${targetCompanyName || '(missing name)'}`
+          : `Search depth: ${depth} · max ${maxCompanies} companies`,
     })
 
     const hunterKey = Deno.env.get('HUNTER_API_KEY')
@@ -1294,6 +1365,10 @@ Deno.serve(async (req) => {
       adzunaCount = pipeline.plan_meta.adzunaCount
       jobQueriesForReport = pipeline.plan_meta.jobQueries
       companyQueriesForReport = pipeline.plan_meta.companyQueries
+      if (pipeline.plan_meta.search_mode) {
+        searchMode = pipeline.plan_meta.search_mode
+        targetCompanyName = pipeline.plan_meta.target_company || ''
+      }
       if (progressMeta.companies.length === 0) {
         progressMeta.companies = initCompaniesProgress(
           selected.map((c) => c.company_name),
@@ -1311,6 +1386,75 @@ Deno.serve(async (req) => {
         ),
         logLine: `Resuming company ${pipeline.company_index + 1} of ${selected.length}`,
       })
+    } else {
+    let mergedCompanies: CompanyHit[]
+    let allJobs: JobHit[] = []
+
+    if (searchMode === 'company') {
+      if (!targetCompanyName) {
+        throw new Error('Company name is required for a specific-company search.')
+      }
+      await syncProgress(admin, runId, progressMeta, {
+        stage: 'discovering_companies',
+        progress: 14,
+        message: `Looking up ${targetCompanyName}…`,
+        detail:
+          'Skipping industry-wide discovery — you named this employer for post-application follow-up.',
+        logLine: `Specific company search: ${targetCompanyName}`,
+      })
+
+      const targetHit = await resolveUserTargetCompany(
+        targetCompanyName,
+        webConfigured,
+      )
+      companyQueriesForReport = [`Specific company: ${targetCompanyName}`]
+      pushProgressLog(
+        progressMeta,
+        `Resolved target employer ${targetHit.company_name}${
+          targetHit.domain ? ` (${targetHit.domain})` : ''
+        }`,
+      )
+      await saveProgressMeta(admin, runId!, progressMeta)
+
+      await syncProgress(admin, runId, progressMeta, {
+        stage: 'fetching_jobs',
+        progress: 18,
+        message: `Checking hiring signals at ${targetCompanyName}…`,
+        detail: 'Optional job-board scan for a relevant role title',
+        logLine: `Job boards filtered to ${targetCompanyName}`,
+      })
+
+      const jobBatches = await Promise.all(
+        jobQueries.slice(0, 2).map(async (q) => {
+          const combined = `${targetCompanyName} ${q}`.slice(0, 120)
+          const [remotive, adzuna] = await Promise.all([
+            fetchRemotiveJobs(combined),
+            fetchAdzunaJobs(combined, location),
+          ])
+          return [...remotive, ...adzuna]
+        }),
+      )
+      allJobs = jobBatches
+        .flat()
+        .filter((j) => companyNameMatchesTarget(j.company_name, targetCompanyName))
+      remotiveCount = allJobs.filter((j) => j.source === 'remotive').length
+      adzunaCount = allJobs.filter((j) => j.source === 'adzuna').length
+      allJobsLen = allJobs.length
+
+      if (allJobs.length > 0) {
+        const best = [...allJobs].sort(
+          (a, b) =>
+            scoreJobRelevance(b.title, targetRoles, industries, skills) -
+            scoreJobRelevance(a.title, targetRoles, industries, skills),
+        )[0]
+        if (best?.title) targetHit.hiring_signal = best.title
+        if (!targetHit.domain && best?.candidate_domain) {
+          targetHit.domain = best.candidate_domain
+        }
+      }
+
+      webCompaniesLen = 0
+      mergedCompanies = [targetHit]
     } else {
     await syncProgress(admin, runId, progressMeta, {
       stage: 'discovering_companies',
@@ -1433,7 +1577,7 @@ Deno.serve(async (req) => {
         return [...remotive, ...adzuna]
       }),
     )
-    const allJobs = jobBatches.flat()
+    allJobs = jobBatches.flat()
     remotiveCount = allJobs.filter((j) => j.source === 'remotive').length
     adzunaCount = allJobs.filter((j) => j.source === 'adzuna').length
 
@@ -1454,7 +1598,8 @@ Deno.serve(async (req) => {
     }
 
     const jobCompanies = jobHitsToCompanies([...byCompany.values()])
-    let mergedCompanies = mergeCompanyLists(webCompanies, jobCompanies)
+    mergedCompanies = mergeCompanyLists(webCompanies, jobCompanies)
+    }
 
     const { data: flaggedRows } = await admin
       .from('companies')
@@ -1568,7 +1713,10 @@ Deno.serve(async (req) => {
     await syncProgress(admin, runId, progressMeta, {
       stage: 'companies_ready',
       progress: computeRunProgress(progressMeta, 0, 25),
-      message: `${webCompaniesLen} AI-found companies + ${allJobsLen} jobs → ${selected.length} ranked targets`,
+      message:
+        searchMode === 'company'
+          ? `Target employer ready — ${selected[0]?.company_name || targetCompanyName}`
+          : `${webCompaniesLen} AI-found companies + ${allJobsLen} jobs → ${selected.length} ranked targets`,
       detail: `Top: ${selected
         .slice(0, 3)
         .map((c) => `${c.company_name} (${c.relevance || 0})`)
@@ -1614,6 +1762,8 @@ Deno.serve(async (req) => {
         maxPerCompany,
         require_verified_email: filters.require_verified_email === true,
         accept_accept_all: filters.accept_accept_all !== false,
+        search_mode: searchMode,
+        target_company: searchMode === 'company' ? targetCompanyName : null,
       },
     }
     await savePipelineState(admin, runId!, pipeline)
@@ -2200,7 +2350,11 @@ Deno.serve(async (req) => {
 
     const how = {
       method:
-        'Queued search (one company per step). AI reads your profile + filters, runs live web search for employers, then finds people in similar roles at those companies (LinkedIn via Bing/Serper → OSINT → optional Hunter).',
+        meta.search_mode === 'company'
+          ? `Specific-company search for “${meta.target_company || '—'}”. Skips industry discovery; finds people at that employer in roles similar to yours (LinkedIn via Bing/Serper → OSINT → optional Hunter) — useful after you applied.`,
+          : 'Queued search (one company per step). AI reads your profile + filters, runs live web search for employers, then finds people in similar roles at those companies (LinkedIn via Bing/Serper → OSINT → optional Hunter).',
+      search_mode: meta.search_mode || 'general',
+      target_company: meta.target_company || null,
       company_queries: companyQueriesForReport,
       job_queries: jobQueriesForReport,
       location: meta.location || null,

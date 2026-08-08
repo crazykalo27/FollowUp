@@ -67,6 +67,8 @@ export type SearchPipelineState = {
     maxPerCompany: number
     require_verified_email: boolean
     accept_accept_all: boolean
+    search_mode?: 'general' | 'company'
+    target_company?: string | null
   }
 }
 

@@ -1,3 +1,8 @@
+## 2026-08-07 — Search modes: general vs specific company
+
+- Search page: choose **General search** (industry discovery + low/med/high credits) or **Specific company** (post-application follow-up at one employer).
+- `run-search` accepts `search_mode` + `target_company`; skips AI discovery for company mode, resolves domain via web search, stores mode in pipeline meta.
+
 ## 2026-08-07 — LinkedIn contact location parsing
 
 - Fixed web-search location heuristics: no longer treat first snippet segment (often About) as location; scan for geo patterns and segment before “connections”.

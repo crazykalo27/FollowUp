@@ -6,12 +6,18 @@ import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
 import {
   SEARCH_DEPTHS,
+  SEARCH_MODES,
   depthPreset,
   loadActiveRunDepth,
   loadActiveRunId,
+  loadActiveRunMode,
+  loadActiveRunTargetCompany,
   saveActiveRunDepth,
   saveActiveRunId,
+  saveActiveRunMode,
+  saveActiveRunTargetCompany,
   type SearchDepth,
+  type SearchMode,
 } from '../lib/searchDepth'
 import './search.css'
 
@@ -79,6 +85,8 @@ type SearchSummary = {
   }
   how: {
     method: string
+    search_mode?: string
+    target_company?: string | null
     job_query?: string
     job_queries?: string[]
     company_queries?: string[]
@@ -155,6 +163,8 @@ export function OverviewPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [summary, setSummary] = useState<SearchSummary | null>(null)
   const [depth, setDepth] = useState<SearchDepth>('standard')
+  const [searchMode, setSearchMode] = useState<SearchMode>('general')
+  const [targetCompany, setTargetCompany] = useState('')
   const [live, setLive] = useState<{
     progress: number
     stage: string
@@ -172,6 +182,11 @@ export function OverviewPage() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [orientPrompt, setOrientPrompt] = useState(false)
+
+  useEffect(() => {
+    setSearchMode(loadActiveRunMode())
+    setTargetCompany(loadActiveRunTargetCompany())
+  }, [])
 
   function stopPoll() {
     if (pollRef.current != null) {
@@ -432,6 +447,11 @@ export function OverviewPage() {
   async function runSearch() {
     if (!user || searching) return
 
+    if (searchMode === 'company' && !targetCompany.trim()) {
+      setErrorMsg('Enter a company name for a specific-company search.')
+      return
+    }
+
     setErrorMsg(null)
 
     const staleBefore = new Date(Date.now() - 18 * 60 * 1000).toISOString()
@@ -466,13 +486,20 @@ export function OverviewPage() {
     }
 
     const preset = depthPreset(depth)
+    const companyLabel = targetCompany.trim()
     setSearching(true)
     setSummary(null)
     setLive({
       progress: 1,
       stage: 'starting',
-      message: `Preparing ${preset.label.toLowerCase()} search…`,
-      detail: `${preset.companies} companies × ${preset.perCompany} · ${preset.estimatePeople} · ${preset.eta}`,
+      message:
+        searchMode === 'company'
+          ? `Preparing search at ${companyLabel}…`
+          : `Preparing ${preset.label.toLowerCase()} search…`,
+      detail:
+        searchMode === 'company'
+          ? `${preset.estimatePeople} at one employer · ${preset.eta}`
+          : `${preset.companies} companies × ${preset.perCompany} · ${preset.estimatePeople} · ${preset.eta}`,
       current_company: null,
       companies_total: 0,
       companies_done: 0,
@@ -486,8 +513,14 @@ export function OverviewPage() {
         status: 'running',
         stage: 'starting',
         progress: 1,
-        message: `Preparing ${preset.label.toLowerCase()} search…`,
-        detail: `${preset.companies} companies × ${preset.perCompany}`,
+        message:
+          searchMode === 'company'
+            ? `Starting search at ${companyLabel}…`
+            : `Preparing ${preset.label.toLowerCase()} search…`,
+        detail:
+          searchMode === 'company'
+            ? `Up to ${preset.perCompany} contacts`
+            : `${preset.companies} companies × ${preset.perCompany}`,
       })
       .select('id')
       .single()
@@ -501,6 +534,10 @@ export function OverviewPage() {
 
     saveActiveRunId(run.id)
     saveActiveRunDepth(depth)
+    saveActiveRunMode(searchMode)
+    saveActiveRunTargetCompany(
+      searchMode === 'company' ? companyLabel : null,
+    )
     setActiveRunId(run.id)
     startPolling(run.id)
 
@@ -510,7 +547,14 @@ export function OverviewPage() {
       summary?: SearchSummary
       run_id: string
       accepted?: boolean
-    }>('run-search', { run_id: run.id, depth })
+    }>('run-search', {
+      run_id: run.id,
+      depth,
+      search_mode: searchMode,
+      ...(searchMode === 'company'
+        ? { target_company: companyLabel }
+        : {}),
+    })
       .then((res) => {
         if (res.accepted) return
         if (res.summary) {
@@ -564,28 +608,50 @@ export function OverviewPage() {
   }
 
   const selectedDepth = depthPreset(depth)
+  const companyDepthHint =
+    searchMode === 'company'
+      ? 'Credits control how many people we try to find at that one company.'
+      : 'Credits control how many companies we discover and how many people per company.'
 
   return (
     <div className="panel search-page">
       <header className="search-page-header">
         <h1>Search</h1>
         <p className="lede">
-          {orientation.complete
-            ? 'We find companies in your target industries, then people to contact directly — not job-board black holes. Search keeps running if you leave this page.'
-            : 'Run a search to discover companies and direct contacts based on your profile and filters. When it finishes, review contacts next.'}
+          {searchMode === 'company'
+            ? 'Name the employer you applied to (or want to reach). We find people there for a thoughtful follow-up — not a spray-and-pray blast.'
+            : orientation.complete
+              ? 'We find companies in your target industries, then people to contact directly — not job-board black holes. Search keeps running if you leave this page.'
+              : 'Run a search to discover companies and direct contacts based on your profile and filters. When it finishes, review contacts next.'}
         </p>
       </header>
 
       <div className="search-flow-rail" aria-label="Search pipeline">
-        <div className="search-flow-step">
-          <span className="search-flow-num">01</span>
-          <span>Discover companies</span>
-        </div>
-        <span className="search-flow-arrow" aria-hidden>→</span>
-        <div className="search-flow-step">
-          <span className="search-flow-num">02</span>
-          <span>Find people</span>
-        </div>
+        {searchMode === 'general' ? (
+          <>
+            <div className="search-flow-step">
+              <span className="search-flow-num">01</span>
+              <span>Discover companies</span>
+            </div>
+            <span className="search-flow-arrow" aria-hidden>→</span>
+            <div className="search-flow-step">
+              <span className="search-flow-num">02</span>
+              <span>Find people</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="search-flow-step">
+              <span className="search-flow-num">01</span>
+              <span>Name your employer</span>
+            </div>
+            <span className="search-flow-arrow" aria-hidden>→</span>
+            <div className="search-flow-step">
+              <span className="search-flow-num">02</span>
+              <span>Find people to follow up</span>
+            </div>
+          </>
+        )}
       </div>
 
       {!orientation.complete && (
@@ -615,10 +681,61 @@ export function OverviewPage() {
       )}
 
       <section className="search-run-card">
-        <h3>Run a search</h3>
+        <h3>What kind of search?</h3>
+        <p className="muted small search-mode-lead">
+          Pick the scenario that matches why you&apos;re searching today.
+        </p>
+        <div className="search-mode-grid" role="radiogroup" aria-label="Search type">
+          {SEARCH_MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              role="radio"
+              aria-checked={searchMode === m.id}
+              className={`search-mode-card ${searchMode === m.id ? 'selected' : ''}`}
+              disabled={searching}
+              onClick={() => {
+                setSearchMode(m.id)
+                saveActiveRunMode(m.id)
+              }}
+            >
+              <strong>{m.label}</strong>
+              <span className="search-mode-purpose">{m.purpose}</span>
+              <span className="muted small">{m.detail}</span>
+            </button>
+          ))}
+        </div>
+
+        {searchMode === 'company' && (
+          <div className="search-target-company">
+            <label htmlFor="search-target-company-input">
+              Company name
+            </label>
+            <input
+              id="search-target-company-input"
+              type="text"
+              className="search-target-input"
+              placeholder="e.g. Nvidia, Stripe, Mayo Clinic"
+              value={targetCompany}
+              disabled={searching}
+              onChange={(e) => {
+                setTargetCompany(e.target.value)
+                saveActiveRunTargetCompany(e.target.value)
+              }}
+              autoComplete="organization"
+            />
+            <p className="muted small">
+              Use the name you&apos;d put on an application. We resolve their
+              domain and look for hiring managers, team leads, or recruiters in
+              roles similar to yours.
+            </p>
+          </div>
+        )}
+
+        <h3 className="search-credits-heading">Search size (credits)</h3>
         <p className="muted small" style={{ marginBottom: '1rem' }}>
-          Estimates are upper bounds per run. Hunter applies only if enabled in
-          Settings.
+          {companyDepthHint} Estimates are upper bounds per run. Hunter applies
+          only if enabled in Settings.
         </p>
         <div className="depth-picker">
           <div className="depth-grid">
@@ -641,8 +758,9 @@ export function OverviewPage() {
                   : ''}
               </span>
               <span className="muted small">
-                {d.estimatePeople} · {d.companies} companies × {d.perCompany}{' '}
-                max
+                {searchMode === 'company'
+                  ? `${d.estimatePeople} at one employer · up to ${d.perCompany} per company`
+                  : `${d.estimatePeople} · ${d.companies} companies × ${d.perCompany} max`}
               </span>
               <span className="muted small">{d.blurb}</span>
             </button>
@@ -651,7 +769,10 @@ export function OverviewPage() {
         <p className="small depth-summary">
           Selected: <strong>{selectedDepth.label}</strong> — ~
           {selectedDepth.webSearchCredits} web searches,{' '}
-          {selectedDepth.estimatePeople}, {selectedDepth.eta}
+          {searchMode === 'company'
+            ? `${selectedDepth.estimatePeople} at ${targetCompany.trim() || 'your company'}`
+            : selectedDepth.estimatePeople}
+          , {selectedDepth.eta}
         </p>
         </div>
       </section>
@@ -660,12 +781,18 @@ export function OverviewPage() {
         <button
           type="button"
           className="btn primary"
-          disabled={searching || !stats.onboarding}
+          disabled={
+            searching ||
+            !stats.onboarding ||
+            (searchMode === 'company' && !targetCompany.trim())
+          }
           onClick={runSearch}
         >
           {searching
             ? 'Search running…'
-            : `Run search (${selectedDepth.label.toLowerCase()})`}
+            : searchMode === 'company'
+              ? `Search at ${targetCompany.trim() || 'company'} (${selectedDepth.label.toLowerCase()})`
+              : `Run search (${selectedDepth.label.toLowerCase()})`}
         </button>
         {showCancel && (
           <button
@@ -883,6 +1010,12 @@ export function OverviewPage() {
           <div className="report-block">
             <h3>How this works</h3>
             <p className="muted">{summary.how.method}</p>
+            {summary.how.search_mode === 'company' &&
+              summary.how.target_company && (
+                <p className="small">
+                  <strong>Target employer:</strong> {summary.how.target_company}
+                </p>
+              )}
             <ul className="report-list">
               <li>
                 <strong>Target roles:</strong>{' '}
