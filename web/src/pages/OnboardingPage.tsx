@@ -10,6 +10,38 @@ import './profile.css'
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
+/** Closed-ended orientation steps get click-to-send options; open-ended stay text-only. */
+const ORIENTATION_QUICK_OPTIONS: Record<string, string[]> = {
+  locations: ['No preference'],
+  employment_types: ['Full-time', 'Part-time', 'Internship'],
+  remote_preference: ['Remote', 'In-person', 'Hybrid'],
+  company_size: ['Large', 'Medium', 'Small'],
+  seniority: ['Entry', 'Mid-level', 'Experienced'],
+}
+
+const ORIENTATION_QUESTION_KEYS = [
+  'locations',
+  'employment_types',
+  'remote_preference',
+  'company_size',
+  'seniority',
+  'industries',
+  'roles',
+] as const
+
+function orientationQuickOptions(
+  profile: SearchProfileData | null,
+  seriesComplete: boolean,
+  orientationComplete: boolean,
+): string[] | null {
+  if (orientationComplete || seriesComplete || !profile) return null
+  const q = profile.orientation_q ?? 0
+  if (q < 0 || q >= ORIENTATION_QUESTION_KEYS.length) return null
+  const key = ORIENTATION_QUESTION_KEYS[q]
+  const options = ORIENTATION_QUICK_OPTIONS[key]
+  return options?.length ? options : null
+}
+
 function profileSnapshotChips(profile: SearchProfileData | null): string[] {
   if (!profile) return []
   const chips: string[] = []
@@ -241,9 +273,9 @@ export function OnboardingPage() {
     }
   }
 
-  async function send(finalize = false) {
-    if (!finalize && !input.trim()) return
-    const message = input.trim()
+  async function send(finalize = false, preset?: string) {
+    const message = (preset ?? input).trim()
+    if (!finalize && !message) return
     setInput('')
     if (!finalize && message) {
       setMessages((m) => [...m, { role: 'user', content: message }])
@@ -284,6 +316,12 @@ export function OnboardingPage() {
       setBusy(false)
     }
   }
+
+  const quickOptions = orientationQuickOptions(
+    profile,
+    seriesComplete,
+    orientation.complete,
+  )
 
   if (loading) {
     return <div className="page-center muted">Loading profile…</div>
@@ -379,6 +417,25 @@ export function OnboardingPage() {
         </div>
 
         <footer className="profile-chat-compose">
+          {quickOptions && (
+            <div
+              className="profile-quick-answers"
+              role="group"
+              aria-label="Quick answers"
+            >
+              {quickOptions.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  className="profile-quick-btn"
+                  disabled={busy || bootstrapping}
+                  onClick={() => void send(false, opt)}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             rows={2}
             value={input}
@@ -387,7 +444,9 @@ export function OnboardingPage() {
                 ? 'Tell me what to change about your search…'
                 : seriesComplete
                   ? 'Optional: clarify anything else…'
-                  : 'Type your answer…'
+                  : quickOptions
+                    ? 'Or type your own answer…'
+                    : 'Type your answer…'
             }
             disabled={bootstrapping || busy}
             onChange={(e) => setInput(e.target.value)}
@@ -399,7 +458,9 @@ export function OnboardingPage() {
             }}
           />
           <p className="profile-compose-hint">
-            Press Enter to send · Shift+Enter for a new line
+            {quickOptions
+              ? 'Tap an option to send · or type and press Enter'
+              : 'Press Enter to send · Shift+Enter for a new line'}
           </p>
           <div className="profile-compose-actions">
             <button

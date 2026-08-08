@@ -1,3 +1,8 @@
+## 2026-08-08 — Orientation quick-answer buttons
+
+- Profile chat: closed-ended orientation questions (employment type, remote, company size, seniority; plus “No preference” for location) show clickable options that auto-send.
+- Open-ended steps (industries, roles) stay free-text; typing still available on button steps.
+
 ## 2026-08-08 — Gmail bounce detection + draft recovery
 
 - Gmail OAuth adds **readonly** scope; reconnect in Settings to scan threads for delivery failures.
