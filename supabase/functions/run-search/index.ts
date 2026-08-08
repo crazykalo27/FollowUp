@@ -1422,6 +1422,7 @@ Deno.serve(async (req) => {
     } else {
     let mergedCompanies: CompanyHit[]
     let allJobs: JobHit[] = []
+    let webCompanies: CompanyHit[] = []
 
     if (searchMode === 'company') {
       if (!targetCompanyName) {
@@ -1580,7 +1581,8 @@ Deno.serve(async (req) => {
       )
     }
 
-    const webCompanies = aiCompanies
+    const webCompaniesDiscovered = aiCompanies
+    webCompanies = webCompaniesDiscovered
 
     if (webCompanies.length > 0) {
       pushProgressLog(
@@ -1715,7 +1717,9 @@ Deno.serve(async (req) => {
     const selectedRanked = ranked.slice(0, maxCompanies)
     selected = selectedRanked
 
-    webCompaniesLen = webCompanies.length
+    if (searchMode !== 'company') {
+      webCompaniesLen = webCompanies.length
+    }
     allJobsLen = allJobs.length
     contactsCreated = 0
     contactsSkippedDuplicate = 0
