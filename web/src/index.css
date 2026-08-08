@@ -946,6 +946,38 @@ th {
   background: rgba(196, 240, 76, 0.06);
 }
 
+.draft-list button.draft-list-pending {
+  border-color: rgba(96, 165, 250, 0.45);
+  background: rgba(59, 130, 246, 0.1);
+  color: #bfdbfe;
+}
+
+.draft-pending-mark {
+  flex-shrink: 0;
+  color: #60a5fa;
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  margin-right: 0.15rem;
+}
+
+.draft-pending-banner {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  background: rgba(59, 130, 246, 0.12);
+  color: #dbeafe;
+  line-height: 1.45;
+}
+
+.draft-pending-timer {
+  margin: 0.35rem 0 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: #93c5fd;
+}
+
 .draft-list button.draft-list-bounced {
   border-color: rgba(255, 107, 107, 0.55);
   background: rgba(255, 80, 80, 0.08);

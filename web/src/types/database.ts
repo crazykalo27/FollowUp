@@ -6,7 +6,13 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export type DraftStatus = 'draft' | 'approved' | 'sent' | 'failed' | 'bounced'
+export type DraftStatus =
+  | 'draft'
+  | 'approved'
+  | 'pending'
+  | 'sent'
+  | 'failed'
+  | 'bounced'
 
 export interface SearchProfileData {
   roles: string[]

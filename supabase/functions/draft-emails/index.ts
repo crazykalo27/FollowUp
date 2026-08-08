@@ -96,8 +96,11 @@ Deno.serve(async (req) => {
         .maybeSingle()
       if (draftLoadErr) return errorResponse(draftLoadErr.message, 500)
       if (!existingDraft) return errorResponse('Draft not found', 404)
-      if (existingDraft.status === 'sent') {
-        return errorResponse('Cannot regenerate a draft that was already sent', 400)
+      if (existingDraft.status === 'sent' || existingDraft.status === 'pending') {
+        return errorResponse(
+          'Cannot regenerate a draft that was already sent or is pending delivery',
+          400,
+        )
       }
       replaceDraftId = draftId
       contactIdsFilter = [existingDraft.contact_id]
@@ -123,7 +126,7 @@ Deno.serve(async (req) => {
       .from('outreach_drafts')
       .select('contact_id')
       .eq('user_id', user.id)
-      .eq('status', 'sent')
+      .in('status', ['sent', 'pending'])
 
     const sentContactIds = new Set(
       (sentRows || []).map((r) => r.contact_id as string),

@@ -91,9 +91,9 @@ Deno.serve(async (req) => {
       .single()
 
     if (draftErr || !draft) return errorResponse('Draft not found', 404)
-    if (draft.status === 'sent') {
+    if (draft.status === 'sent' || draft.status === 'pending') {
       return errorResponse(
-        'This draft was already sent. Follow up or reply in your Gmail inbox.',
+        'This draft was already sent or is awaiting delivery confirmation.',
         400,
       )
     }
@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
       .select('id, sent_at')
       .eq('user_id', user.id)
       .eq('contact_id', contactId)
-      .eq('status', 'sent')
+      .in('status', ['sent', 'pending'])
       .maybeSingle()
 
     if (priorSent) {
@@ -213,7 +213,7 @@ Deno.serve(async (req) => {
     await admin
       .from('outreach_drafts')
       .update({
-        status: 'sent',
+        status: 'pending',
         sent_at: new Date().toISOString(),
         error_message: null,
         gmail_message_id: gmailId,

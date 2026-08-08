@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
 import { prefillSpecificCompanySearch } from '../lib/searchDepth'
+import { formatPendingTimer } from '../lib/outreachDelivery'
 import type { DraftStatus } from '../types/database'
 import {
   applyTemplate,
@@ -77,6 +78,12 @@ export function DraftsPage() {
   const [connectingGmail, setConnectingGmail] = useState(false)
   const [copied, setCopied] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
+  const [clock, setClock] = useState(() => Date.now())
+
+  const pendingCount = useMemo(
+    () => drafts.filter((d) => d.status === 'pending').length,
+    [drafts],
+  )
 
   const templatePreview = useMemo(() => {
     return {
@@ -85,21 +92,24 @@ export function DraftsPage() {
     }
   }, [subjectTemplate, bodyTemplate])
 
-  const sentContactIds = useMemo(
+  const lockedContactIds = useMemo(
     () =>
       new Set(
         drafts
-          .filter((d) => d.status === 'sent')
+          .filter((d) => d.status === 'sent' || d.status === 'pending')
           .map((d) => d.contact_id),
       ),
     [drafts],
   )
 
   const outreachLocked = active
-    ? active.status === 'sent' || sentContactIds.has(active.contact_id)
+    ? active.status === 'sent' ||
+      active.status === 'pending' ||
+      lockedContactIds.has(active.contact_id)
     : false
 
   const isBounced = active?.status === 'bounced'
+  const isPending = active?.status === 'pending'
 
   async function syncDeliveryStatus() {
     if (!user) return
@@ -159,6 +169,22 @@ export function DraftsPage() {
     }
     return mapped
   }
+
+  useEffect(() => {
+    if (pendingCount === 0) return
+    const tick = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(tick)
+  }, [pendingCount])
+
+  useEffect(() => {
+    if (!user || pendingCount === 0) return
+    const run = () => {
+      void syncDeliveryStatus().then(() => load())
+    }
+    run()
+    const poll = window.setInterval(run, 30_000)
+    return () => window.clearInterval(poll)
+  }, [user, pendingCount])
 
   async function completeOrientationIfNeeded(hasDraft: boolean) {
     if (!inOrientation || !hasDraft) return
@@ -338,8 +364,8 @@ export function DraftsPage() {
         sent_via?: string
       }>('send-outreach', { draft_id: active.id })
       const attachNote = resumeFileName
-        ? `Sent via Gmail with ${resumeFileName} attached. Check your Sent folder.`
-        : 'Sent via your Gmail — check your Sent folder.'
+        ? `Sent via Gmail — checking delivery (about 5 min). ${resumeFileName} attached.`
+        : 'Sent via Gmail — checking delivery for about 5 minutes.'
       setMsg(attachNote)
       await syncDeliveryStatus()
       void load()
@@ -533,10 +559,17 @@ export function DraftsPage() {
                   type="button"
                   className={`${active?.id === d.id ? 'active' : ''} ${
                     d.status === 'sent' ? 'draft-list-sent' : ''
-                  } ${d.status === 'bounced' ? 'draft-list-bounced' : ''}`}
+                  } ${d.status === 'pending' ? 'draft-list-pending' : ''} ${
+                    d.status === 'bounced' ? 'draft-list-bounced' : ''
+                  }`}
                   onClick={() => setActive(d)}
                 >
                   <span className="draft-list-row-top">
+                    {d.status === 'pending' && (
+                      <span className="draft-pending-mark" aria-hidden="true">
+                        ◷
+                      </span>
+                    )}
                     {d.status === 'sent' && (
                       <span className="draft-sent-check" aria-hidden="true">
                         ✓
@@ -553,9 +586,11 @@ export function DraftsPage() {
                     {d.contacts?.full_name || d.contacts?.email}
                     {d.status === 'sent'
                       ? ` · ${formatSentDate(d.sent_at)}`
-                      : d.status === 'bounced'
-                        ? ' · delivery failed'
-                        : ` · ${d.status}`}
+                      : d.status === 'pending'
+                        ? ` · ${formatPendingTimer(d.sent_at, clock)}`
+                        : d.status === 'bounced'
+                          ? ' · delivery failed'
+                          : ` · ${d.status}`}
                   </span>
                 </button>
               </li>
@@ -581,9 +616,11 @@ export function DraftsPage() {
                     {active.contacts?.email || 'No email on file'}
                     {active.status === 'sent'
                       ? ` · ${formatSentDate(active.sent_at)}`
-                      : active.status === 'bounced'
-                        ? ' · delivery failed (not counted as sent)'
-                        : ` · ${active.status}`}
+                      : active.status === 'pending'
+                        ? ` · ${formatPendingTimer(active.sent_at, clock)}`
+                        : active.status === 'bounced'
+                          ? ' · delivery failed (not counted as sent)'
+                          : ` · ${active.status}`}
                   </p>
                 </div>
                 <button
@@ -595,11 +632,24 @@ export function DraftsPage() {
                 </button>
               </header>
 
-              {outreachLocked && !isBounced && (
+              {outreachLocked && !isBounced && !isPending && (
                 <p className="draft-sent-banner">
                   Outreach already sent to this person. Follow up or reply from
                   your Gmail inbox — FollowUp won&apos;t send again.
                 </p>
+              )}
+
+              {isPending && (
+                <div className="draft-pending-banner">
+                  <p>
+                    <strong>Delivery pending.</strong> We&apos;re watching this
+                    thread for bounces. If nothing fails, it turns green after 5
+                    minutes.
+                  </p>
+                  <p className="draft-pending-timer">
+                    {formatPendingTimer(active.sent_at, clock)}
+                  </p>
+                </div>
               )}
 
               {isBounced && (

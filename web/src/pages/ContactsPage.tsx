@@ -293,8 +293,10 @@ export function ContactsPage() {
     const sent = new Set<string>()
     for (const row of draftRows || []) {
       const cid = row.contact_id as string
-      drafted.add(cid)
-      if (row.status === 'sent') sent.add(cid)
+      if (row.status === 'sent' || row.status === 'pending') {
+        drafted.add(cid)
+        if (row.status === 'sent') sent.add(cid)
+      }
     }
     setDraftedContactIds(drafted)
     setSentOutreachIds(sent)
