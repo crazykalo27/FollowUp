@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
@@ -17,6 +17,7 @@ import {
   saveActiveCompanyPeopleTarget,
   saveActiveRunDepth,
   saveActiveRunId,
+  prefillSpecificCompanySearch,
   saveActiveRunMode,
   saveActiveRunTargetCompany,
   type CompanyPeopleTarget,
@@ -155,11 +156,13 @@ function SourceCard({
 export function OverviewPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const orientation = useOrientation()
   const [stats, setStats] = useState({
     resumes: 0,
     contacts: 0,
     drafts: 0,
+    emailsSent: 0,
     onboarding: false,
     gmail: false,
   })
@@ -194,6 +197,14 @@ export function OverviewPage() {
     setTargetCompany(loadActiveRunTargetCompany())
     setCompanyPeopleTarget(loadActiveCompanyPeopleTarget())
   }, [])
+
+  useEffect(() => {
+    const company = searchParams.get('company')?.trim()
+    if (!company) return
+    setSearchMode('company')
+    setTargetCompany(company)
+    prefillSpecificCompanySearch(company)
+  }, [searchParams])
 
   function stopPoll() {
     if (pollRef.current != null) {
@@ -383,10 +394,14 @@ export function OverviewPage() {
   useEffect(() => {
     if (!user) return
     ;(async () => {
-      const [r, c, d, p, g] = await Promise.all([
+      const [r, c, d, sent, p, g] = await Promise.all([
         supabase.from('resumes').select('id', { count: 'exact', head: true }),
         supabase.from('contacts').select('id', { count: 'exact', head: true }),
         supabase.from('outreach_drafts').select('id', { count: 'exact', head: true }),
+        supabase
+          .from('outreach_drafts')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'sent'),
         supabase.from('profiles').select('onboarding_complete').eq('id', user.id).maybeSingle(),
         supabase.from('gmail_connection').select('email').eq('user_id', user.id).maybeSingle(),
       ])
@@ -394,6 +409,7 @@ export function OverviewPage() {
         resumes: r.count || 0,
         contacts: c.count || 0,
         drafts: d.count || 0,
+        emailsSent: sent.count || 0,
         onboarding: Boolean(p.data?.onboarding_complete),
         gmail: Boolean(g.data?.email),
       })
@@ -682,8 +698,11 @@ export function OverviewPage() {
             <span>Contacts</span>
           </div>
           <div className="search-stat-chip">
-            <strong>{stats.drafts}</strong>
-            <span>Drafts</span>
+            <strong>
+              {stats.emailsSent}
+              <span className="search-stat-ratio"> / {stats.drafts}</span>
+            </strong>
+            <span>Emails sent / drafts</span>
           </div>
         </div>
       )}

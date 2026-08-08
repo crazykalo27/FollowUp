@@ -5,24 +5,7 @@ import {
   jsonResponse,
   requireUser,
 } from '../_shared/cors.ts'
-
-async function refreshAccessToken(refreshToken: string) {
-  const clientId = Deno.env.get('GOOGLE_GMAIL_CLIENT_ID')!
-  const clientSecret = Deno.env.get('GOOGLE_GMAIL_CLIENT_SECRET')!
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
-  })
-  const body = await res.json()
-  if (!res.ok) throw new Error(body.error || 'Failed to refresh Gmail token')
-  return body as { access_token: string; expires_in?: number }
-}
+import { getGmailAccessToken, gmailApiGet } from '../_shared/gmail_client.ts'
 
 function bytesToBase64(bytes: Uint8Array): string {
   const chunk = 0x8000
@@ -139,31 +122,22 @@ Deno.serve(async (req) => {
 
     const { data: tokenRow } = await admin
       .from('gmail_tokens')
-      .select('*')
+      .select('user_id')
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (!tokenRow?.refresh_token) {
+    if (!tokenRow) {
       return errorResponse('Gmail not connected', 400)
     }
 
-    let accessToken = tokenRow.access_token as string | null
-    const expired =
-      !tokenRow.expires_at ||
-      new Date(tokenRow.expires_at).getTime() < Date.now() + 60_000
-
-    if (!accessToken || expired) {
-      const refreshed = await refreshAccessToken(tokenRow.refresh_token)
-      accessToken = refreshed.access_token
-      await admin
-        .from('gmail_tokens')
-        .update({
-          access_token: accessToken,
-          expires_at: refreshed.expires_in
-            ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
-            : null,
-        })
-        .eq('user_id', user.id)
+    let accessToken: string
+    let from = 'me'
+    try {
+      const tok = await getGmailAccessToken(admin, user.id)
+      accessToken = tok.accessToken
+      from = tok.email || 'me'
+    } catch {
+      return errorResponse('Gmail not connected', 400)
     }
 
     const { data: resume } = await admin
@@ -185,7 +159,6 @@ Deno.serve(async (req) => {
     }
 
     const bytes = new Uint8Array(await fileData.arrayBuffer())
-    const from = tokenRow.email || 'me'
     const mime = buildMime({
       to,
       from,
@@ -225,20 +198,37 @@ Deno.serve(async (req) => {
       )
     }
 
+    const gmailId = sendBody.id as string
+    let threadId: string | null = sendBody.threadId || null
+    try {
+      const meta = await gmailApiGet<{ threadId?: string }>(
+        accessToken,
+        `/messages/${gmailId}?format=metadata&metadataHeaders=Subject`,
+      )
+      threadId = meta.threadId || threadId
+    } catch {
+      // thread id optional for send success
+    }
+
     await admin
       .from('outreach_drafts')
       .update({
         status: 'sent',
         sent_at: new Date().toISOString(),
         error_message: null,
+        gmail_message_id: gmailId,
+        gmail_thread_id: threadId,
+        bounce_detected_at: null,
+        bounce_summary: null,
       })
       .eq('id', draft_id)
 
     return jsonResponse({
       ok: true,
-      gmail_id: sendBody.id,
+      gmail_id: gmailId,
+      gmail_thread_id: threadId,
       resume_attached: resume.file_name,
-      sent_via: tokenRow.email,
+      sent_via: from,
     })
   } catch (e) {
     return errorResponse(e instanceof Error ? e.message : 'Unexpected error', 500)

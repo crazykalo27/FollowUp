@@ -6,7 +6,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export type DraftStatus = 'draft' | 'approved' | 'sent' | 'failed'
+export type DraftStatus = 'draft' | 'approved' | 'sent' | 'failed' | 'bounced'
 
 export interface SearchProfileData {
   roles: string[]
@@ -263,6 +263,10 @@ export interface Database {
           status: DraftStatus
           error_message: string | null
           sent_at: string | null
+          gmail_message_id: string | null
+          gmail_thread_id: string | null
+          bounce_detected_at: string | null
+          bounce_summary: string | null
           created_at: string
           updated_at: string
         }

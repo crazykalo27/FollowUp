@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
+import { prefillSpecificCompanySearch } from '../lib/searchDepth'
 import type { DraftStatus } from '../types/database'
 import {
   applyTemplate,
@@ -22,7 +23,19 @@ type DraftRow = {
   status: DraftStatus
   sent_at: string | null
   error_message: string | null
-  contacts: { full_name: string | null; email: string | null } | null
+  bounce_summary: string | null
+  contacts: {
+    full_name: string | null
+    email: string | null
+    companies: { name: string } | { name: string }[] | null
+  } | null
+}
+
+function companyNameFromDraft(d: DraftRow): string | null {
+  const c = d.contacts?.companies
+  if (!c) return null
+  if (Array.isArray(c)) return c[0]?.name || null
+  return c.name || null
 }
 
 function formatSentDate(sentAt: string | null) {
@@ -40,6 +53,7 @@ function formatSentDate(sentAt: string | null) {
 
 export function DraftsPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const orientation = useOrientation()
   const [searchParams, setSearchParams] = useSearchParams()
   const orientContactId = searchParams.get('contact')
@@ -74,7 +88,9 @@ export function DraftsPage() {
   const sentContactIds = useMemo(
     () =>
       new Set(
-        drafts.filter((d) => d.status === 'sent').map((d) => d.contact_id),
+        drafts
+          .filter((d) => d.status === 'sent')
+          .map((d) => d.contact_id),
       ),
     [drafts],
   )
@@ -82,6 +98,28 @@ export function DraftsPage() {
   const outreachLocked = active
     ? active.status === 'sent' || sentContactIds.has(active.contact_id)
     : false
+
+  const isBounced = active?.status === 'bounced'
+
+  async function syncDeliveryStatus() {
+    if (!user) return
+    const { data: gmail } = await supabase
+      .from('gmail_connection')
+      .select('email')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (!gmail?.email) return
+    try {
+      await invokeFunction('check-outreach-replies', {})
+    } catch {
+      // optional sync — ignore if scope not granted yet
+    }
+  }
+
+  function findNewPersonAtCompany(companyName: string) {
+    prefillSpecificCompanySearch(companyName)
+    navigate(`/app/search?company=${encodeURIComponent(companyName)}`)
+  }
 
   function importPreset(presetId: string) {
     const preset = EMAIL_TEMPLATE_PRESETS.find((p) => p.id === presetId)
@@ -97,7 +135,7 @@ export function DraftsPage() {
     const { data } = await supabase
       .from('outreach_drafts')
       .select(
-        'id, contact_id, subject, body, status, sent_at, error_message, contacts(full_name, email)',
+        'id, contact_id, subject, body, status, sent_at, error_message, bounce_summary, contacts(full_name, email, companies(name))',
       )
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
@@ -226,7 +264,10 @@ export function DraftsPage() {
       }
       setResumeFileName(resume?.file_name || null)
     })()
-    void load(orientContactId)
+    void (async () => {
+      await syncDeliveryStatus()
+      await load(orientContactId)
+    })()
   }, [user])
 
   // Deep-link from Contacts "Go to drafts" (or orientation) → select that contact's draft
@@ -300,6 +341,7 @@ export function DraftsPage() {
         ? `Sent via Gmail with ${resumeFileName} attached. Check your Sent folder.`
         : 'Sent via your Gmail — check your Sent folder.'
       setMsg(attachNote)
+      await syncDeliveryStatus()
       void load()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Send failed')
@@ -491,7 +533,7 @@ export function DraftsPage() {
                   type="button"
                   className={`${active?.id === d.id ? 'active' : ''} ${
                     d.status === 'sent' ? 'draft-list-sent' : ''
-                  }`}
+                  } ${d.status === 'bounced' ? 'draft-list-bounced' : ''}`}
                   onClick={() => setActive(d)}
                 >
                   <span className="draft-list-row-top">
@@ -500,13 +542,20 @@ export function DraftsPage() {
                         ✓
                       </span>
                     )}
+                    {d.status === 'bounced' && (
+                      <span className="draft-bounced-mark" aria-hidden="true">
+                        !
+                      </span>
+                    )}
                     <span className="draft-list-subject">{d.subject}</span>
                   </span>
                   <span className="muted small">
                     {d.contacts?.full_name || d.contacts?.email}
                     {d.status === 'sent'
                       ? ` · ${formatSentDate(d.sent_at)}`
-                      : ` · ${d.status}`}
+                      : d.status === 'bounced'
+                        ? ' · delivery failed'
+                        : ` · ${d.status}`}
                   </span>
                 </button>
               </li>
@@ -532,7 +581,9 @@ export function DraftsPage() {
                     {active.contacts?.email || 'No email on file'}
                     {active.status === 'sent'
                       ? ` · ${formatSentDate(active.sent_at)}`
-                      : ` · ${active.status}`}
+                      : active.status === 'bounced'
+                        ? ' · delivery failed (not counted as sent)'
+                        : ` · ${active.status}`}
                   </p>
                 </div>
                 <button
@@ -544,11 +595,41 @@ export function DraftsPage() {
                 </button>
               </header>
 
-              {outreachLocked && (
+              {outreachLocked && !isBounced && (
                 <p className="draft-sent-banner">
                   Outreach already sent to this person. Follow up or reply from
                   your Gmail inbox — FollowUp won&apos;t send again.
                 </p>
+              )}
+
+              {isBounced && (
+                <div className="draft-bounced-banner">
+                  <p>
+                    Gmail reported a delivery failure for this address (wrong
+                    email or mailbox not found). This does{' '}
+                    <strong>not</strong> count as a successful send.
+                  </p>
+                  {active.bounce_summary && (
+                    <p className="muted small">Detected: {active.bounce_summary}</p>
+                  )}
+                  {companyNameFromDraft(active) ? (
+                    <div className="actions" style={{ marginTop: '0.65rem' }}>
+                      <button
+                        type="button"
+                        className="btn primary"
+                        onClick={() =>
+                          findNewPersonAtCompany(companyNameFromDraft(active)!)
+                        }
+                      >
+                        Find new person at this company
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="muted small">
+                      No company on file — run a specific search from Search.
+                    </p>
+                  )}
+                </div>
               )}
 
               <div className="drafts-editor-fields">
@@ -610,7 +691,7 @@ export function DraftsPage() {
                 <button
                   type="button"
                   className="btn primary"
-                  disabled={sending || regenerating || outreachLocked}
+                  disabled={sending || regenerating || outreachLocked || isBounced}
                   onClick={send}
                 >
                   {sending ? 'Sending…' : 'Send via Gmail'}

@@ -197,3 +197,9 @@ export function loadActiveRunId(): string | null {
     return null
   }
 }
+
+/** Prefill Search for a specific-company follow-up (user still presses Run). */
+export function prefillSpecificCompanySearch(companyName: string) {
+  saveActiveRunMode('company')
+  saveActiveRunTargetCompany(companyName.trim())
+}

@@ -946,6 +946,31 @@ th {
   background: rgba(196, 240, 76, 0.06);
 }
 
+.draft-list button.draft-list-bounced {
+  border-color: rgba(255, 107, 107, 0.55);
+  background: rgba(255, 80, 80, 0.08);
+  color: #ffb4b4;
+}
+
+.draft-bounced-mark {
+  flex-shrink: 0;
+  color: #ff6b6b;
+  font-weight: 800;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  margin-right: 0.15rem;
+}
+
+.draft-bounced-banner {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 107, 107, 0.45);
+  background: rgba(255, 80, 80, 0.1);
+  color: #ffd0d0;
+  line-height: 1.45;
+}
+
 .draft-sent-banner {
   margin: 0 0 0.5rem;
   padding: 0.55rem 0.65rem;

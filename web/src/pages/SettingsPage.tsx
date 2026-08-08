@@ -418,7 +418,9 @@ export function SettingsPage() {
         <h2>Gmail</h2>
         <p className="settings-card-kicker">
           Connect the account you send outreach from. Resume is attached from your
-          stored file when you send.
+          stored file when you send. Reconnect once if you connected before we
+          added delivery-failure detection — we need read access to your Gmail
+          threads (send + read only, not full account control).
         </p>
         <p
           className={`settings-gmail-status ${gmailEmail ? 'connected' : ''}`}

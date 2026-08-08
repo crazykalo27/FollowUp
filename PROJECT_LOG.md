@@ -1,3 +1,9 @@
+## 2026-08-08 — Gmail bounce detection + draft recovery
+
+- Gmail OAuth adds **readonly** scope; reconnect in Settings to scan threads for delivery failures.
+- `check-outreach-replies` marks drafts **bounced** (red in UI, not counted as sent); “Find new person at this company” prefills Specific search.
+- Search stats: **emails sent / drafts** chip.
+
 ## 2026-08-07 — Search modes: general vs specific company
 
 - Search page: **General** / **Specific** pill toggles; specific mode picks **1, 2, or 5** people with up to 3 retry rounds.
