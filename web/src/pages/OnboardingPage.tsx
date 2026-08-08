@@ -4,9 +4,83 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
+import { ProfileCoachAvatar } from '../components/ProfileCoachAvatar'
 import type { SearchProfileData } from '../types/database'
+import './profile.css'
 
 type Msg = { role: 'user' | 'assistant'; content: string }
+
+function profileSnapshotChips(profile: SearchProfileData | null): string[] {
+  if (!profile) return []
+  const chips: string[] = []
+  if (profile.roles?.length) chips.push(profile.roles.slice(0, 2).join(', '))
+  if (profile.industries?.length)
+    chips.push(profile.industries.slice(0, 2).join(', '))
+  if (profile.locations?.length)
+    chips.push(profile.locations.slice(0, 2).join(', '))
+  if (profile.remote_preference) chips.push(profile.remote_preference)
+  return chips.slice(0, 4)
+}
+
+function CoachWelcome({
+  orientationComplete,
+  profile,
+}: {
+  orientationComplete: boolean
+  profile: SearchProfileData | null
+}) {
+  const chips = profileSnapshotChips(profile)
+
+  return (
+    <div className="coach-welcome">
+      <ProfileCoachAvatar size={44} />
+      <div className="coach-welcome-body">
+        <h2>Your FollowUp guide</h2>
+        {orientationComplete ? (
+          <p>
+            <strong>Come back here anytime</strong> to change what I search for —
+            roles, industries, locations, company types, and the kinds of people you
+            want to reach. Just tell me what to adjust and I&apos;ll update your
+            search profile.
+          </p>
+        ) : (
+          <p>
+            I&apos;ll help shape your search from your resume and a short conversation.
+            Tell me what you&apos;re looking for, and you can always return here later
+            to update it.
+          </p>
+        )}
+        {chips.length > 0 && (
+          <div className="coach-snapshot" aria-label="Current search focus">
+            {chips.map((c) => (
+              <span key={c}>{c}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ChatMessage({ role, content }: Msg) {
+  if (role === 'user') {
+    return (
+      <div className="coach-msg coach-msg-user">
+        <div className="coach-bubble">{content}</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="coach-msg coach-msg-assistant">
+      <ProfileCoachAvatar size={36} />
+      <div className="coach-msg-body">
+        <span className="coach-msg-name">FollowUp</span>
+        <div className="coach-bubble">{content}</div>
+      </div>
+    </div>
+  )
+}
 
 export function OnboardingPage() {
   const { user } = useAuth()
@@ -211,175 +285,153 @@ export function OnboardingPage() {
     }
   }
 
-  // Wait for resume lookup so upload hero does not flash
   if (loading) {
     return <div className="page-center muted">Loading profile…</div>
   }
 
-  // Pre-upload: purpose + central upload
   if (!fileName) {
     return (
-      <div className="profile-hero">
-        <p className="profile-purpose">
-          Find direct contacts to land jobs
-        </p>
-        <p className="lede profile-purpose-sub">
-          Upload your resume. We scan it, ask a few questions, then help you
-          reach hiring managers — not application black holes.
-        </p>
-        <label className="upload upload-hero">
-          <input
-            type="file"
-            accept=".pdf,.doc,.docx,.txt,application/pdf,text/plain"
-            disabled={uploading}
-            onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) void onUpload(f)
-            }}
-          />
-          <span>{uploading ? 'Uploading…' : 'Upload resume'}</span>
-        </label>
-        {status && <p className="flash error">{status}</p>}
-      </div>
-    )
-  }
-
-  return (
-    <div className="profile-layout profile-layout-focus">
-      <header className="profile-top">
-        <div>
-          <h1>Profile</h1>
-          <p className="lede">
-            Answer each question so we know who to find. When the series is
-            done, save your profile to continue.
+      <div className="profile-page profile-upload-stage">
+        <div className="profile-upload-card">
+          <ProfileCoachAvatar size={52} />
+          <h1>Start with your resume</h1>
+          <p className="profile-upload-lede">
+            Upload your resume and chat with your FollowUp guide to shape who we
+            search for. You can return anytime to change roles, industries,
+            locations, and outreach targets.
           </p>
-        </div>
-        <div className="profile-top-actions">
-          <label className="upload">
+          <label className="upload upload-hero">
             <input
               type="file"
               accept=".pdf,.doc,.docx,.txt,application/pdf,text/plain"
-              disabled={uploading || bootstrapping}
+              disabled={uploading}
               onChange={(e) => {
                 const f = e.target.files?.[0]
                 if (f) void onUpload(f)
               }}
             />
-            <span>
-              {uploading || bootstrapping ? 'Working…' : 'Replace resume'}
-            </span>
+            <span>{uploading ? 'Uploading…' : 'Upload resume'}</span>
           </label>
-          <p className="muted small">Current: {fileName}</p>
+          {status && <p className="flash error">{status}</p>}
         </div>
-        {status && <p className="flash">{status}</p>}
-      </header>
+      </div>
+    )
+  }
 
-      <div className="profile-body profile-body-single">
-        <section className="chat chat-pane" aria-label="Profile chat">
-          <div className="chat-log" ref={chatLogRef}>
-            {messages.length === 0 && bootstrapping && (
-              <p className="muted">Scanning resume and starting orientation…</p>
-            )}
-            {messages.map((m, i) => (
-              <div key={i} className={`bubble ${m.role}`}>
-                {m.content}
-              </div>
-            ))}
-          </div>
+  const showSaveProfile =
+    !orientation.complete && seriesComplete && !ready
 
-          {seriesComplete && !ready && (
-            <div className="next-prompt">
-              <p>
-                Profile interview complete. Clarify anything else below, or
-                press Save profile to continue to Filters.
+  return (
+    <div className="profile-page">
+      <div className="profile-chat-shell">
+        <header className="profile-chat-header">
+          <div className="profile-chat-header-title">
+            <ProfileCoachAvatar size={36} />
+            <div>
+              <h1>Profile chat</h1>
+              <p className="profile-chat-header-sub">
+                Talk to update your search anytime
               </p>
             </div>
+          </div>
+          <div className="profile-chat-header-actions">
+            <span className="profile-resume-chip" title={fileName}>
+              {fileName}
+            </span>
+            <label className="upload">
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,application/pdf,text/plain"
+                disabled={uploading || bootstrapping}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) void onUpload(f)
+                }}
+              />
+              <span>
+                {uploading || bootstrapping ? 'Working…' : 'Replace resume'}
+              </span>
+            </label>
+          </div>
+        </header>
+
+        <div className="profile-chat-main" ref={chatLogRef}>
+          <CoachWelcome
+            orientationComplete={orientation.complete}
+            profile={profile}
+          />
+
+          {seriesComplete && showSaveProfile && (
+            <p className="profile-series-banner">
+              Interview complete. Add any final details below, or save your profile
+              to continue to Filters.
+            </p>
           )}
 
-          <div className="chat-compose">
-            <textarea
-              rows={3}
-              value={input}
-              placeholder={
-                seriesComplete
+          <div className="coach-log">
+            {messages.length === 0 && bootstrapping && (
+              <div className="coach-thinking">
+                <ProfileCoachAvatar size={32} />
+                <span>Reading your resume and preparing questions…</span>
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <ChatMessage key={i} role={m.role} content={m.content} />
+            ))}
+            {busy && messages.length > 0 && (
+              <div className="coach-thinking">
+                <ProfileCoachAvatar size={32} />
+                <span>Thinking…</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <footer className="profile-chat-compose">
+          <textarea
+            rows={2}
+            value={input}
+            placeholder={
+              orientation.complete
+                ? 'Tell me what to change about your search…'
+                : seriesComplete
                   ? 'Optional: clarify anything else…'
-                  : 'Answer the question above…'
+                  : 'Type your answer…'
+            }
+            disabled={bootstrapping || busy}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void send(false)
               }
-              disabled={bootstrapping}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void send(false)
-                }
-              }}
-            />
-            <div className="actions">
+            }}
+          />
+          <p className="profile-compose-hint">
+            Press Enter to send · Shift+Enter for a new line
+          </p>
+          <div className="profile-compose-actions">
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busy || bootstrapping || !input.trim()}
+              onClick={() => send(false)}
+            >
+              {busy ? 'Sending…' : 'Send'}
+            </button>
+            {showSaveProfile && (
               <button
                 type="button"
                 className="btn"
-                disabled={busy || bootstrapping || !input.trim()}
-                onClick={() => send(false)}
-              >
-                Send
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={
-                  busy || bootstrapping || !seriesComplete || ready
-                }
+                disabled={busy || bootstrapping}
                 onClick={() => send(true)}
               >
-                {busy && seriesComplete ? 'Saving…' : 'Save profile'}
+                {busy ? 'Saving…' : 'Save profile'}
               </button>
-            </div>
+            )}
           </div>
-        </section>
-
-        {!orientation.complete && profile && (
-          <aside className="profile-side profile-side-thin">
-            <h3>So far</h3>
-            <div className="profile-side-summary">
-              {profile.locations?.length > 0 && (
-                <p>
-                  <strong>Locations:</strong> {profile.locations.join(', ')}
-                </p>
-              )}
-              {(profile.employment_types?.length ?? 0) > 0 && (
-                <p>
-                  <strong>Job type:</strong>{' '}
-                  {(profile.employment_types ?? []).join(', ')}
-                </p>
-              )}
-              {profile.remote_preference && (
-                <p>
-                  <strong>Work style:</strong> {profile.remote_preference}
-                </p>
-              )}
-              {profile.company_size && (
-                <p>
-                  <strong>Company size:</strong> {profile.company_size}
-                </p>
-              )}
-              {profile.seniority && (
-                <p>
-                  <strong>Seniority:</strong> {profile.seniority}
-                </p>
-              )}
-              {profile.industries?.length > 0 && (
-                <p>
-                  <strong>Industries:</strong> {profile.industries.join(', ')}
-                </p>
-              )}
-              {profile.roles?.length > 0 && (
-                <p>
-                  <strong>Titles:</strong> {profile.roles.join(', ')}
-                </p>
-              )}
-            </div>
-          </aside>
-        )}
+          {status && <p className="flash">{status}</p>}
+        </footer>
       </div>
     </div>
   )

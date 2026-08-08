@@ -6,6 +6,7 @@ import { invokeFunction } from '../lib/api'
 import { emailSettingsFromFilters } from '../lib/searchEmailSettings'
 import { useOrientation } from '../lib/orientationContext'
 import { DEFAULT_FILTERS, type SearchFiltersData, type SearchProfileData } from '../types/database'
+import './filters.css'
 
 const EMPTY_SEARCH_PROFILE: SearchProfileData = {
   roles: [],
@@ -284,139 +285,157 @@ export function FiltersPage() {
 
   return (
     <div className="panel filters-page">
-      <h1>Filters</h1>
-      <p className="lede">
-        {inOrientation
-          ? 'Review company targets and who we should contact. Continue when these look right — or update and save first.'
-          : 'Company targets drive which employers we hunt. Contact targets narrow who qualifies at each company.'}
-      </p>
-
-      <section className="filter-section">
-        <h2>Company targets</h2>
-        <p className="muted small">
-          Jobs, industries, company type/size, and locations for discovery.
+      <header className="filters-page-header">
+        <h1>Filters</h1>
+        <p className="lede">
+          {inOrientation
+            ? 'Review company targets and who we should contact. Continue when these look right — or update and save first.'
+            : 'Company targets drive which employers we hunt. Contact targets narrow who qualifies at each company.'}
         </p>
-        <div className="form-grid">
-          <label>
-            Jobs wanted
-            <textarea
-              value={rolesText}
-              onChange={(e) => setRolesText(e.target.value)}
-              placeholder="Quantum software engineer"
-            />
-          </label>
-          <label>
-            Industries
-            <textarea
-              value={industriesText}
-              onChange={(e) => setIndustriesText(e.target.value)}
-              placeholder="Quantum computing"
-            />
-          </label>
-          <label>
-            Company types
-            <textarea
-              value={companyTypesText}
-              onChange={(e) => setCompanyTypesText(e.target.value)}
-              placeholder="Startups, national labs"
-            />
-          </label>
-          <label>
-            Company size
-            <input
-              type="text"
-              value={companySize}
-              onChange={(e) => setCompanySize(e.target.value)}
-              placeholder="large / medium / small"
-            />
-          </label>
-          <label>
-            Locations
-            <textarea
-              rows={3}
-              value={locationsText}
-              onChange={(e) => setLocationsText(e.target.value)}
-              placeholder="One per line"
-            />
-          </label>
-          <label>
-            Notes
-            <textarea
-              rows={3}
-              value={notesText}
-              onChange={(e) => setNotesText(e.target.value)}
-              placeholder="Optional context"
-            />
-          </label>
-        </div>
-      </section>
+      </header>
 
-      <section className="filter-section">
-        <h2>Contact targets</h2>
-        <p className="muted small">
-          People to find at those companies, plus title include/exclude rules.
-        </p>
-        <label>
-          People to find
-          <textarea
-            value={outreachText}
-            onChange={(e) => setOutreachText(e.target.value)}
-            placeholder="Hiring managers, team leads"
-          />
-        </label>
-        <div className="form-grid">
-          <label>
-            Include title keywords
-            <textarea
-              rows={5}
-              value={includeText}
-              onChange={(e) => setIncludeText(e.target.value)}
-            />
-          </label>
-          <label>
-            Exclude title keywords
-            <textarea
-              rows={5}
-              value={excludeText}
-              onChange={(e) => setExcludeText(e.target.value)}
-            />
-          </label>
+      <div className="filters-flow-rail" aria-label="Search flow">
+        <div className="filters-flow-step active">
+          <span className="filters-flow-num">01</span>
+          <span>Find companies</span>
         </div>
-        {!inOrientation && (
-          <div className="form-row">
+        <span className="filters-flow-arrow" aria-hidden>→</span>
+        <div className="filters-flow-step active">
+          <span className="filters-flow-num">02</span>
+          <span>Find people</span>
+        </div>
+      </div>
+
+      <div className="filters-flow-grid">
+        <section className="filters-flow-card companies" aria-labelledby="filters-companies">
+          <h2 id="filters-companies">Company targets</h2>
+          <p className="filters-card-kicker">
+            Jobs, industries, company type and size, and locations — what we search the web for first.
+          </p>
+          <div className="form-grid">
             <label>
-              Max companies / run
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={filters.max_companies_per_run}
-                onChange={(e) =>
-                  setFilters((f) => ({
-                    ...f,
-                    max_companies_per_run: Number(e.target.value),
-                  }))
-                }
+              Jobs wanted
+              <textarea
+                value={rolesText}
+                onChange={(e) => setRolesText(e.target.value)}
+                placeholder="Quantum software engineer"
               />
             </label>
             <label>
-              Max contacts / company
+              Industries
+              <textarea
+                value={industriesText}
+                onChange={(e) => setIndustriesText(e.target.value)}
+                placeholder="Quantum computing"
+              />
+            </label>
+            <label>
+              Company types
+              <textarea
+                value={companyTypesText}
+                onChange={(e) => setCompanyTypesText(e.target.value)}
+                placeholder="Startups, national labs"
+              />
+            </label>
+            <label>
+              Company size
               <input
-                type="number"
-                min={1}
-                max={20}
-                value={filters.max_contacts_per_company}
-                onChange={(e) =>
-                  setFilters((f) => ({
-                    ...f,
-                    max_contacts_per_company: Number(e.target.value),
-                  }))
-                }
+                type="text"
+                value={companySize}
+                onChange={(e) => setCompanySize(e.target.value)}
+                placeholder="large / medium / small"
+              />
+            </label>
+            <label>
+              Locations
+              <textarea
+                rows={3}
+                value={locationsText}
+                onChange={(e) => setLocationsText(e.target.value)}
+                placeholder="One per line"
+              />
+            </label>
+            <label>
+              Notes
+              <textarea
+                rows={3}
+                value={notesText}
+                onChange={(e) => setNotesText(e.target.value)}
+                placeholder="Optional context"
               />
             </label>
           </div>
-        )}
-      </section>
+        </section>
+
+        <section className="filters-flow-card people" aria-labelledby="filters-people">
+          <h2 id="filters-people">Contact targets</h2>
+          <p className="filters-card-kicker">
+            At each company, who to find and which titles count — hiring managers, peers, and keyword rules.
+          </p>
+          <label>
+            People to find
+            <textarea
+              value={outreachText}
+              onChange={(e) => setOutreachText(e.target.value)}
+              placeholder="Hiring managers, team leads"
+            />
+          </label>
+          <div className="form-grid">
+            <label>
+              Include title keywords
+              <textarea
+                rows={5}
+                value={includeText}
+                onChange={(e) => setIncludeText(e.target.value)}
+              />
+            </label>
+            <label>
+              Exclude title keywords
+              <textarea
+                rows={5}
+                value={excludeText}
+                onChange={(e) => setExcludeText(e.target.value)}
+              />
+            </label>
+          </div>
+          {!inOrientation && (
+            <div className="filters-run-limits">
+              <div className="form-row">
+                <label>
+                  Max companies / run
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={filters.max_companies_per_run}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        max_companies_per_run: Number(e.target.value),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Max contacts / company
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={filters.max_contacts_per_company}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        max_contacts_per_company: Number(e.target.value),
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
 
       <div className="actions">
         {inOrientation ? (
@@ -461,36 +480,33 @@ export function FiltersPage() {
       </div>
       {status && <p className="flash">{status}</p>}
 
-      {!inOrientation && (
-        <section className="pref-docs">
-          <h2>Pick-signal feedback</h2>
-          <p className="muted small">
-            Keep/discard reasons are attached to the hiring signal and match
-            reason that produced each contact — so search learns which pick
-            types to repeat or avoid.
-          </p>
-          {prefs?.ai_summary && (
-            <div className="pref-summary">
-              <h3>AI preference memo</h3>
-              <p>{prefs.ai_summary}</p>
-            </div>
-          )}
-          <div className="pref-grid">
-            <div>
-              <h3>Rewarded pick signals</h3>
-              <pre className="pref-log">
-                {prefs?.likes_doc?.trim() || '(empty — keep some contacts)'}
-              </pre>
-            </div>
-            <div>
-              <h3>Rejected pick signals</h3>
-              <pre className="pref-log">
-                {prefs?.dislikes_doc?.trim() || '(empty — discard with reasons)'}
-              </pre>
-            </div>
+      <section className="filters-learning" aria-labelledby="filters-learning-title">
+        <h2 id="filters-learning-title">What the AI is learning</h2>
+        <p className="muted small filters-learning-lede">
+          Keep and discard feedback on Contacts teaches which pick signals to repeat or avoid.
+          Filter rewrites use this together with your profile chat.
+        </p>
+        {prefs?.ai_summary && (
+          <div className="pref-summary">
+            <h3>AI preference memo</h3>
+            <p>{prefs.ai_summary}</p>
           </div>
-        </section>
-      )}
+        )}
+        <div className="pref-grid">
+          <div>
+            <h3>Rewarded pick signals</h3>
+            <pre className="pref-log">
+              {prefs?.likes_doc?.trim() || '(empty — keep contacts with feedback)'}
+            </pre>
+          </div>
+          <div>
+            <h3>Rejected pick signals</h3>
+            <pre className="pref-log">
+              {prefs?.dislikes_doc?.trim() || '(empty — discard with reasons)'}
+            </pre>
+          </div>
+        </div>
+      </section>
     </div>
   )
 }

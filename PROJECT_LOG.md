@@ -136,3 +136,11 @@ Conceptual milestones (not a commit-by-commit diary).
 
 - Rebuilt `/` landing: dark forest-green system (Fraunces + Source Sans 3), sticky nav, hero contrast visual, problem / journey / product mockup / positioning sections, scroll reveals.
 - Dedicated `landing.css` + `useReveal`; removed legacy minimal landing styles from `index.css`.
+
+## 2026-08-07 — Profile chat UI polish
+
+- Profile (`OnboardingPage`): coach avatar, welcome card, centered chat shell aligned with drafts/landing; intro explains updating search anytime; removed side “So far” panel.
+
+## 2026-08-07 — Filters flow layout
+
+- Company and contact targets side-by-side with 01→02 flow rail; AI learning (memo + pick signals) always shown below targets.

@@ -1,0 +1,160 @@
+/* Filters — company → people flow layout */
+
+.filters-page {
+  max-width: 72rem;
+}
+
+.filters-page-header {
+  margin-bottom: 1.5rem;
+}
+
+.filters-page-header h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.75rem;
+}
+
+.filters-flow-rail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.filters-flow-step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.filters-flow-step.active {
+  color: var(--ink);
+}
+
+.filters-flow-step .filters-flow-num {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.filters-flow-arrow {
+  color: rgba(196, 240, 76, 0.55);
+  font-size: 1rem;
+  user-select: none;
+}
+
+.filters-flow-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+.filters-flow-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.25rem 1.35rem 1.35rem;
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  min-width: 0;
+}
+
+.filters-flow-card.companies {
+  border-color: rgba(196, 240, 76, 0.18);
+  background: linear-gradient(
+    165deg,
+    rgba(196, 240, 76, 0.06) 0%,
+    rgba(0, 0, 0, 0.22) 45%
+  );
+}
+
+.filters-flow-card.people {
+  border-color: rgba(120, 180, 150, 0.22);
+  background: linear-gradient(
+    165deg,
+    rgba(80, 130, 110, 0.12) 0%,
+    rgba(0, 0, 0, 0.22) 45%
+  );
+}
+
+.filters-flow-card h2 {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+}
+
+.filters-flow-card .filters-card-kicker {
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.filters-flow-card .form-grid {
+  max-width: none;
+}
+
+.filters-flow-card label {
+  margin-bottom: 0.75rem;
+}
+
+.filters-run-limits {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.filters-learning {
+  margin-top: 2rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.filters-learning h2 {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+
+.filters-learning-lede {
+  margin: 0 0 1.25rem;
+  max-width: 42rem;
+}
+
+.filters-learning .pref-summary {
+  margin-top: 0;
+}
+
+.filters-page .actions {
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 900px) {
+  .filters-flow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filters-flow-rail {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+
+  .filters-flow-step {
+    justify-content: center;
+  }
+
+  .filters-flow-arrow {
+    transform: rotate(90deg);
+    align-self: center;
+  }
+}
