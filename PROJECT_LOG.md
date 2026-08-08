@@ -1,6 +1,6 @@
 ## 2026-08-07 — Search modes: general vs specific company
 
-- Search page: choose **General search** (industry discovery + low/med/high credits) or **Specific company** (post-application follow-up at one employer).
+- Search page: **General** / **Specific** pill toggles; specific mode picks **1, 2, or 5** people with up to 3 retry rounds.
 - `run-search` accepts `search_mode` + `target_company`; skips AI discovery for company mode, resolves domain via web search, stores mode in pipeline meta.
 
 ## 2026-08-07 — LinkedIn contact location parsing

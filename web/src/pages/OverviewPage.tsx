@@ -7,15 +7,19 @@ import { useOrientation } from '../lib/orientationContext'
 import {
   SEARCH_DEPTHS,
   SEARCH_MODES,
+  COMPANY_PEOPLE_TARGETS,
   depthPreset,
+  loadActiveCompanyPeopleTarget,
   loadActiveRunDepth,
   loadActiveRunId,
   loadActiveRunMode,
   loadActiveRunTargetCompany,
+  saveActiveCompanyPeopleTarget,
   saveActiveRunDepth,
   saveActiveRunId,
   saveActiveRunMode,
   saveActiveRunTargetCompany,
+  type CompanyPeopleTarget,
   type SearchDepth,
   type SearchMode,
 } from '../lib/searchDepth'
@@ -165,6 +169,8 @@ export function OverviewPage() {
   const [depth, setDepth] = useState<SearchDepth>('standard')
   const [searchMode, setSearchMode] = useState<SearchMode>('general')
   const [targetCompany, setTargetCompany] = useState('')
+  const [companyPeopleTarget, setCompanyPeopleTarget] =
+    useState<CompanyPeopleTarget>(2)
   const [live, setLive] = useState<{
     progress: number
     stage: string
@@ -186,6 +192,7 @@ export function OverviewPage() {
   useEffect(() => {
     setSearchMode(loadActiveRunMode())
     setTargetCompany(loadActiveRunTargetCompany())
+    setCompanyPeopleTarget(loadActiveCompanyPeopleTarget())
   }, [])
 
   function stopPoll() {
@@ -498,7 +505,7 @@ export function OverviewPage() {
           : `Preparing ${preset.label.toLowerCase()} search…`,
       detail:
         searchMode === 'company'
-          ? `${preset.estimatePeople} at one employer · ${preset.eta}`
+          ? `Goal: ${companyPeopleTarget} people at one employer · ${preset.eta}`
           : `${preset.companies} companies × ${preset.perCompany} · ${preset.estimatePeople} · ${preset.eta}`,
       current_company: null,
       companies_total: 0,
@@ -519,7 +526,7 @@ export function OverviewPage() {
             : `Preparing ${preset.label.toLowerCase()} search…`,
         detail:
           searchMode === 'company'
-            ? `Up to ${preset.perCompany} contacts`
+            ? `${companyPeopleTarget} people target`
             : `${preset.companies} companies × ${preset.perCompany}`,
       })
       .select('id')
@@ -552,7 +559,10 @@ export function OverviewPage() {
       depth,
       search_mode: searchMode,
       ...(searchMode === 'company'
-        ? { target_company: companyLabel }
+        ? {
+            target_company: companyLabel,
+            company_people_target: companyPeopleTarget,
+          }
         : {}),
     })
       .then((res) => {
@@ -608,10 +618,8 @@ export function OverviewPage() {
   }
 
   const selectedDepth = depthPreset(depth)
-  const companyDepthHint =
-    searchMode === 'company'
-      ? 'Credits control how many people we try to find at that one company.'
-      : 'Credits control how many companies we discover and how many people per company.'
+  const selectedModeMeta =
+    SEARCH_MODES.find((m) => m.id === searchMode) ?? SEARCH_MODES[0]
 
   return (
     <div className="panel search-page">
@@ -682,35 +690,35 @@ export function OverviewPage() {
 
       <section className="search-run-card">
         <h3>What kind of search?</h3>
-        <p className="muted small search-mode-lead">
-          Pick the scenario that matches why you&apos;re searching today.
-        </p>
-        <div className="search-mode-grid" role="radiogroup" aria-label="Search type">
+        <div
+          className="search-mode-toggle"
+          role="radiogroup"
+          aria-label="Search type"
+        >
           {SEARCH_MODES.map((m) => (
             <button
               key={m.id}
               type="button"
               role="radio"
               aria-checked={searchMode === m.id}
-              className={`search-mode-card ${searchMode === m.id ? 'selected' : ''}`}
+              className={`search-mode-pill ${searchMode === m.id ? 'selected' : ''}`}
               disabled={searching}
               onClick={() => {
                 setSearchMode(m.id)
                 saveActiveRunMode(m.id)
               }}
             >
-              <strong>{m.label}</strong>
-              <span className="search-mode-purpose">{m.purpose}</span>
-              <span className="muted small">{m.detail}</span>
+              {m.label}
             </button>
           ))}
         </div>
+        <p className="muted small search-mode-explainer">
+          <strong>{selectedModeMeta.purpose}</strong> — {selectedModeMeta.detail}
+        </p>
 
         {searchMode === 'company' && (
           <div className="search-target-company">
-            <label htmlFor="search-target-company-input">
-              Company name
-            </label>
+            <label htmlFor="search-target-company-input">Company name</label>
             <input
               id="search-target-company-input"
               type="text"
@@ -724,57 +732,88 @@ export function OverviewPage() {
               }}
               autoComplete="organization"
             />
-            <p className="muted small">
-              Use the name you&apos;d put on an application. We resolve their
-              domain and look for hiring managers, team leads, or recruiters in
-              roles similar to yours.
-            </p>
           </div>
         )}
 
-        <h3 className="search-credits-heading">Search size (credits)</h3>
-        <p className="muted small" style={{ marginBottom: '1rem' }}>
-          {companyDepthHint} Estimates are upper bounds per run. Hunter applies
-          only if enabled in Settings.
-        </p>
-        <div className="depth-picker">
-          <div className="depth-grid">
-          {SEARCH_DEPTHS.map((d) => (
-            <button
-              key={d.id}
-              type="button"
-              className={`depth-card ${depth === d.id ? 'selected' : ''}`}
-              disabled={searching}
-              onClick={() => setDepth(d.id)}
+        {searchMode === 'general' ? (
+          <>
+            <h3 className="search-credits-heading">Search size (credits)</h3>
+            <p className="muted small" style={{ marginBottom: '1rem' }}>
+              Low / medium / high sets how many companies we discover and how
+              many people per company. Hunter applies only if enabled in
+              Settings.
+            </p>
+            <div className="depth-picker">
+              <div className="depth-grid">
+                {SEARCH_DEPTHS.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className={`depth-card ${depth === d.id ? 'selected' : ''}`}
+                    disabled={searching}
+                    onClick={() => setDepth(d.id)}
+                  >
+                    <strong>{d.label}</strong>
+                    <span className="depth-eta">
+                      ~{d.webSearchCredits} Bing/Serper searches
+                    </span>
+                    <span className="depth-est">
+                      Hunter: ~{d.hunterDomainCalls} domain
+                      {d.hunterMaxFindVerify > 0
+                        ? ` · up to ${d.hunterMaxFindVerify} find/verify`
+                        : ''}
+                    </span>
+                    <span className="muted small">
+                      {d.estimatePeople} · {d.companies} companies ×{' '}
+                      {d.perCompany} max
+                    </span>
+                    <span className="muted small">{d.blurb}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="small depth-summary">
+                Selected: <strong>{selectedDepth.label}</strong> — ~
+                {selectedDepth.webSearchCredits} web searches,{' '}
+                {selectedDepth.estimatePeople}, {selectedDepth.eta}
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 className="search-credits-heading">How many people?</h3>
+            <p className="muted small" style={{ marginBottom: '0.75rem' }}>
+              We keep searching (broader queries each round) until we find this
+              many contacts or hit <strong>3 rounds in a row</strong> with no new
+              person.
+            </p>
+            <div
+              className="company-people-toggle"
+              role="radiogroup"
+              aria-label="Number of people to find"
             >
-              <strong>{d.label}</strong>
-              <span className="depth-eta">
-                ~{d.webSearchCredits} Bing/Serper searches
-              </span>
-              <span className="depth-est">
-                Hunter: ~{d.hunterDomainCalls} domain
-                {d.hunterMaxFindVerify > 0
-                  ? ` · up to ${d.hunterMaxFindVerify} find/verify`
-                  : ''}
-              </span>
-              <span className="muted small">
-                {searchMode === 'company'
-                  ? `${d.estimatePeople} at one employer · up to ${d.perCompany} per company`
-                  : `${d.estimatePeople} · ${d.companies} companies × ${d.perCompany} max`}
-              </span>
-              <span className="muted small">{d.blurb}</span>
-            </button>
-          ))}
-        </div>
-        <p className="small depth-summary">
-          Selected: <strong>{selectedDepth.label}</strong> — ~
-          {selectedDepth.webSearchCredits} web searches,{' '}
-          {searchMode === 'company'
-            ? `${selectedDepth.estimatePeople} at ${targetCompany.trim() || 'your company'}`
-            : selectedDepth.estimatePeople}
-          , {selectedDepth.eta}
-        </p>
-        </div>
+              {COMPANY_PEOPLE_TARGETS.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  role="radio"
+                  aria-checked={companyPeopleTarget === n}
+                  className={`company-people-pill ${companyPeopleTarget === n ? 'selected' : ''}`}
+                  disabled={searching}
+                  onClick={() => {
+                    setCompanyPeopleTarget(n)
+                    saveActiveCompanyPeopleTarget(n)
+                  }}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <p className="small depth-summary">
+              Target: <strong>{companyPeopleTarget}</strong> people at{' '}
+              {targetCompany.trim() || 'your company'}
+            </p>
+          </>
+        )}
       </section>
 
       <div className="search-actions-bar">
@@ -791,7 +830,7 @@ export function OverviewPage() {
           {searching
             ? 'Search running…'
             : searchMode === 'company'
-              ? `Search at ${targetCompany.trim() || 'company'} (${selectedDepth.label.toLowerCase()})`
+              ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
               : `Run search (${selectedDepth.label.toLowerCase()})`}
         </button>
         {showCancel && (

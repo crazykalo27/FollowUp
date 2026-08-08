@@ -861,14 +861,27 @@ async function searchWebLinkedIn(
   titles: string[],
   stats: SourceStats,
   deptKeywords: string[] = [],
+  searchRound = 0,
 ): Promise<Candidate[]> {
   const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
   const serperKey = Deno.env.get('SERPER_API_KEY')
   if (!bingKey && !serperKey) return []
 
   stats.attempted += 1
-  const titleClause = titles
-    .slice(0, 6)
+  let titleList = titles
+  if (searchRound === 1) {
+    titleList = [...titles.slice(0, 4), ...BROAD_PEOPLE_TITLES.slice(0, 5)]
+  } else if (searchRound >= 2) {
+    titleList = [
+      ...titles.slice(0, 3),
+      'Technical Recruiter',
+      'Talent Acquisition',
+      'Recruiting Manager',
+      ...BROAD_PEOPLE_TITLES.slice(0, 4),
+    ]
+  }
+  const titleClause = titleList
+    .slice(0, 8)
     .map((t) => `"${t}"`)
     .join(' OR ')
   const deptClause = deptKeywords
@@ -889,14 +902,25 @@ async function searchWebLinkedIn(
   if (queries.length === 0) {
     queries.push(`site:linkedin.com/in "${companyName}"`)
   }
+  if (searchRound >= 1) {
+    queries.push(
+      `site:linkedin.com/in "${companyName}" (manager OR director OR lead)`,
+    )
+  }
+  if (searchRound >= 2) {
+    queries.push(
+      `site:linkedin.com/in "${companyName}" (recruiter OR "talent acquisition")`,
+    )
+  }
 
   try {
     const out: Candidate[] = []
     const seen = new Set<string>()
     const preferBing = Boolean(bingKey)
     const via = preferBing ? 'bing' : 'serper'
+    const maxQueries = searchRound >= 2 ? 3 : 2
 
-    for (const q of queries.slice(0, 2)) {
+    for (const q of queries.slice(0, maxQueries)) {
       const organic = await runWebSearch(q, 6, { preferBing })
       for (const item of organic) {
         const link = item.link || item.url || ''
@@ -1113,6 +1137,12 @@ Deno.serve(async (req) => {
       body.search_mode === 'company' ? 'company' : 'general'
     const targetCompanyInput =
       typeof body.target_company === 'string' ? body.target_company.trim() : ''
+    const companyPeopleRaw = Number(body.company_people_target)
+    const companyPeopleTargetInput =
+      searchModeInput === 'company' &&
+      (companyPeopleRaw === 1 || companyPeopleRaw === 2 || companyPeopleRaw === 5)
+        ? companyPeopleRaw
+        : null
     const chain = body.chain === true && isServiceChainRequest(req)
     const continueRun =
       body.continue_run === true && !chain && Boolean(runId)
@@ -1248,6 +1278,9 @@ Deno.serve(async (req) => {
 
     if (searchMode === 'company') {
       maxCompanies = 1
+      if (companyPeopleTargetInput) {
+        maxPerCompany = companyPeopleTargetInput
+      }
     }
 
     await syncProgress(admin, runId, progressMeta, {
@@ -1764,6 +1797,10 @@ Deno.serve(async (req) => {
         accept_accept_all: filters.accept_accept_all !== false,
         search_mode: searchMode,
         target_company: searchMode === 'company' ? targetCompanyName : null,
+        company_people_target:
+          searchMode === 'company'
+            ? companyPeopleTargetInput ?? maxPerCompany
+            : undefined,
       },
     }
     await savePipelineState(admin, runId!, pipeline)
@@ -1801,6 +1838,7 @@ Deno.serve(async (req) => {
 
     const chunkStart = pipeline!.company_index
     const chunkEnd = Math.min(chunkStart + 1, selected.length)
+    let companyRoundComplete = true
 
     for (let i = chunkStart; i < chunkEnd; i++) {
       if (await runWasCancelled(admin, runId)) {
@@ -1809,37 +1847,81 @@ Deno.serve(async (req) => {
 
       const company = selected[i]
       const pct = computeRunProgress(progressMeta, i, 25)
+      const peopleGoal =
+        meta.search_mode === 'company'
+          ? meta.company_people_target ?? meta.maxPerCompany
+          : meta.maxPerCompany
+      const webSearchRound =
+        meta.search_mode === 'company' ? pipeline!.company_attempt ?? 0 : 0
+      const skipCompanySetup =
+        meta.search_mode === 'company' &&
+        Boolean(pipeline!.company_ctx) &&
+        webSearchRound > 0
 
       await syncProgress(admin, runId, progressMeta, {
         stage: 'searching_people',
         progress: pct,
-        message: `Searching people at ${company.company_name}…`,
+        message: skipCompanySetup
+          ? `Retry ${webSearchRound} at ${company.company_name} (${contactsCreated}/${peopleGoal} people)…`
+          : `Searching people at ${company.company_name}…`,
         detail: `Company ${i + 1} of ${selected.length}`,
         current_company: company.company_name,
         companies_total: selected.length,
         companies_done: i,
         companyName: company.company_name,
         companyStatus: 'active',
-        companyStep: 'Resolving domain & employer check',
+        companyStep: skipCompanySetup
+          ? 'Broader people search (retry)'
+          : 'Resolving domain & employer check',
         companyProgress: 8,
-        logLine: `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain`,
+        logLine: skipCompanySetup
+          ? `${company.company_name}: retry ${webSearchRound} — ${contactsCreated}/${peopleGoal} people so far`
+          : `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain`,
       })
 
-      const domain =
+      let domain: string | null = null
+      let companyId: string | null = null
+      let canonicalName = company.company_name
+      let hunterPeople: Candidate[] = []
+      let hunterOrg: string | null = null
+      let webPeople: Candidate[] = []
+      let proxyPeople: Candidate[] = []
+
+      const report: Record<string, unknown> = skipCompanySetup
+        ? (pipeline!.company_reports[pipeline!.company_reports.length - 1] ?? {
+            name: company.company_name,
+            domain: pipeline!.company_ctx!.domain,
+            hiring_signal: company.hiring_signal || null,
+            relevance: company.relevance || 0,
+            source: company.source,
+            by_provider: { hunter: 0, websearch: 0, proxycurl: 0 },
+            kept: 0,
+            outcome: '',
+          })
+        : {
+            name: company.company_name,
+            domain: null as string | null,
+            hiring_signal: company.hiring_signal || null,
+            relevance: company.relevance || 0,
+            source: company.source,
+            by_provider: { hunter: 0, websearch: 0, proxycurl: 0 },
+            kept: 0,
+            outcome: '',
+          }
+
+      if (skipCompanySetup && pipeline!.company_ctx) {
+        domain = pipeline!.company_ctx.domain
+        companyId = pipeline!.company_ctx.companyId
+        canonicalName = pipeline!.company_ctx.canonicalName
+        report.domain = domain
+        report.name = canonicalName
+      } else {
+      domain =
         company.domain ||
         extractDomain(company.url) ||
         slugDomainGuess(company.company_name)
 
-      const report: Record<string, unknown> = {
-        name: company.company_name,
-        domain,
-        hiring_signal: company.hiring_signal || null,
-        relevance: company.relevance || 0,
-        source: company.source,
-        by_provider: { hunter: 0, websearch: 0, proxycurl: 0 },
-        kept: 0,
-        outcome: '',
-      }
+      report.domain = domain
 
       if (!domain) {
         report.outcome = 'Skipped — could not resolve domain'
@@ -1871,10 +1953,8 @@ Deno.serve(async (req) => {
         companyProgress: 22,
         logLine: `${company.company_name}: searching people on ${domain}`,
       })
-      let hunterPeople: Candidate[] = []
-      let hunterOrg: string | null = null
 
-      const [hunterResult, webPeople, proxyPeople] = await Promise.all([
+      const [hunterResult, webHits, proxyHits] = await Promise.all([
         hunterKey && hunterEnabled && !hunterState.quotaExhausted
           ? searchHunter(domain, source_stats.hunter, hunterState)
           : Promise.resolve({ people: [] as Candidate[], organization: null }),
@@ -1885,6 +1965,7 @@ Deno.serve(async (req) => {
               peopleTitlesRun,
               source_stats.websearch,
               deptKeywordsRun,
+              webSearchRound,
             )
           : Promise.resolve([] as Candidate[]),
         proxyKey
@@ -1898,8 +1979,10 @@ Deno.serve(async (req) => {
       ])
       hunterPeople = hunterResult.people
       hunterOrg = hunterResult.organization
+      webPeople = webHits
+      proxyPeople = proxyHits
 
-      const canonicalName = pickCanonicalCompanyName(
+      canonicalName = pickCanonicalCompanyName(
         company.company_name,
         domain,
         hunterOrg,
@@ -1919,7 +2002,6 @@ Deno.serve(async (req) => {
 
       report.name = canonicalName
 
-      let companyId: string | null = null
       const { data: existingCompany } = await admin
         .from('companies')
         .select('*')
@@ -1966,6 +2048,51 @@ Deno.serve(async (req) => {
         companyId = inserted.id
       }
       companiesSelected += 1
+      pipeline!.company_ctx = {
+        domain,
+        companyId: companyId!,
+        canonicalName,
+        companyKey: company.company_name,
+      }
+      }
+
+      if (!domain || !companyId) {
+        report.outcome = 'Skipped — company context missing'
+        markCompanySkipped(progressMeta, company.company_name, report.outcome)
+        company_reports.push(report)
+        continue
+      }
+
+      if (skipCompanySetup) {
+        await syncProgress(admin, runId, progressMeta, {
+          companyName: company.company_name,
+          companyStep: 'LinkedIn + broader web search (retry)',
+          companyProgress: 22,
+          logLine: `${canonicalName}: retry ${webSearchRound} people search`,
+        })
+        const [webHitsRetry, proxyHitsRetry] = await Promise.all([
+          webConfigured
+            ? searchWebLinkedIn(
+                company.company_name,
+                domain,
+                peopleTitlesRun,
+                source_stats.websearch,
+                deptKeywordsRun,
+                webSearchRound,
+              )
+            : Promise.resolve([] as Candidate[]),
+          proxyKey
+            ? searchProxycurl(
+                domain,
+                company.company_name,
+                peopleTitlesRun,
+                source_stats.proxycurl,
+              )
+            : Promise.resolve([] as Candidate[]),
+        ])
+        webPeople = webHitsRetry
+        proxyPeople = proxyHitsRetry
+      }
 
       await syncProgress(admin, runId, progressMeta, {
         message: `Scored ${canonicalName}: H${hunterPeople.length} / Web${webPeople.length} / P${proxyPeople.length}`,
@@ -2072,8 +2199,13 @@ Deno.serve(async (req) => {
 
       let kept = 0
       let skippedDup = 0
+      const triedKeys = new Set(pipeline!.tried_candidate_keys ?? [])
       for (const { cand, score, match } of rankedPeople) {
-        if (kept >= meta.maxPerCompany) break
+        if (contactsCreated >= peopleGoal) break
+
+        const candKey = dedupeKey(cand, domain)
+        if (triedKeys.has(candKey)) continue
+        triedKeys.add(candKey)
 
         if (contactAlreadyKnown(cand, companyId, contactIndex)) {
           skippedDup += 1
@@ -2283,28 +2415,67 @@ Deno.serve(async (req) => {
           }
         }
       }
+      pipeline!.tried_candidate_keys = [...triedKeys]
 
-      report.kept = kept
+      report.kept =
+        meta.search_mode === 'company' ? contactsCreated : kept
       if (skippedDup > 0) {
         ;(report as Record<string, unknown>).skipped_duplicate = skippedDup
       }
-      report.outcome =
-        kept > 0
-          ? `Kept ${kept} contact(s)${skippedDup ? ` · ${skippedDup} already on file` : ''}`
-          : `No contacts kept (H${hunterPeople.length}/W${webPeople.length}/P${proxyPeople.length}${skippedDup ? ` · ${skippedDup} dup` : ''})`
-      company_reports.push(report)
+      companyRoundComplete = true
+      if (meta.search_mode === 'company') {
+        if (contactsCreated < peopleGoal) {
+          if (kept > 0) {
+            pipeline!.company_find_failures = 0
+          } else {
+            pipeline!.company_find_failures =
+              (pipeline!.company_find_failures ?? 0) + 1
+          }
+          if (
+            contactsCreated < peopleGoal &&
+            (pipeline!.company_find_failures ?? 0) < 3
+          ) {
+            companyRoundComplete = false
+            pipeline!.company_attempt = (pipeline!.company_attempt ?? 0) + 1
+            pushProgressLog(
+              progressMeta,
+              `Specific search: ${contactsCreated}/${peopleGoal} people — attempt ${pipeline!.company_attempt} (${pipeline!.company_find_failures}/3 failed rounds)`,
+            )
+            report.outcome = `Found ${contactsCreated}/${peopleGoal} — scheduling another pass…`
+          } else if (contactsCreated < peopleGoal) {
+            report.outcome = `Stopped at ${contactsCreated}/${peopleGoal} after 3 rounds with no new contacts`
+          }
+        }
+      }
 
-      markCompanyDone(progressMeta, company.company_name, report.outcome as string)
+      if (companyRoundComplete) {
+        report.outcome =
+          contactsCreated > 0
+            ? meta.search_mode === 'company'
+              ? `Kept ${contactsCreated}/${peopleGoal} contact(s)${skippedDup ? ` · ${skippedDup} already on file` : ''}`
+              : `Kept ${kept} contact(s)${skippedDup ? ` · ${skippedDup} already on file` : ''}`
+            : `No contacts kept (H${hunterPeople.length}/W${webPeople.length}/P${proxyPeople.length}${skippedDup ? ` · ${skippedDup} dup` : ''})`
+        company_reports.push(report)
+        markCompanyDone(progressMeta, company.company_name, report.outcome as string)
+      }
+
       await syncProgress(admin, runId, progressMeta, {
-        companies_done: i + 1,
-        progress: computeRunProgress(progressMeta, i + 1, 25),
-        detail: `${company.company_name}: kept ${kept} · total contacts ${contactsCreated}`,
+        companies_done: companyRoundComplete ? i + 1 : i,
+        progress: computeRunProgress(
+          progressMeta,
+          companyRoundComplete ? i + 1 : i,
+          25,
+        ),
+        detail: `${company.company_name}: ${report.outcome}`,
         current_company: company.company_name,
         logLine: `${canonicalName}: ${report.outcome}`,
       })
     }
 
-    pipeline!.company_index = chunkEnd
+    pipeline!.company_index =
+      meta.search_mode === 'company' && !companyRoundComplete
+        ? chunkStart
+        : chunkEnd
     pipeline!.contactsCreated = contactsCreated
     pipeline!.contactsSkippedDuplicate = contactsSkippedDuplicate
     pipeline!.companiesSelected = companiesSelected

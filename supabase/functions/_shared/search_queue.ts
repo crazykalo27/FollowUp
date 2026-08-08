@@ -37,6 +37,16 @@ export type SearchPipelineState = {
   errors: string[]
   source_stats: Record<string, SourceStatsQueued>
   hunterState: HunterRunStateQueued
+  /** Specific-company search: reuse employer row across retry rounds */
+  company_ctx?: {
+    domain: string
+    companyId: string
+    canonicalName: string
+    companyKey: string
+  } | null
+  company_find_failures?: number
+  company_attempt?: number
+  tried_candidate_keys?: string[]
   plan_meta: {
     webCompanies: number
     allJobs: number
@@ -69,6 +79,7 @@ export type SearchPipelineState = {
     accept_accept_all: boolean
     search_mode?: 'general' | 'company'
     target_company?: string | null
+    company_people_target?: number
   }
 }
 

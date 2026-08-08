@@ -13,19 +13,27 @@ export type SearchModeOption = {
 export const SEARCH_MODES: SearchModeOption[] = [
   {
     id: 'general',
-    label: 'General search',
+    label: 'General',
     purpose: 'Discover employers that fit your profile',
     detail:
       'We search your industries and roles, rank companies, then find people in similar positions at each — best for broad outreach.',
   },
   {
     id: 'company',
-    label: 'Specific company',
+    label: 'Specific',
     purpose: 'Follow up after you applied somewhere',
     detail:
-      'You name one employer (e.g. Nvidia). We skip industry discovery and focus contacts there — hiring managers, team leads, or recruiters who can help your application.',
+      'Name one employer. We focus contacts there and keep trying until we find your target number of people or hit three failed attempts in a row.',
   },
 ]
+
+export type CompanyPeopleTarget = 1 | 2 | 5
+
+export const COMPANY_PEOPLE_TARGETS: CompanyPeopleTarget[] = [1, 2, 5]
+
+export function isCompanyPeopleTarget(n: number): n is CompanyPeopleTarget {
+  return n === 1 || n === 2 || n === 5
+}
 
 /** Industry discovery queries per run (see run-search / companyWebSearchQueryBudget). */
 const PLAN_WEB_SEARCHES = 8
@@ -100,6 +108,7 @@ const ACTIVE_RUN_KEY = 'followup_active_search_run'
 const ACTIVE_DEPTH_KEY = 'followup_active_search_depth'
 const ACTIVE_MODE_KEY = 'followup_active_search_mode'
 const ACTIVE_TARGET_KEY = 'followup_active_search_target'
+const ACTIVE_COMPANY_PEOPLE_KEY = 'followup_active_company_people'
 
 export function saveActiveRunDepth(depth: SearchDepth) {
   try {
@@ -152,6 +161,24 @@ export function loadActiveRunTargetCompany(): string {
   } catch {
     return ''
   }
+}
+
+export function saveActiveCompanyPeopleTarget(n: CompanyPeopleTarget) {
+  try {
+    sessionStorage.setItem(ACTIVE_COMPANY_PEOPLE_KEY, String(n))
+  } catch {
+    // ignore
+  }
+}
+
+export function loadActiveCompanyPeopleTarget(): CompanyPeopleTarget {
+  try {
+    const v = Number(sessionStorage.getItem(ACTIVE_COMPANY_PEOPLE_KEY))
+    if (v === 1 || v === 2 || v === 5) return v
+  } catch {
+    // ignore
+  }
+  return 2
 }
 
 export function saveActiveRunId(id: string | null) {
