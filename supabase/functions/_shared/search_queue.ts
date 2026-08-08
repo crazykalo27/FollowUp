@@ -46,6 +46,7 @@ export type SearchPipelineState = {
   } | null
   company_find_failures?: number
   company_attempt?: number
+  company_kept_total?: number
   tried_candidate_keys?: string[]
   plan_meta: {
     webCompanies: number

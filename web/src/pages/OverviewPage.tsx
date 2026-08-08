@@ -783,8 +783,8 @@ export function OverviewPage() {
             <h3 className="search-credits-heading">How many people?</h3>
             <p className="muted small" style={{ marginBottom: '0.75rem' }}>
               We keep searching (broader queries each round) until we find this
-              many contacts or hit <strong>3 rounds in a row</strong> with no new
-              person.
+              many <strong>new</strong> contacts (not already on file) or hit{' '}
+              <strong>3 rounds in a row</strong> with no new person.
             </p>
             <div
               className="company-people-toggle"

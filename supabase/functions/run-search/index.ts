@@ -438,6 +438,43 @@ function contactDisplayName(c: Candidate): string {
   ).trim()
 }
 
+function nameKeysAtCompany(companyId: string, name: string): string[] {
+  const n = name.trim().toLowerCase()
+  if (!n) return []
+  const keys = [`${companyId}:${n}`]
+  const parts = n.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    keys.push(`${companyId}:${parts[0]}:${parts[parts.length - 1]}`)
+  }
+  return keys
+}
+
+function candidateNameKeysAtCompany(
+  companyId: string,
+  cand: Candidate,
+): string[] {
+  const keys = new Set<string>()
+  for (const n of [
+    contactDisplayName(cand),
+    cand.first_name && cand.last_name
+      ? `${cand.first_name} ${cand.last_name}`
+      : '',
+  ]) {
+    for (const k of nameKeysAtCompany(companyId, n)) keys.add(k)
+  }
+  return [...keys]
+}
+
+function registerContactNamesAtCompany(
+  index: ContactIndex,
+  companyId: string,
+  cand: Candidate,
+) {
+  for (const k of candidateNameKeysAtCompany(companyId, cand)) {
+    index.nameAtCompany.add(k)
+  }
+}
+
 function buildContactIndex(
   rows: Array<{
     email?: string | null
@@ -460,8 +497,11 @@ function buildContactIndex(
       [row.first_name, row.last_name].filter(Boolean).join(' ')
     )
       .trim()
-      .toLowerCase()
-    if (name && row.company_id) nameAtCompany.add(`${row.company_id}:${name}`)
+    if (name && row.company_id) {
+      for (const k of nameKeysAtCompany(row.company_id, name)) {
+        nameAtCompany.add(k)
+      }
+    }
   }
   return {
     emails,
@@ -481,8 +521,9 @@ function contactAlreadyKnown(
   }
   const slug = linkedInSlug(cand.linkedin_url)
   if (slug && index.linkedinSlugs.has(slug)) return true
-  const name = contactDisplayName(cand).toLowerCase()
-  if (name && index.nameAtCompany.has(`${companyId}:${name}`)) return true
+  for (const key of candidateNameKeysAtCompany(companyId, cand)) {
+    if (index.nameAtCompany.has(key)) return true
+  }
   return false
 }
 
@@ -494,8 +535,7 @@ function registerContactInIndex(
   if (cand.email) index.emails.add(cand.email.toLowerCase().trim())
   const slug = linkedInSlug(cand.linkedin_url)
   if (slug) index.linkedinSlugs.add(slug)
-  const name = contactDisplayName(cand).toLowerCase()
-  if (name) index.nameAtCompany.add(`${companyId}:${name}`)
+  registerContactNamesAtCompany(index, companyId, cand)
   index.total += 1
 }
 
@@ -1855,18 +1895,26 @@ Deno.serve(async (req) => {
         meta.search_mode === 'company'
           ? meta.company_people_target ?? meta.maxPerCompany
           : meta.maxPerCompany
-      const webSearchRound =
-        meta.search_mode === 'company' ? pipeline!.company_attempt ?? 0 : 0
+      const webSearchRound = pipeline!.company_attempt ?? 0
       const skipCompanySetup =
-        meta.search_mode === 'company' &&
         Boolean(pipeline!.company_ctx) &&
-        webSearchRound > 0
+        webSearchRound > 0 &&
+        pipeline!.company_ctx!.companyKey === company.company_name
+      const companyKeptSoFar = pipeline!.company_kept_total ?? 0
+
+      if (!skipCompanySetup) {
+        pipeline!.company_find_failures = 0
+        pipeline!.company_attempt = 0
+        pipeline!.company_kept_total = 0
+        pipeline!.tried_candidate_keys = []
+        pipeline!.company_ctx = null
+      }
 
       await syncProgress(admin, runId, progressMeta, {
         stage: 'searching_people',
         progress: pct,
         message: skipCompanySetup
-          ? `Retry ${webSearchRound} at ${company.company_name} (${contactsCreated}/${peopleGoal} people)…`
+          ? `Retry ${webSearchRound} at ${company.company_name} (${companyKeptSoFar}/${peopleGoal} new people)…`
           : `Searching people at ${company.company_name}…`,
         detail: `Company ${i + 1} of ${selected.length}`,
         current_company: company.company_name,
@@ -1879,9 +1927,12 @@ Deno.serve(async (req) => {
           : 'Resolving domain & employer check',
         companyProgress: 8,
         logLine: skipCompanySetup
-          ? `${company.company_name}: retry ${webSearchRound} — ${contactsCreated}/${peopleGoal} people so far`
+          ? `${company.company_name}: retry ${webSearchRound} — ${companyKeptSoFar}/${peopleGoal} new so far`
           : `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain`,
       })
+
+      const triedKeys = new Set(pipeline!.tried_candidate_keys ?? [])
+      let skippedDup = 0
 
       let domain: string | null = null
       let companyId: string | null = null
@@ -2134,7 +2185,16 @@ Deno.serve(async (req) => {
       await backfillLinkedInLocations(merged.values(), 5)
 
       const peopleForOsint = [...merged.values()]
-        .filter((c) => c.first_name && c.last_name)
+        .filter((c) => {
+          if (!c.first_name || !c.last_name) return false
+          if (contactAlreadyKnown(c, companyId, contactIndex)) {
+            skippedDup += 1
+            contactsSkippedDuplicate += 1
+            triedKeys.add(dedupeKey(c, domain))
+            return false
+          }
+          return true
+        })
         .slice(0, 20)
         .map((c) => ({
           first_name: c.first_name!,
@@ -2173,6 +2233,13 @@ Deno.serve(async (req) => {
         const match = titleMatchesFilters(cand.title, includeRun, excludeRun)
         if (!match.ok && match.reason.startsWith('excluded')) continue
 
+        if (contactAlreadyKnown(cand, companyId, contactIndex)) {
+          skippedDup += 1
+          contactsSkippedDuplicate += 1
+          triedKeys.add(dedupeKey(cand, domain))
+          continue
+        }
+
         const outreachScore = scoreOutreachTitle(cand.title)
         const includeBonus = match.ok ? 3 : 0
         const totalScore = outreachScore + includeBonus
@@ -2202,10 +2269,9 @@ Deno.serve(async (req) => {
       })
 
       let kept = 0
-      let skippedDup = 0
-      const triedKeys = new Set(pipeline!.tried_candidate_keys ?? [])
       for (const { cand, score, match } of rankedPeople) {
-        if (contactsCreated >= peopleGoal) break
+        const keptAtCompany = (pipeline!.company_kept_total ?? 0) + kept
+        if (keptAtCompany >= peopleGoal) break
 
         const candKey = dedupeKey(cand, domain)
         if (triedKeys.has(candKey)) continue
@@ -2317,12 +2383,6 @@ Deno.serve(async (req) => {
 
         if (!cand.email) continue
 
-        if (contactAlreadyKnown(cand, companyId, contactIndex)) {
-          skippedDup += 1
-          contactsSkippedDuplicate += 1
-          continue
-        }
-
         if (meta.require_verified_email === true) {
           const hunterPrimary =
             hunterEnabled &&
@@ -2420,47 +2480,48 @@ Deno.serve(async (req) => {
         }
       }
       pipeline!.tried_candidate_keys = [...triedKeys]
+      pipeline!.company_kept_total = (pipeline!.company_kept_total ?? 0) + kept
+      const companyKept = pipeline!.company_kept_total
 
-      report.kept =
-        meta.search_mode === 'company' ? contactsCreated : kept
+      report.kept = companyKept
       if (skippedDup > 0) {
         ;(report as Record<string, unknown>).skipped_duplicate = skippedDup
       }
       companyRoundComplete = true
-      if (meta.search_mode === 'company') {
-        if (contactsCreated < peopleGoal) {
-          if (kept > 0) {
-            pipeline!.company_find_failures = 0
-          } else {
-            pipeline!.company_find_failures =
-              (pipeline!.company_find_failures ?? 0) + 1
-          }
-          if (
-            contactsCreated < peopleGoal &&
-            (pipeline!.company_find_failures ?? 0) < 3
-          ) {
-            companyRoundComplete = false
-            pipeline!.company_attempt = (pipeline!.company_attempt ?? 0) + 1
-            pushProgressLog(
-              progressMeta,
-              `Specific search: ${contactsCreated}/${peopleGoal} people — attempt ${pipeline!.company_attempt} (${pipeline!.company_find_failures}/3 failed rounds)`,
-            )
-            report.outcome = `Found ${contactsCreated}/${peopleGoal} — scheduling another pass…`
-          } else if (contactsCreated < peopleGoal) {
-            report.outcome = `Stopped at ${contactsCreated}/${peopleGoal} after 3 rounds with no new contacts`
-          }
+      if (companyKept < peopleGoal) {
+        if (kept > 0) {
+          pipeline!.company_find_failures = 0
+        } else {
+          pipeline!.company_find_failures =
+            (pipeline!.company_find_failures ?? 0) + 1
+        }
+        if (
+          companyKept < peopleGoal &&
+          (pipeline!.company_find_failures ?? 0) < 3
+        ) {
+          companyRoundComplete = false
+          pipeline!.company_attempt = (pipeline!.company_attempt ?? 0) + 1
+          pushProgressLog(
+            progressMeta,
+            `${canonicalName}: ${companyKept}/${peopleGoal} new — attempt ${pipeline!.company_attempt} (${pipeline!.company_find_failures}/3 empty rounds${skippedDup ? ` · ${skippedDup} dupes skipped` : ''})`,
+          )
+          report.outcome = `Found ${companyKept}/${peopleGoal} new — scheduling another pass…`
+        } else if (companyKept < peopleGoal) {
+          report.outcome = `Stopped at ${companyKept}/${peopleGoal} after 3 rounds with no new contacts`
         }
       }
 
       if (companyRoundComplete) {
         report.outcome =
-          contactsCreated > 0
-            ? meta.search_mode === 'company'
-              ? `Kept ${contactsCreated}/${peopleGoal} contact(s)${skippedDup ? ` · ${skippedDup} already on file` : ''}`
-              : `Kept ${kept} contact(s)${skippedDup ? ` · ${skippedDup} already on file` : ''}`
-            : `No contacts kept (H${hunterPeople.length}/W${webPeople.length}/P${proxyPeople.length}${skippedDup ? ` · ${skippedDup} dup` : ''})`
+          companyKept > 0
+            ? `Kept ${companyKept}/${peopleGoal} new contact(s)${skippedDup ? ` · ${skippedDup} already on file` : ''}`
+            : `No new contacts kept (H${hunterPeople.length}/W${webPeople.length}/P${proxyPeople.length}${skippedDup ? ` · ${skippedDup} dup` : ''})`
         company_reports.push(report)
         markCompanyDone(progressMeta, company.company_name, report.outcome as string)
+        pipeline!.company_ctx = null
+        pipeline!.tried_candidate_keys = []
+        pipeline!.company_attempt = 0
+        pipeline!.company_find_failures = 0
       }
 
       await syncProgress(admin, runId, progressMeta, {
@@ -2476,10 +2537,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    pipeline!.company_index =
-      meta.search_mode === 'company' && !companyRoundComplete
-        ? chunkStart
-        : chunkEnd
+    pipeline!.company_index = !companyRoundComplete ? chunkStart : chunkEnd
     pipeline!.contactsCreated = contactsCreated
     pipeline!.contactsSkippedDuplicate = contactsSkippedDuplicate
     pipeline!.companiesSelected = companiesSelected
