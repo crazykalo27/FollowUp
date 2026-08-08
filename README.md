@@ -1,139 +1,67 @@
-# FollowUp
+## FollowUp — marketing summary
 
-Reach hiring managers directly — not application black holes.
+**Tagline:** Skip the application black hole. Reach the people who actually hire.
 
-Static SPA on **GitHub Pages** + **Supabase** (Auth, Storage, Postgres RLS, Edge Functions). Hunter email enrichment and OpenAI run only on the server (Edge Function secrets). Confirmed outreach sends from the user’s **Gmail** with their resume attached.
+---
 
-## Architecture
+### Vision
 
-| Layer | Tech |
-|-------|------|
-| Frontend | Vite + React + TypeScript → GitHub Pages |
-| Auth | Supabase Auth (Google sign-in) |
-| Data | Postgres + RLS |
-| Resumes | Supabase Storage (`resumes` bucket) |
-| AI profile + drafts | Edge Functions → OpenAI |
-| People / email | Edge Functions → [Hunter API v2](https://api.hunter.io/v2/) |
-| Jobs signal | Remotive (free) + optional Adzuna |
-| Send | Gmail API via dedicated OAuth (`gmail.send`) |
+FollowUp is for job seekers who are tired of portals that go nowhere. Instead of spraying applications into the void, you build a sharp search profile, discover real employers and the right people inside them, and send thoughtful outreach from **your own Gmail**—resume attached, on your terms. The product favors **hiring managers and peers in similar roles**, not generic recruiter inboxes.
 
-## Setup
+---
 
-### 1. Supabase project
+### Who it’s for
 
-1. Create a project at [supabase.com](https://supabase.com).
-2. From the repo root:
+Anyone with a resume and a target direction—roles, industries, locations, remote preferences—who wants a **direct, human path** to conversations, not another “Applied” checkbox.
 
-```bash
-npx supabase link --project-ref YOUR_PROJECT_REF
-npx supabase db push
-npx supabase functions deploy
-```
+---
 
-3. Set secrets:
+### Look & feel
 
-```bash
-npx supabase secrets set HUNTER_API_KEY=your_hunter_key
-# Optional OSINT worker (local or hosted Python service from tools/email-discovery):
-# npx supabase secrets set OSINT_WORKER_URL=http://127.0.0.1:8787
-# npx supabase secrets set OSINT_WORKER_SECRET=your_shared_secret
-npx supabase secrets set OPENAI_API_KEY=your_openai_key
-npx supabase secrets set GOOGLE_GMAIL_CLIENT_ID=your_google_client_id
-npx supabase secrets set GOOGLE_GMAIL_CLIENT_SECRET=your_google_client_secret
-npx supabase secrets set APP_ORIGIN=https://YOUR_USER.github.io/FollowUp
-```
+A focused **dark, forest-green** workspace: soft off-white text, **lime accent** CTAs, **Fraunces** for headlines and **Source Sans** for UI copy. The landing page is atmospheric and minimal; inside the app, a **sidebar** keeps you oriented: Profile → Filters → Search → Contacts → Drafts → Settings. Clean, calm, job-hunt serious—not a noisy dashboard.
 
-Optional job board:
+---
 
-```bash
-npx supabase secrets set ADZUNA_APP_ID=... ADZUNA_APP_KEY=...
-```
+### First-run orientation
 
-People discovery (recommended — search uses all configured providers):
+FollowUp **teaches itself in order**. A progress bar walks you from welcome through your first draft:
 
-```bash
-# Free Azure Bing Search (F0) — discovers LinkedIn profile URLs via web search
-npx supabase secrets set BING_SEARCH_API_KEY=your_bing_key
+1. **Welcome** — name and optional links for real email signatures
+2. **Profile** — resume upload, then a short AI interview (location, employment type, seniority, industries, titles)
+3. **Filters** — company and contact targets, refined with AI from your profile and feedback
+4. **Search** — run a people search with live progress
+5. **Contacts** — keep at least one contact (swipe-style review)
+6. **Drafts** — generate your first outreach draft
 
-# Optional paid alternatives
-npx supabase secrets set SERPER_API_KEY=your_serper_key
-npx supabase secrets set PROXYCURL_API_KEY=your_proxycurl_key
-```
+Until you finish, later steps stay **locked** in the nav so you’re never dropped into an empty screen. After the first draft, the full app unlocks—including optional Gmail connect and copy/send flows.
 
-Hunter is **optional** (Filters → “Use Hunter.io”). When enabled, domain search returns up to **10 emails per domain** on the free plan. When Hunter is off or monthly credits are exhausted, email discovery uses the **OSINT pipeline** (site crawl, pattern guess, MX checks; optional `OSINT_WORKER_URL` for theHarvester).  
-We do **not** scrape linkedin.com (ToS / blocks). Web search finds public LinkedIn URLs.
+---
 
-### 2. Frontend env
+### Core features (MVP)
 
-```bash
-cp web/.env.example web/.env
-```
+| Area         | What you get                                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Profile**  | Resume parsing + AI chat that turns your background into searchable targets                                                                   |
+| **Filters**  | Include/exclude titles, company vs. contact targets; preferences learn from what you keep or discard                                          |
+| **Search**   | AI-driven employer discovery on the open web, then people at those companies; Quick / Standard / Deep depth; live stage bars and activity log |
+| **Contacts** | One-card review (keep/discard), feedback chips that train future picks, kept/archive/sent states                                              |
+| **Drafts**   | LLM outreach per contact, templates with placeholders, regenerate, one send per contact (duplicate protection)                                |
+| **Settings** | Signature fields, optional Hunter.io and verified-email toggles, Gmail OAuth for send, delete-account reset                                   |
 
-Fill `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from Supabase → Project Settings → API.
+**Under the hood (user-facing outcome):** Google sign-in, resume in secure storage, email discovery via optional Hunter or a **free OSINT path** (site crawl, patterns, MX checks), job boards as **hiring signals**—not the whole story. **No LinkedIn scraping**; public URLs via search APIs. Sends go through **Gmail API** from the user’s account, not a bulk mailer.
 
-### 3. Google Auth (sign-in)
+---
 
-In Supabase → Authentication → Providers → Google: enable and add your OAuth client.
+### MVP scope (what “shipped” means)
 
-Add redirect URLs:
+This is a **real end-to-end loop**, not a demo: static web app on GitHub Pages + Supabase (auth, database, edge functions). One user can go from **sign-in → profile → search → review → draft → send** without leaving the product narrative. Post-MVP polish includes preference learning from keep/discard signals, resuming contact review where you left off, and “Go to drafts” after drafting from Contacts.
 
-- `http://localhost:5173/app`
-- `https://YOUR_USER.github.io/FollowUp/app`
-- Supabase callback: `https://YOUR_PROJECT.supabase.co/auth/v1/callback`
+---
 
-### 4. Gmail OAuth (send)
+### Positioning in one line
 
-Create a Google Cloud OAuth client (Web). Authorized redirect URI **must** be:
+**FollowUp is an AI-guided outreach co-pilot for job seekers:** it finds the right companies and people, drafts the email, and lets you send like yourself—from Gmail—with a resume and a strategy, not a spam blast.
 
-```
-https://YOUR_PROJECT.supabase.co/functions/v1/gmail-oauth
-```
+---
 
-Enable Gmail API on the project. Scopes used: `gmail.send` + `userinfo.email`.
-
-Use the same client id/secret in `GOOGLE_GMAIL_*` secrets (or a dedicated client).
-
-### 5. Local dev
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-### 6. GitHub Pages
-
-Push to `main`. The workflow builds `web/` with `VITE_BASE_PATH=/FollowUp/` and deploys `web/dist`.
-
-Add repository secrets:
-
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-
-In GitHub → Settings → Pages → Source: **GitHub Actions**.
-
-If your repo name is not `FollowUp`, set `VITE_BASE_PATH` in the workflow to `/YourRepoName/`.
-
-## App flow
-
-1. Sign in with Google  
-2. Upload resume → parse text  
-3. Chat to build / finalize search profile  
-4. Tune include/exclude title filters  
-5. Run people search (jobs → companies → Hunter contacts)  
-6. Draft emails → review → Connect Gmail → send with resume  
-
-## Edge Functions
-
-| Function | Role |
-|----------|------|
-| `parse-resume` | Extract text from uploaded file |
-| `chat-profile` | LLM profile interview + JSON profile |
-| `run-search` | Remotive/Adzuna + Hunter domain/email |
-| `draft-emails` | LLM outreach drafts |
-| `gmail-oauth` | Start + callback for Gmail tokens |
-| `send-outreach` | MIME email + resume via Gmail API |
-
-## Hunter note
-
-Store `HUNTER_API_KEY` only as a Supabase secret. Do not put it in the SPA or commit it. Cursor MCP setup from [hunter.io/agents.md](https://hunter.io/agents.md) is optional for local agent use — the product calls REST `https://api.hunter.io/v2/` from Edge Functions.
+If you want this tightened for a landing page hero, a pitch deck slide, or App Store–style bullets, say which format and audience (investors vs. users).
