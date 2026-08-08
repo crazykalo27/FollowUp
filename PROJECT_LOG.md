@@ -126,3 +126,7 @@ Conceptual milestones (not a commit-by-commit diary).
 ## 2026-08-07 — Go to drafts from Contacts
 
 - After Draft email succeeds (or if a draft already exists), the button becomes “Go to drafts” and opens Drafts on that contact’s draft.
+
+## 2026-08-07 — Drafts layout
+
+- Collapsible email template strip at top; inbox list + current draft editor as the main workspace.
