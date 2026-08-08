@@ -1,0 +1,81 @@
+/* Settings — card layout aligned with Filters / Profile */
+
+.settings-page {
+  max-width: 52rem;
+}
+
+.settings-page-header {
+  margin-bottom: 1.5rem;
+}
+
+.settings-page-header h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.75rem;
+}
+
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.settings-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.25rem 1.35rem 1.35rem;
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+}
+
+.settings-card h2 {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+}
+
+.settings-card-kicker {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.settings-card-kicker code {
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+
+.settings-card label {
+  margin-bottom: 0.75rem;
+}
+
+.settings-card .check-group {
+  margin: 0.5rem 0 0.75rem;
+}
+
+.settings-card .actions {
+  margin-top: 1rem;
+}
+
+.settings-gmail-status {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.settings-gmail-status.connected {
+  color: var(--accent);
+}
+
+.settings-account-email {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.settings-page .flash {
+  margin-top: 1rem;
+}
+
+.settings-card.danger-zone {
+  border-color: rgba(255, 143, 122, 0.25);
+  background: rgba(255, 143, 122, 0.04);
+}

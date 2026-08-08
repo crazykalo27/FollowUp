@@ -13,6 +13,7 @@ import {
   saveActiveRunId,
   type SearchDepth,
 } from '../lib/searchDepth'
+import './search.css'
 
 type ProgressLogEntry = { ts: string; text: string }
 
@@ -566,46 +567,61 @@ export function OverviewPage() {
 
   return (
     <div className="panel search-page">
-      <h1>Search</h1>
-      <p className="lede">
-        {orientation.complete
-          ? 'We find companies in your target industries, then people to contact directly — not job-board black holes. Search keeps running if you leave this page.'
-          : 'Run a search to discover companies and direct contacts based on your profile and filters. When it finishes, review contacts next.'}
-      </p>
+      <header className="search-page-header">
+        <h1>Search</h1>
+        <p className="lede">
+          {orientation.complete
+            ? 'We find companies in your target industries, then people to contact directly — not job-board black holes. Search keeps running if you leave this page.'
+            : 'Run a search to discover companies and direct contacts based on your profile and filters. When it finishes, review contacts next.'}
+        </p>
+      </header>
+
+      <div className="search-flow-rail" aria-label="Search pipeline">
+        <div className="search-flow-step">
+          <span className="search-flow-num">01</span>
+          <span>Discover companies</span>
+        </div>
+        <span className="search-flow-arrow" aria-hidden>→</span>
+        <div className="search-flow-step">
+          <span className="search-flow-num">02</span>
+          <span>Find people</span>
+        </div>
+      </div>
 
       {!orientation.complete && (
-        <div className="orientation-coach">
+        <div className="search-orient-coach">
           <p>
-            Choose a search size, then press <strong>Run search</strong>. Stay
-            on this page or leave — progress continues either way.
+            Choose a search size below, then press <strong>Run search</strong>.
+            Stay on this page or leave — progress continues either way.
           </p>
         </div>
       )}
 
       {orientation.complete && (
-        <div className="stat-row">
-          <div>
+        <div className="search-stats-row">
+          <div className="search-stat-chip">
             <strong>{stats.resumes}</strong>
             <span>Resumes</span>
           </div>
-          <div>
+          <div className="search-stat-chip">
             <strong>{stats.contacts}</strong>
             <span>Contacts</span>
           </div>
-          <div>
+          <div className="search-stat-chip">
             <strong>{stats.drafts}</strong>
             <span>Drafts</span>
           </div>
         </div>
       )}
 
-      <div className="depth-picker">
-        <h3>Search size</h3>
-        <p className="muted small">
+      <section className="search-run-card">
+        <h3>Run a search</h3>
+        <p className="muted small" style={{ marginBottom: '1rem' }}>
           Estimates are upper bounds per run. Hunter applies only if enabled in
           Settings.
         </p>
-        <div className="depth-grid">
+        <div className="depth-picker">
+          <div className="depth-grid">
           {SEARCH_DEPTHS.map((d) => (
             <button
               key={d.id}
@@ -637,9 +653,10 @@ export function OverviewPage() {
           {selectedDepth.webSearchCredits} web searches,{' '}
           {selectedDepth.estimatePeople}, {selectedDepth.eta}
         </p>
-      </div>
+        </div>
+      </section>
 
-      <div className="actions">
+      <div className="search-actions-bar">
         <button
           type="button"
           className="btn primary"
@@ -698,6 +715,7 @@ export function OverviewPage() {
       )}
 
       {live && (searching || live.progress > 0) && (
+        <div className="search-progress-card">
         <div className="search-progress" aria-live="polite">
           <div className="search-progress-head">
             <strong>Overall</strong>
@@ -801,11 +819,13 @@ export function OverviewPage() {
             })}
           </ol>
         </div>
+        </div>
       )}
 
       {errorMsg && <p className="flash error">{errorMsg}</p>}
 
       {summary && (
+        <div className="search-report-card">
         <div className="search-report">
           <h2>Last search report</h2>
           <p className="flash">
@@ -953,6 +973,7 @@ export function OverviewPage() {
               </ul>
             </div>
           )}
+        </div>
         </div>
       )}
     </div>

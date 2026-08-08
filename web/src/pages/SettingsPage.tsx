@@ -10,6 +10,7 @@ import {
   type SearchEmailSettings,
 } from '../lib/searchEmailSettings'
 import type { SearchProfileData } from '../types/database'
+import './settings.css'
 
 const EMPLOYMENT_TYPE_OPTIONS = [
   'full-time',
@@ -240,16 +241,19 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="panel">
-      <h1>Settings</h1>
-      <p className="lede">
-        Email signature for drafts and Gmail to send with your resume attached.
-        Jobs and industries live under Filters.
-      </p>
+    <div className="panel settings-page">
+      <header className="settings-page-header">
+        <h1>Settings</h1>
+        <p className="lede">
+          Email signature for drafts and Gmail to send with your resume attached.
+          Jobs and industries live under Filters.
+        </p>
+      </header>
 
-      <div className="settings-block">
+      <div className="settings-stack">
+      <section className="settings-card">
         <h2>Email signature</h2>
-        <p className="muted small">
+        <p className="settings-card-kicker">
           Required for drafting. Optional links appear only if provided.
         </p>
         <label>
@@ -300,11 +304,11 @@ export function SettingsPage() {
         >
           {savingProfile ? 'Saving…' : 'Save sender profile'}
         </button>
-      </div>
+      </section>
 
-      <div className="settings-block">
-        <h2>What you’re looking for</h2>
-        <p className="muted small">
+      <section className="settings-card">
+        <h2>What you&apos;re looking for</h2>
+        <p className="settings-card-kicker">
           Used in outreach templates (<code>[employment_type]</code>,{' '}
           <code>[remote]</code>) and profile chat. Target job titles stay under{' '}
           <Link to="/app/filters">Filters</Link>.
@@ -348,11 +352,11 @@ export function SettingsPage() {
         >
           {savingEmployment ? 'Saving…' : 'Save job preferences'}
         </button>
-      </div>
+      </section>
 
-      <div className="settings-block">
+      <section className="settings-card">
         <h2>Email discovery (search)</h2>
-        <p className="muted small">
+        <p className="settings-card-kicker">
           Controls how FollowUp finds and keeps contact emails during{' '}
           <Link to="/app/search">Search</Link>. Defaults: Hunter and verified
           email are off. Saved to your account — reload safe.
@@ -370,7 +374,7 @@ export function SettingsPage() {
           />
           Use Hunter.io for email lookup (uses monthly API credits)
         </label>
-        <p className="muted small">
+        <p className="muted small" style={{ marginTop: '0.5rem' }}>
           When off or credits are exhausted, FollowUp uses the free OSINT pipeline
           (site crawl, email patterns, MX checks, optional OSINT worker).
         </p>
@@ -408,11 +412,17 @@ export function SettingsPage() {
         >
           {savingEmailSettings ? 'Saving…' : 'Save email discovery settings'}
         </button>
-      </div>
+      </section>
 
-      <div className="settings-block">
+      <section className="settings-card">
         <h2>Gmail</h2>
-        <p>
+        <p className="settings-card-kicker">
+          Connect the account you send outreach from. Resume is attached from your
+          stored file when you send.
+        </p>
+        <p
+          className={`settings-gmail-status ${gmailEmail ? 'connected' : ''}`}
+        >
           {gmailEmail
             ? `Connected as ${gmailEmail}`
             : 'Not connected — required to send.'}
@@ -432,12 +442,12 @@ export function SettingsPage() {
             </button>
           )}
         </div>
-      </div>
+      </section>
 
-      <div className="settings-block">
+      <section className="settings-card danger-zone">
         <h2>Account</h2>
-        <p className="muted">{user?.email}</p>
-        <p className="muted small">
+        <p className="settings-account-email">{user?.email}</p>
+        <p className="settings-card-kicker">
           Delete your profile to wipe resumes, contacts, drafts, filters, and
           chat. Signing in again starts orientation from the beginning. Your
           login account stays so you can return.
@@ -452,6 +462,7 @@ export function SettingsPage() {
         >
           Delete profile
         </button>
+      </section>
       </div>
 
       {deleteOpen && (

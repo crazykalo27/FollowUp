@@ -144,3 +144,8 @@ Conceptual milestones (not a commit-by-commit diary).
 ## 2026-08-07 — Filters flow layout
 
 - Company and contact targets side-by-side with 01→02 flow rail; AI learning (memo + pick signals) always shown below targets.
+
+## 2026-08-07 — Settings and Search theme
+
+- Settings: stacked cards for signature, job prefs, email discovery, Gmail, account.
+- Search: flow rail, stat chips, run card, progress/report shells matching Filters styling.
