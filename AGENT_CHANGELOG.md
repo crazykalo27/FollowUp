@@ -17,3 +17,4 @@
 - Landing hero: large logo above headline; updated impact statement copy
 - General search: Low/Medium/High size picker with companies + people only
 - Landing hero: logo in FollowUp contrast panel; removed workflow arrows
+- Contacts carousel: keep side peek cards; scale down in narrow viewports

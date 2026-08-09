@@ -1879,11 +1879,18 @@ th {
   overflow-x: clip;
   container-type: inline-size;
   container-name: contact-carousel;
+  --peek-scale: 0.72;
+  --peek-scale-hover: 0.74;
+  --peek-max-h: 13.5rem;
+  --carousel-side-col: min(7.5rem, 24cqi);
 }
 
 .carousel-track {
   display: grid;
-  grid-template-columns: 7.5rem minmax(0, min(100%, 440px)) 7.5rem;
+  grid-template-columns:
+    minmax(0, var(--carousel-side-col))
+    minmax(0, 1fr)
+    minmax(0, var(--carousel-side-col));
   align-items: center;
   justify-content: center;
   gap: 0;
@@ -1896,8 +1903,8 @@ th {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 7.5rem;
-  max-width: 7.5rem;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   z-index: 1;
@@ -1916,7 +1923,9 @@ th {
 .carousel-center {
   position: relative;
   width: 100%;
+  max-width: 440px;
   min-width: 0;
+  justify-self: center;
   z-index: 3;
 }
 
@@ -1938,10 +1947,10 @@ th {
 
 .carousel-peek {
   width: 100%;
-  max-width: 7.25rem;
+  max-width: 100%;
   min-width: 0;
   min-height: 0;
-  max-height: 13.5rem;
+  max-height: var(--peek-max-h);
   overflow: hidden;
   padding: 0.65rem 0.55rem;
   cursor: pointer;
@@ -1950,12 +1959,12 @@ th {
   color: inherit;
   appearance: none;
   -webkit-appearance: none;
-  flex-shrink: 0;
+  flex-shrink: 1;
   transform-origin: center center;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
   opacity: 0.55;
   filter: brightness(0.85);
-  transform: scale(0.72);
+  transform: scale(var(--peek-scale));
   transition:
     transform 0.2s ease,
     opacity 0.2s ease,
@@ -2018,21 +2027,21 @@ th {
 }
 
 .carousel-peek.peek-left {
-  transform: scale(0.72) rotate(-2.5deg) translateX(18%);
+  transform: scale(var(--peek-scale)) rotate(-2.5deg) translateX(20%);
   transform-origin: center right;
 }
 
 .carousel-peek.peek-right {
-  transform: scale(0.72) rotate(2.5deg) translateX(-18%);
+  transform: scale(var(--peek-scale)) rotate(2.5deg) translateX(-20%);
   transform-origin: center left;
 }
 
 .carousel-peek.peek-left:hover:not(:disabled) {
-  transform: scale(0.74) rotate(-2deg) translateX(14%);
+  transform: scale(var(--peek-scale-hover)) rotate(-2deg) translateX(16%);
 }
 
 .carousel-peek.peek-right:hover:not(:disabled) {
-  transform: scale(0.74) rotate(2deg) translateX(-14%);
+  transform: scale(var(--peek-scale-hover)) rotate(2deg) translateX(-16%);
 }
 
 .swipe-card.exit-left {
@@ -2243,31 +2252,53 @@ th {
   color: var(--muted);
 }
 
-@container contact-carousel (max-width: 560px) {
-  .carousel-track {
-    grid-template-columns: minmax(0, 1fr);
-    min-height: auto;
+@container contact-carousel (max-width: 680px) {
+  .carousel-viewport {
+    --peek-scale: 0.6;
+    --peek-scale-hover: 0.62;
+    --peek-max-h: 11rem;
+    --carousel-side-col: min(5.25rem, 22cqi);
   }
 
-  .carousel-side {
-    display: none;
+  .carousel-track {
+    min-height: 340px;
+  }
+
+  .carousel-peek {
+    padding: 0.5rem 0.4rem;
+  }
+
+  .carousel-peek .contact-detail-compact .contact-detail-name {
+    font-size: 1rem;
+  }
+}
+
+@container contact-carousel (max-width: 480px) {
+  .carousel-viewport {
+    --peek-scale: 0.5;
+    --peek-scale-hover: 0.52;
+    --peek-max-h: 9.5rem;
+    --carousel-side-col: min(4rem, 20cqi);
+  }
+
+  .carousel-track {
+    min-height: 300px;
   }
 
   .carousel-active {
     min-height: 300px;
   }
-}
 
-@media (max-width: 720px) {
-  .carousel-track {
-    grid-template-columns: minmax(0, 1fr);
-    min-height: auto;
-  }
-
-  .carousel-side {
+  .carousel-peek .contact-detail-grid dt {
     display: none;
   }
 
+  .carousel-peek .contact-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
   .carousel-active {
     min-height: 300px;
   }
