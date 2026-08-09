@@ -1879,7 +1879,7 @@ th {
   container-type: inline-size;
   container-name: contact-carousel;
   /* Center scales ~linearly with panel width; peeks = center × 0.58 (faster shrink) */
-  --card-w: min(100cqi, 440px);
+  --card-w: min(100cqi, 660px);
   --center-scale: clamp(0.74, 0.34 + 100cqi * 0.00112, 1);
   --peek-scale: calc(var(--center-scale) * 0.58);
   --peek-shift: calc(var(--card-w) * 0.36);
