@@ -224,15 +224,30 @@ export function LandingPage() {
             </div>
 
             <RevealBlock>
+              <div className="lp-contrast-intro">
+                <p>
+                  The job search was built around applications, but applications are only one way
+                  into a company.
+                </p>
+              </div>
               <div className="lp-contrast">
                 <div className="lp-contrast-panel traditional">
-                  <h3>Traditional job search</h3>
+                  <div className="lp-contrast-panel-head">
+                    <h3>Traditional job search</h3>
+                    <span className="lp-contrast-badge bad" aria-hidden>
+                      <span className="lp-contrast-spinner" />
+                      <span className="lp-contrast-x">✕</span>
+                    </span>
+                  </div>
                   <ul className="lp-contrast-list">
                     <li><strong>127</strong> applications</li>
                     <li><strong>0</strong> responses</li>
                     <li>&ldquo;Application submitted&rdquo;</li>
                     <li>Generic recruiter inbox</li>
-                    <li>Waiting&hellip;</li>
+                    <li className="lp-contrast-waiting">
+                      <span className="lp-contrast-spinner lp-contrast-spinner-sm" aria-hidden />
+                      Waiting&hellip;
+                    </li>
                   </ul>
                 </div>
                 <div className="lp-contrast-divider" aria-hidden>→</div>
@@ -254,10 +269,10 @@ export function LandingPage() {
 
         <section className="lp-section lp-section-border lp-inner">
           <RevealBlock>
-            <h2>The job search was built around applications.</h2>
-            <p className="lp-section-lede">
-              But applications are only one way into a company.
-            </p>
+            <h2>
+              Tired of never hearing back?{' '}
+              <span className="lp-headline-accent">FollowUp creates more conversations.</span>
+            </h2>
           </RevealBlock>
           <div className="lp-problem-layout">
             <RevealBlock delay={1}>
@@ -272,13 +287,19 @@ export function LandingPage() {
             </RevealBlock>
             <div className="lp-problem-cards">
               <RevealBlock delay={1}>
-                <div className="lp-problem-card">
+                <div className="lp-problem-card negative">
+                  <span className="lp-problem-card-mark bad" aria-hidden>
+                    ✕
+                  </span>
                   <h3>Application portals</h3>
                   <p>Upload resume. Fill out forms. Click submit. Wait.</p>
                 </div>
               </RevealBlock>
               <RevealBlock delay={2}>
-                <div className="lp-problem-card">
+                <div className="lp-problem-card negative">
+                  <span className="lp-problem-card-mark bad" aria-hidden>
+                    ✕
+                  </span>
                   <h3>Generic outreach</h3>
                   <p>
                     Send your resume into a recruiter inbox shared by hundreds of applicants.
@@ -286,7 +307,10 @@ export function LandingPage() {
                 </div>
               </RevealBlock>
               <RevealBlock delay={3}>
-                <div className="lp-problem-card highlight">
+                <div className="lp-problem-card highlight positive">
+                  <span className="lp-problem-card-mark good" aria-hidden>
+                    ✓
+                  </span>
                   <h3>FollowUp</h3>
                   <p>Find the people closest to the work you actually want to do.</p>
                 </div>
@@ -302,14 +326,15 @@ export function LandingPage() {
           <RevealBlock>
             <h2>How FollowUp works</h2>
             <p className="lp-section-lede">
-              A short journey from intent to conversation—not four disconnected features.
+              Conversations allow companies to know who you actually are, and allow you to learn
+              what they are actually looking for.
             </p>
           </RevealBlock>
           <ol className="lp-journey">
             <JourneyStep
               num="01"
-              title="Tell us what you're looking for"
-              body="Upload your resume and have a short AI conversation about roles, industries, companies, locations, and preferences."
+              title="Build a profile of who you are and what you want"
+              body="Upload your resume and talk through your background, goals, and preferences—so FollowUp searches for opportunities that fit you, not a vague wish list."
             />
             <JourneyStep
               num="02"
@@ -331,9 +356,10 @@ export function LandingPage() {
 
         <section className="lp-section lp-section-border lp-inner">
           <RevealBlock>
-            <h2>Inside the product</h2>
+            <h2>Inside FollowUp</h2>
             <p className="lp-section-lede">
-              Review real people, keep the fits, and teach the search what you want next.
+              Find real people, contact the ones who fit you, and the search learns what you want
+              next.
             </p>
           </RevealBlock>
           <RevealBlock delay={1}>
