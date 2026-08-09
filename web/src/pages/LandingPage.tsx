@@ -192,9 +192,6 @@ export function LandingPage() {
         <section className="lp-hero lp-inner">
           <div className="lp-hero-grid">
             <div className="lp-hero-copy">
-              <div className="lp-hero-brand">
-                <FollowUpLogo size={128} alt="" className="lp-hero-logo" />
-              </div>
               <h1>
                 Skip the application black hole.
                 <span className="lp-hero-em">Reach the people who actually hire.</span>
@@ -212,17 +209,6 @@ export function LandingPage() {
                 >
                   See how it works
                 </button>
-              </div>
-              <div className="lp-workflow" aria-hidden>
-                <span>Your search</span>
-                <span className="lp-flow-arrow">↓</span>
-                <span>Companies worth targeting</span>
-                <span className="lp-flow-arrow">↓</span>
-                <span>People worth contacting</span>
-                <span className="lp-flow-arrow">↓</span>
-                <span>Personalized outreach</span>
-                <span className="lp-flow-arrow">↓</span>
-                <span>Conversation</span>
               </div>
             </div>
 
@@ -255,7 +241,10 @@ export function LandingPage() {
                 </div>
                 <div className="lp-contrast-divider" aria-hidden>→</div>
                 <div className="lp-contrast-panel followup">
-                  <h3>FollowUp</h3>
+                  <div className="lp-followup-head">
+                    <FollowUpLogo size={112} alt="" className="lp-contrast-logo" />
+                    <h3>FollowUp</h3>
+                  </div>
                   <ul className="lp-contrast-list">
                     <li><strong>12</strong> companies</li>
                     <li><strong>31</strong> relevant people</li>

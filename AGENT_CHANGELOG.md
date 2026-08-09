@@ -16,3 +16,4 @@
 - Drafts: email template panel closed by default (including orientation)
 - Landing hero: large logo above headline; updated impact statement copy
 - General search: Low/Medium/High size picker with companies + people only
+- Landing hero: logo in FollowUp contrast panel; removed workflow arrows
