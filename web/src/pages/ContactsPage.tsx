@@ -48,6 +48,7 @@ const DISCARD_REASONS = [
   { id: 'not_hiring_connected', label: 'Not someone connected to hiring' },
   { id: 'wrong_location', label: 'Wrong location' },
   { id: 'wrong_job_type', label: 'Wrong job type' },
+  { id: 'not_interested_anymore', label: 'Not interested anymore' },
 ] as const
 
 const KEEP_REASONS = [
