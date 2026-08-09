@@ -1,55 +1,158 @@
 .refine-page {
-  max-width: 40rem;
+  max-width: 34rem;
+  margin: 0 auto;
+  text-align: center;
 }
 
 .refine-header h1 {
   margin-bottom: 0.35rem;
 }
 
-.refine-steps-card {
-  margin-top: 1.25rem;
-  padding: 1rem 1.15rem;
+.refine-header .lede {
+  margin: 0 auto;
+  max-width: 26rem;
+  font-size: 0.98rem;
+}
+
+.refine-flow-rail {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 1.35rem 0 1.15rem;
+}
+
+.refine-flow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  min-width: 6.5rem;
+  max-width: 8.5rem;
+  padding: 0.75rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--muted);
+}
+
+.refine-flow-step.done {
+  border-color: rgba(196, 240, 76, 0.35);
+  color: var(--ink);
+}
+
+.refine-flow-step.current {
+  border-color: rgba(196, 240, 76, 0.65);
+  background: rgba(196, 240, 76, 0.08);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px rgba(196, 240, 76, 0.12);
+}
+
+.refine-flow-step.next {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.refine-flow-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 6px;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  line-height: 1;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--accent);
+}
+
+.refine-flow-step.done .refine-flow-badge {
+  background: rgba(196, 240, 76, 0.15);
+}
+
+.refine-flow-label {
+  text-align: center;
+}
+
+.refine-flow-arrow {
+  align-self: center;
+  color: rgba(196, 240, 76, 0.55);
+  font-size: 1.1rem;
+  padding: 0 0.1rem;
+}
+
+.refine-learned-box {
+  margin-top: 0.25rem;
+  padding: 1rem 1.1rem;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--bg-2);
+  text-align: left;
 }
 
-.refine-steps-card h2 {
-  margin: 0 0 0.75rem;
-  font-size: 1.05rem;
+.refine-learned-title {
+  margin: 0 0 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
 }
 
-.refine-steps {
+.refine-learned-text {
   margin: 0;
-  padding-left: 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  line-height: 1.45;
-  font-size: 0.95rem;
-}
-
-.refine-industries {
-  margin-top: 1.25rem;
-}
-
-.refine-industries h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.95rem;
-}
-
-.refine-industries ul {
-  margin: 0;
-  padding-left: 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
   font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.refine-learned-empty {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.refine-industry-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.refine-industry-pills .pill {
+  font-size: 0.72rem;
 }
 
 .refine-actions {
-  margin-top: 1.5rem;
+  margin-top: 1.35rem;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem;
+  justify-content: center;
+}
+
+.refine-cta {
+  min-width: 14rem;
+}
+
+@media (max-width: 520px) {
+  .refine-flow-rail {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .refine-flow-arrow {
+    transform: rotate(90deg);
+  }
+
+  .refine-flow-step {
+    max-width: 100%;
+    width: min(100%, 16rem);
+  }
 }

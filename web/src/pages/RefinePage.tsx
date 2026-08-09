@@ -1,9 +1,70 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useOrientation } from '../lib/orientationContext'
 import './refine.css'
+
+function refineLearnedSummary(steps: string[], industries: string[]): string {
+  if (steps.length === 0 && industries.length === 0) return ''
+
+  const bits: string[] = []
+
+  if (industries.length > 0) {
+    const list = industries.slice(0, 5).join(', ')
+    bits.push(
+      industries.length > 5
+        ? `Industry focus: ${list}, and related niches.`
+        : `Industry focus: ${list}.`,
+    )
+  }
+
+  const cal = steps.find((s) => s.includes('keep /'))
+  if (cal) {
+    const m = cal.match(/(\d+) keep \/ (\d+) discard/)
+    if (m) {
+      const total = Number(m[1]) + Number(m[2])
+      bits.push(
+        `Your ${total} keep/discard choices (${m[1]} keep, ${m[2]} discard) shaped these targets.`,
+      )
+    }
+  }
+
+  const boosted = steps.find((s) => s.startsWith('Boosted'))
+  if (boosted) {
+    bits.push(
+      boosted
+        .replace(/^Boosted matches you liked: /, 'Leaning toward patterns you kept: ')
+        .replace(/\.$/, '.'),
+    )
+  }
+
+  const reduced = steps.find((s) => s.startsWith('Stepped away'))
+  if (reduced) {
+    bits.push(
+      reduced
+        .replace(/^Stepped away from misfits: /, 'Avoiding patterns you discarded: ')
+        .replace(/\.$/, '.'),
+    )
+  }
+
+  const titles = steps.find((s) => s.startsWith('Refined who'))
+  if (titles) {
+    bits.push(
+      titles
+        .replace(/^Refined who to contact: /, 'Prioritizing roles like ')
+        .replace(/\.$/, '.'),
+    )
+  }
+
+  if (bits.length === 1) {
+    bits.push(
+      'We keep a small exploration slice so the next search can still surface new options.',
+    )
+  }
+
+  return bits.slice(0, 3).join(' ')
+}
 
 export function RefinePage() {
   const { user } = useAuth()
@@ -12,6 +73,13 @@ export function RefinePage() {
   const [steps, setSteps] = useState<string[]>([])
   const [industries, setIndustries] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+
+  const learnedSummary = useMemo(
+    () => refineLearnedSummary(steps, industries),
+    [steps, industries],
+  )
+
+  const ready = steps.length > 0
 
   useEffect(() => {
     if (!user) return
@@ -56,47 +124,68 @@ export function RefinePage() {
       <header className="refine-header">
         <h1>Refining what you want</h1>
         <p className="lede">
-          We treat your target niche like a hill to climb — each keep/discard is a
-          step toward a better peak. It will never be perfect, so we keep a little
-          randomness to discover new options.
+          Your ratings updated your targets. Run a second search to see sharper
+          matches.
         </p>
       </header>
 
-      <section className="refine-steps-card" aria-label="Optimization steps">
-        <h2>What we just did</h2>
-        {steps.length === 0 ? (
-          <p className="muted">
-            Finish reviewing your calibration contacts first — then we will show
-            how your targets moved.
+      <div className="refine-flow-rail" aria-label="Orientation flow">
+        <div className="refine-flow-step done">
+          <span className="refine-flow-badge" aria-hidden>
+            ✓
+          </span>
+          <span className="refine-flow-label">Rate contacts</span>
+        </div>
+        <span className="refine-flow-arrow" aria-hidden>
+          →
+        </span>
+        <div className="refine-flow-step current">
+          <span className="refine-flow-badge">02</span>
+          <span className="refine-flow-label">Refine targets</span>
+        </div>
+        <span className="refine-flow-arrow" aria-hidden>
+          →
+        </span>
+        <div className="refine-flow-step next">
+          <span className="refine-flow-badge">03</span>
+          <span className="refine-flow-label">Second search</span>
+        </div>
+      </div>
+
+      <section
+        className="refine-learned-box"
+        aria-label="What we learned from your ratings"
+      >
+        <h2 className="refine-learned-title">What we learned</h2>
+        {!ready ? (
+          <p className="muted refine-learned-empty">
+            Finish reviewing calibration contacts first — then this summary
+            appears here.
           </p>
         ) : (
-          <ol className="refine-steps">
-            {steps.map((s, i) => (
-              <li key={`${i}-${s.slice(0, 24)}`}>{s}</li>
-            ))}
-          </ol>
+          <>
+            <p className="refine-learned-text">{learnedSummary}</p>
+            {industries.length > 0 && (
+              <ul className="refine-industry-pills" aria-label="Industry targets">
+                {industries.map((ind) => (
+                  <li key={ind}>
+                    <span className="pill">{ind}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </section>
-
-      {industries.length > 0 && (
-        <section className="refine-industries" aria-label="Updated industries">
-          <h3>Current industry targets</h3>
-          <ul>
-            {industries.map((ind) => (
-              <li key={ind}>{ind}</li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       <div className="refine-actions">
         <button
           type="button"
-          className="btn primary"
-          disabled={steps.length === 0}
+          className="btn primary refine-cta"
+          disabled={!ready}
           onClick={() => void continueToSecondSearch()}
         >
-          Run second search with refined targets
+          Run second search
         </button>
       </div>
     </div>
