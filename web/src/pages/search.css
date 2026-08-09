@@ -243,6 +243,57 @@
   max-width: 20rem;
 }
 
+.search-calibration-next {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  max-width: 22rem;
+}
+
+.orientation-coach-inline {
+  margin-bottom: 1rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.search-report-details {
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.search-report-details summary {
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  font-weight: 650;
+  font-family: var(--font-display);
+  list-style: none;
+  user-select: none;
+}
+
+.search-report-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.search-report-details[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.search-report-details .search-report-card {
+  margin: 0;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.search-report-compact {
+  font-size: 0.92rem;
+}
+
+.search-report-companies {
+  margin-top: 0.75rem;
+}
+
 .search-actions-bar {
   display: flex;
   flex-wrap: wrap;

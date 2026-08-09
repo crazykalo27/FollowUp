@@ -52,6 +52,53 @@ function formatLogTime(iso: string) {
   }
 }
 
+/** User-facing copy during calibration (backend still logs “Kept N/M…”). */
+function formatFoundContactsMessage(text: string): string {
+  const kept = text.match(/Kept (\d+)\/\d+ new contact/i)
+  if (kept) {
+    const n = Number(kept[1])
+    return n === 1 ? 'Found 1 contact' : `Found ${n} contacts`
+  }
+  return text
+}
+
+function CalibrationSearchReport({ summary }: { summary: SearchSummary }) {
+  const n = summary.contacts_created
+  return (
+    <div className="search-report search-report-compact">
+      <p>
+        Found <strong>{n}</strong> contact{n === 1 ? '' : 's'} across{' '}
+        {summary.companies_selected} companies
+        {summary.contacts_skipped_duplicate != null &&
+        summary.contacts_skipped_duplicate > 0
+          ? ` (${summary.contacts_skipped_duplicate} skipped — already on file)`
+          : ''}
+        .
+      </p>
+      {summary.diagnosis && (
+        <p className="flash error">{summary.diagnosis}</p>
+      )}
+      {summary.company_reports.length > 0 && (
+        <ul className="report-list search-report-companies">
+          {summary.company_reports.map((r, i) => (
+            <li key={`${r.name}-${i}`}>
+              <strong>{r.name}</strong>
+              {r.outcome
+                ? ` — ${formatFoundContactsMessage(r.outcome)}`
+                : r.kept > 0
+                  ? ` — Found ${r.kept} contact${r.kept === 1 ? '' : 's'}`
+                  : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+      {summary.errors?.length > 0 && (
+        <p className="small flash error">{summary.errors[0]}</p>
+      )}
+    </div>
+  )
+}
+
 type SourceStats = {
   configured: boolean
   attempted: number
@@ -173,6 +220,8 @@ export function OverviewPage() {
   const inOrientationSearch =
     !orientation.complete &&
     (orientation.step === 'search' || orientation.step === 'search2')
+  const showFullSearchUi = orientation.complete
+  const inOrientationFlow = !orientation.complete
   const isSecondCalibration = orientation.step === 'search2'
   const [searchMode, setSearchMode] = useState<SearchMode>('general')
   const [targetCompany, setTargetCompany] = useState('')
@@ -762,15 +811,6 @@ export function OverviewPage() {
         </div>
       )}
 
-      {!orientation.complete && inOrientationSearch && orientationSearchLocked && (
-        <div className="search-orient-coach search-orient-coach-compact">
-          <p>
-            <strong>Next:</strong> review all four contacts (keep or discard with
-            feedback), then continue orientation.
-          </p>
-        </div>
-      )}
-
       {orientation.complete && (
         <div className="search-stats-row">
           <div className="search-stat-chip">
@@ -792,44 +832,9 @@ export function OverviewPage() {
       )}
 
       <section
-        className={`search-run-card${inOrientationSearch ? ' search-calibration-card' : ''}`}
+        className={`search-run-card${inOrientationFlow ? ' search-calibration-card' : ''}`}
       >
-        {inOrientationSearch ? (
-          <div className="search-calibration-center">
-            {orientationSearchLocked ? (
-              <button
-                type="button"
-                className="btn primary"
-                onClick={() => navigate('/app/contacts')}
-              >
-                Review contacts
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="btn primary search-calibration-run"
-                  disabled={
-                    searching ||
-                    !stats.onboarding ||
-                    (searchMode === 'company' && !targetCompany.trim())
-                  }
-                  onClick={runSearch}
-                >
-                  {searching
-                    ? 'Search running…'
-                    : isSecondCalibration
-                      ? 'Run second calibration search'
-                      : 'Run calibration search'}
-                </button>
-                <p className="search-calibration-disclaimer muted small">
-                  This may take a minute or two. You can stay on this page or
-                  leave — the search keeps running either way.
-                </p>
-              </>
-            )}
-          </div>
-        ) : (
+        {showFullSearchUi ? (
           <>
         <h3>What kind of search?</h3>
         <div
@@ -957,19 +962,55 @@ export function OverviewPage() {
           </>
         )}
           </>
+        ) : (
+          <div className="search-calibration-center">
+            {orientationSearchLocked ? (
+              <>
+                <p className="search-calibration-next">
+                  <strong>Next:</strong> review every contact from this search
+                  (keep or discard with feedback).
+                  {isSecondCalibration || orientation.step === 'contacts2'
+                    ? ' Then pick someone from Kept to draft.'
+                    : ' That teaches FollowUp who you want.'}
+                </p>
+                <button
+                  type="button"
+                  className="btn primary search-calibration-run"
+                  onClick={() => navigate('/app/contacts')}
+                >
+                  Review contacts
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="btn primary search-calibration-run"
+                  disabled={
+                    searching ||
+                    !stats.onboarding ||
+                    (searchMode === 'company' && !targetCompany.trim())
+                  }
+                  onClick={runSearch}
+                >
+                  {searching
+                    ? 'Search running…'
+                    : isSecondCalibration
+                      ? 'Run second calibration search'
+                      : 'Run calibration search'}
+                </button>
+                <p className="search-calibration-disclaimer muted small">
+                  This may take a minute or two. You can stay on this page or
+                  leave — the search keeps running either way.
+                </p>
+              </>
+            )}
+          </div>
         )}
       </section>
 
       <div className="search-actions-bar">
-        {orientationSearchLocked && !inOrientationSearch ? (
-          <button
-            type="button"
-            className="btn primary"
-            onClick={() => navigate('/app/contacts')}
-          >
-            Review contacts
-          </button>
-        ) : !inOrientationSearch ? (
+        {showFullSearchUi && (
           <button
             type="button"
             className="btn primary"
@@ -986,7 +1027,7 @@ export function OverviewPage() {
                 ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
                 : `Run search (${selectedDepth.label.toLowerCase()})`}
           </button>
-        ) : null}
+        )}
         {showCancel && (
           <button
             type="button"
@@ -1007,7 +1048,8 @@ export function OverviewPage() {
             {cancelling ? 'Cancelling…' : 'Cancel stuck search'}
           </button>
         )}
-        {!orientationSearchLocked &&
+        {showFullSearchUi &&
+          !orientationSearchLocked &&
           (orientation.canAccess('contacts') || orientPrompt) && (
           <button
             type="button"
@@ -1019,22 +1061,13 @@ export function OverviewPage() {
         )}
       </div>
 
-      {orientPrompt && (
-        <div className="flash orientation-coach">
+      {orientPrompt && inOrientationFlow && !orientationSearchLocked && (
+        <p className="flash orientation-coach orientation-coach-inline">
           {orientation.step === 'contacts2' ||
           (isSecondCalibration && orientationAwaitingReview)
-            ? 'Contacts ready — review them, then pick someone from Kept to draft.'
-            : 'Contacts ready — review all four with keep/discard feedback.'}
-          <div className="actions" style={{ marginTop: '0.75rem' }}>
-            <button
-              type="button"
-              className="btn primary"
-              onClick={() => navigate('/app/contacts')}
-            >
-              Review contacts
-            </button>
-          </div>
-        </div>
+            ? 'Contacts ready — review them on the Contacts page.'
+            : 'Contacts ready — review them with keep/discard feedback.'}
+        </p>
       )}
 
       {live && (searching || live.progress > 0) && (
@@ -1044,21 +1077,27 @@ export function OverviewPage() {
             <strong>Overall</strong>
             <span className="muted">{live.progress}%</span>
           </div>
-          <p className="small search-progress-lead">{live.message}</p>
+          <p className="small search-progress-lead">
+            {inOrientationFlow
+              ? formatFoundContactsMessage(live.message)
+              : live.message}
+          </p>
           <div className="progress-track progress-track-overall">
             <div
               className={`progress-fill ${searching ? 'active' : ''}`}
               style={{ width: `${Math.max(live.progress, 2)}%` }}
             />
           </div>
-          {live.companies_total > 0 && (
+          {live.companies_total > 0 && !inOrientationFlow && (
             <p className="muted small">
               Companies completed: {live.companies_done}/{live.companies_total}
             </p>
           )}
-          {live.detail && <p className="muted small">{live.detail}</p>}
+          {live.detail && !inOrientationFlow && (
+            <p className="muted small">{live.detail}</p>
+          )}
 
-          {live.progress_meta.companies.length > 0 && (
+          {!inOrientationFlow && live.progress_meta.companies.length > 0 && (
             <div className="company-progress-block">
               <h4 className="company-progress-title">Per company</h4>
               <ul className="company-progress-list">
@@ -1092,7 +1131,7 @@ export function OverviewPage() {
             </div>
           )}
 
-          {live.progress_meta.log.length > 0 && (
+          {!inOrientationFlow && live.progress_meta.log.length > 0 && (
             <div className="activity-log-block">
               <h4 className="company-progress-title">Live activity</h4>
               <ul className="activity-log">
@@ -1123,6 +1162,7 @@ export function OverviewPage() {
               </button>
             </div>
           )}
+          {!inOrientationFlow && (
           <ol className="progress-steps">
             {stages.map((s, i) => {
               const cur = stageIndex(live.stage)
@@ -1141,6 +1181,7 @@ export function OverviewPage() {
               )
             })}
           </ol>
+          )}
         </div>
         </div>
       )}
@@ -1148,9 +1189,11 @@ export function OverviewPage() {
       {errorMsg && <p className="flash error">{errorMsg}</p>}
 
       {summary && (
-        <div className="search-report-card">
+        <details className="search-report-details">
+          <summary>Search report</summary>
+          <div className="search-report-card">
+        {showFullSearchUi ? (
         <div className="search-report">
-          <h2>Last search report</h2>
           <p className="flash">
             {summary.companies_discovered != null
               ? `${summary.companies_discovered} industry companies`
@@ -1284,7 +1327,9 @@ export function OverviewPage() {
                           : '—'}
                       </td>
                       <td>{r.kept}</td>
-                      <td className="small">{r.outcome}</td>
+                      <td className="small">
+                        {formatFoundContactsMessage(r.outcome)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1303,7 +1348,11 @@ export function OverviewPage() {
             </div>
           )}
         </div>
+        ) : (
+          <CalibrationSearchReport summary={summary} />
+        )}
         </div>
+        </details>
       )}
     </div>
   )
