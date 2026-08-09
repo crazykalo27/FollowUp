@@ -19,3 +19,4 @@
 - Landing hero: logo in FollowUp contrast panel; removed workflow arrows
 - Contacts carousel: keep side peek cards; scale down in narrow viewports
 - Contacts carousel: layered stage — center scales linearly, peeks scale faster
+- Simplify pass: shared review enqueue helper, dead run-search sync branch, orientation step helper

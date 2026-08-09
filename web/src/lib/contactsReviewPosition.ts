@@ -43,3 +43,14 @@ export function isNewerIso(a: string | null | undefined, b: string | null | unde
   if (!b) return true
   return new Date(a).getTime() > new Date(b).getTime()
 }
+
+export function newestContactCreatedAt(
+  rows: ReadonlyArray<{ created_at?: string | null }>,
+): string | null {
+  return rows.reduce<string | null>((best, row) => {
+    const t = row.created_at || null
+    if (!t) return best
+    if (!best || isNewerIso(t, best)) return t
+    return best
+  }, null)
+}

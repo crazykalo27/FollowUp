@@ -658,11 +658,7 @@ export function OverviewPage() {
 
     // Fire-and-forget: search continues on the server if the user navigates away.
     // Polling (resumed on remount) owns UI completion — don't clear poll here.
-    void invokeFunction<{
-      summary?: SearchSummary
-      run_id: string
-      accepted?: boolean
-    }>('run-search', {
+    void invokeFunction<{ accepted?: boolean; run_id: string }>('run-search', {
       run_id: run.id,
       depth: runDepth,
       search_mode: inOrientationSearch ? 'general' : searchMode,
@@ -672,27 +668,7 @@ export function OverviewPage() {
             company_people_target: companyPeopleTarget,
           }
         : {}),
-    })
-      .then((res) => {
-        if (res.accepted) return
-        if (res.summary) {
-          finishWithSummary(run.id, res.summary)
-          setLive({
-            progress: 100,
-            stage: 'done',
-            message:
-              res.summary.contacts_created > 0
-                ? `Done — ${res.summary.contacts_created} contact(s)`
-                : 'Done — no contacts kept',
-            detail: null,
-            current_company: null,
-            companies_total: res.summary.companies_selected,
-            companies_done: res.summary.companies_selected,
-            progress_meta: live?.progress_meta ?? { companies: [], log: [] },
-          })
-        }
-      })
-      .catch((e) => {
+    }).catch((e) => {
         // Background run may still finish — polling owns success/failure.
         const msg = e instanceof Error ? e.message : 'Search failed'
         if (!msg.includes('time limit')) {

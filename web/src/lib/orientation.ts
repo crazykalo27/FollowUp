@@ -83,6 +83,11 @@ export function stepIndex(step: OrientationStep): number {
   return i < 0 ? 0 : i
 }
 
+/** User has moved past Filters into search / review / refine flow. */
+export function hasContinuedPastFilters(step: OrientationStep): boolean {
+  return stepIndex(step) >= stepIndex('search')
+}
+
 export function progressFraction(step: OrientationStep): number {
   if (step === 'complete') return 1
   const active = ORIENTATION_STEPS.length - 1

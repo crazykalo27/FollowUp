@@ -7,6 +7,7 @@ import { useOrientation } from '../lib/orientationContext'
 import {
   isNewerIso,
   loadContactsReviewPosition,
+  newestContactCreatedAt,
   saveContactsReviewPosition,
 } from '../lib/contactsReviewPosition'
 
@@ -317,13 +318,7 @@ export function ContactsPage() {
     const pendingRows = mapped.filter(
       (r) => (r.review_status || 'pending') === 'pending',
     )
-    const newestCreatedAt =
-      mapped.reduce<string | null>((best, row) => {
-        const t = row.created_at || null
-        if (!t) return best
-        if (!best || isNewerIso(t, best)) return t
-        return best
-      }, null)
+    const newestCreatedAt = newestContactCreatedAt(mapped)
 
     const stored = loadContactsReviewPosition(user.id)
     const hasNewContacts = isNewerIso(
@@ -379,6 +374,11 @@ export function ContactsPage() {
     calibrationReview || (secondPassReview && pending.length > 0)
   const showKeptPicker = pickKeptForDraft || (secondPassReview && pending.length === 0)
 
+  const newestCreatedAt = useMemo(
+    () => newestContactCreatedAt(rows),
+    [rows],
+  )
+
   // Keep activeId valid; do not reset to first when a saved id is still pending
   useEffect(() => {
     if (pending.length === 0) {
@@ -397,18 +397,11 @@ export function ContactsPage() {
       skipPersistOnce.current = false
       return
     }
-    const newestCreatedAt =
-      rows.reduce<string | null>((best, row) => {
-        const t = row.created_at || null
-        if (!t) return best
-        if (!best || isNewerIso(t, best)) return t
-        return best
-      }, null)
     saveContactsReviewPosition(user.id, {
       activeId,
       newestCreatedAt,
     })
-  }, [user, activeId, rows])
+  }, [user, activeId, newestCreatedAt])
 
   const current = useMemo(
     () => pending.find((p) => p.id === activeId) || pending[0] || null,
@@ -435,14 +428,26 @@ export function ContactsPage() {
     return pending.filter((p) => p.company_id === current.company_id).length
   }, [pending, current])
 
+  function enqueueReviewChain(
+    task: () => Promise<void>,
+    onError: (e: unknown) => void,
+  ) {
+    setSyncPending((n) => n + 1)
+    reviewChainRef.current = reviewChainRef.current
+      .then(task)
+      .catch(onError)
+      .finally(() => {
+        setSyncPending((n) => Math.max(0, n - 1))
+      })
+  }
+
   function enqueueCompanyAction(
     company_action: 'discard_all' | 'favorite',
     contact_id: string,
     rollback: () => void,
   ) {
-    setSyncPending((n) => n + 1)
-    reviewChainRef.current = reviewChainRef.current
-      .then(async () => {
+    enqueueReviewChain(
+      async () => {
         await invokeFunction<{
           contacts_discarded?: number
           pending_remaining: number
@@ -450,18 +455,16 @@ export function ContactsPage() {
           contact_id,
           company_action,
         })
-      })
-      .catch((e) => {
+      },
+      (e) => {
         rollback()
         setMsg(
           e instanceof Error
             ? `Could not save — ${e.message}`
             : 'Could not save company action.',
         )
-      })
-      .finally(() => {
-        setSyncPending((n) => Math.max(0, n - 1))
-      })
+      },
+    )
   }
 
   function enqueueReview(
@@ -474,9 +477,8 @@ export function ContactsPage() {
     snapshot: ContactRow,
   ) {
     const priorStatus = snapshot.review_status || 'pending'
-    setSyncPending((n) => n + 1)
-    reviewChainRef.current = reviewChainRef.current
-      .then(async () => {
+    enqueueReviewChain(
+      async () => {
         await invokeFunction<{
           pending_remaining: number
           preference_summary?: string | null
@@ -486,8 +488,8 @@ export function ContactsPage() {
           reasons: payload.reasons,
           note: payload.note || undefined,
         })
-      })
-      .catch((e) => {
+      },
+      (e) => {
         setRows((prev) =>
           prev.map((r) =>
             r.id === snapshot.id ? { ...r, review_status: priorStatus } : r,
@@ -498,10 +500,8 @@ export function ContactsPage() {
             ? `Could not save review — ${e.message}. Restored previous status.`
             : 'Could not save review. Restored previous status.',
         )
-      })
-      .finally(() => {
-        setSyncPending((n) => Math.max(0, n - 1))
-      })
+      },
+    )
   }
 
   function enqueueContactAction(
@@ -509,31 +509,30 @@ export function ContactsPage() {
     contactId: string,
     snapshot: ContactRow,
   ) {
-    setSyncPending((n) => n + 1)
-    reviewChainRef.current = reviewChainRef.current
-      .then(async () => {
+    enqueueReviewChain(
+      async () => {
         await invokeFunction('review-contact', {
           contact_id: contactId,
           action,
         })
-      })
-      .catch((e) => {
+      },
+      (e) => {
         if (action === 'delete') {
           setRows((prev) => [...prev, snapshot])
         } else {
           setRows((prev) =>
             prev.map((r) =>
-              r.id === contactId ? { ...r, review_status: snapshot.review_status } : r,
+              r.id === contactId
+                ? { ...r, review_status: snapshot.review_status }
+                : r,
             ),
           )
         }
         setMsg(
           e instanceof Error ? e.message : 'Could not complete that action.',
         )
-      })
-      .finally(() => {
-        setSyncPending((n) => Math.max(0, n - 1))
-      })
+      },
+    )
   }
 
   function applyDecision(
@@ -916,15 +915,12 @@ export function ContactsPage() {
     }
   }
 
-  const dragStyle =
-    swipeDir === 'left'
-      ? undefined
-      : swipeDir === 'right'
-        ? undefined
-        : {
-            transform: `translateX(${dragX}px) rotate(${dragX / 28}deg)`,
-            transition: dragging ? 'none' : 'transform 0.2s ease',
-          }
+  const dragStyle = swipeDir
+    ? undefined
+    : {
+        transform: `translateX(${dragX}px) rotate(${dragX / 28}deg)`,
+        transition: dragging ? 'none' : 'transform 0.2s ease',
+      }
 
   return (
     <div className="panel">

@@ -11,6 +11,7 @@ import { supabase } from './supabase'
 import { useAuth } from './auth'
 import {
   deriveOrientationStep,
+  hasContinuedPastFilters,
   isPageUnlocked,
   pagesForStep,
   pathForStep,
@@ -121,14 +122,7 @@ export function OrientationProvider({ children }: { children: ReactNode }) {
 
       const storedStep =
         (profileRow?.orientation_step as OrientationStep) || 'profile'
-      const filtersContinued =
-        storedStep === 'search' ||
-        storedStep === 'contacts' ||
-        storedStep === 'refine' ||
-        storedStep === 'search2' ||
-        storedStep === 'contacts2' ||
-        storedStep === 'drafts' ||
-        storedStep === 'complete'
+      const filtersContinued = hasContinuedPastFilters(storedStep)
 
       const refineSteps = (pref?.last_refine_steps as string[] | null) || []
       const hasRefined =

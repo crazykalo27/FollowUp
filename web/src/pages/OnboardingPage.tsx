@@ -107,15 +107,10 @@ export function OnboardingPage() {
       if (res.profile) setProfile(res.profile)
       if (res.ready) setReady(true)
       if (res.series_complete) setSeriesComplete(true)
-      if (res.reply && !res.already_started) {
+      if (res.reply) {
         setMessages((m) =>
           m.length === 0 ? [{ role: 'assistant', content: res.reply! }] : m,
         )
-      } else if (res.reply && res.already_started) {
-        setMessages((m) => {
-          if (m.length > 0) return m
-          return [{ role: 'assistant', content: res.reply! }]
-        })
       }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Could not start profile chat')
