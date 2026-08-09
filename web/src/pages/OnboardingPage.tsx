@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
+import { FollowUpLogo } from '../components/FollowUpLogo'
 import { ProfileCoachAvatar } from '../components/ProfileCoachAvatar'
 import type { SearchProfileData } from '../types/database'
 import './profile.css'
@@ -40,58 +41,6 @@ function orientationQuickOptions(
   const key = ORIENTATION_QUESTION_KEYS[q]
   const options = ORIENTATION_QUICK_OPTIONS[key]
   return options?.length ? options : null
-}
-
-function profileSnapshotChips(profile: SearchProfileData | null): string[] {
-  if (!profile) return []
-  const chips: string[] = []
-  if (profile.roles?.length) chips.push(profile.roles.slice(0, 2).join(', '))
-  if (profile.industries?.length)
-    chips.push(profile.industries.slice(0, 2).join(', '))
-  if (profile.locations?.length)
-    chips.push(profile.locations.slice(0, 2).join(', '))
-  if (profile.remote_preference) chips.push(profile.remote_preference)
-  return chips.slice(0, 4)
-}
-
-function CoachWelcome({
-  orientationComplete,
-  profile,
-}: {
-  orientationComplete: boolean
-  profile: SearchProfileData | null
-}) {
-  const chips = profileSnapshotChips(profile)
-
-  return (
-    <div className="coach-welcome">
-      <ProfileCoachAvatar size={44} />
-      <div className="coach-welcome-body">
-        <h2>Your FollowUp guide</h2>
-        {orientationComplete ? (
-          <p>
-            <strong>Come back here anytime</strong> to change what I search for —
-            roles, industries, locations, company types, and the kinds of people you
-            want to reach. Just tell me what to adjust and I&apos;ll update your
-            search profile.
-          </p>
-        ) : (
-          <p>
-            I&apos;ll help shape your search from your resume and a short conversation.
-            Tell me what you&apos;re looking for, and you can always return here later
-            to update it.
-          </p>
-        )}
-        {chips.length > 0 && (
-          <div className="coach-snapshot" aria-label="Current search focus">
-            {chips.map((c) => (
-              <span key={c}>{c}</span>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
 }
 
 function ChatMessage({ role, content }: Msg) {
@@ -361,34 +310,32 @@ export function OnboardingPage() {
 
   return (
     <div className="profile-page">
-      <div className="profile-guide-panel">
-        <CoachWelcome
-          orientationComplete={orientation.complete}
-          profile={profile}
-        />
-        <div className="profile-guide-meta">
-          <span className="profile-resume-chip" title={fileName}>
-            {fileName}
-          </span>
-          <label className="upload">
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx,.txt,application/pdf,text/plain"
-              disabled={uploading || bootstrapping}
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) void onUpload(f)
-              }}
-            />
-            <span>
-              {uploading || bootstrapping ? 'Working…' : 'Replace resume'}
-            </span>
-          </label>
-        </div>
-      </div>
-
       <div className="profile-chat-shell">
-        <div className="profile-chat-label">Conversation</div>
+        <header className="profile-chat-header">
+          <div className="profile-chat-brand">
+            <FollowUpLogo size={22} alt="" />
+            <span>FollowUp AI</span>
+          </div>
+          <div className="profile-guide-meta">
+            <span className="profile-resume-chip" title={fileName}>
+              {fileName}
+            </span>
+            <label className="upload">
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,application/pdf,text/plain"
+                disabled={uploading || bootstrapping}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) void onUpload(f)
+                }}
+              />
+              <span>
+                {uploading || bootstrapping ? 'Working…' : 'Replace resume'}
+              </span>
+            </label>
+          </div>
+        </header>
         <div className="profile-chat-main" ref={chatLogRef}>
           {seriesComplete && showSaveProfile && (
             <p className="profile-series-banner">
@@ -436,42 +383,44 @@ export function OnboardingPage() {
               ))}
             </div>
           )}
-          <textarea
-            rows={2}
-            value={input}
-            placeholder={
-              orientation.complete
-                ? 'Tell me what to change about your search…'
-                : seriesComplete
-                  ? 'Optional: clarify anything else…'
-                  : quickOptions
-                    ? 'Or type your own answer…'
-                    : 'Type your answer…'
-            }
-            disabled={bootstrapping || busy}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                void send(false)
+          <div className="profile-compose-row">
+            <textarea
+              rows={1}
+              value={input}
+              placeholder={
+                orientation.complete
+                  ? 'Tell me what to change about your search…'
+                  : seriesComplete
+                    ? 'Optional: clarify anything else…'
+                    : quickOptions
+                      ? 'Or type your own answer…'
+                      : 'Type your answer…'
               }
-            }}
-          />
-          <p className="profile-compose-hint">
-            {quickOptions
-              ? 'Tap an option to send · or type and press Enter'
-              : 'Press Enter to send · Shift+Enter for a new line'}
-          </p>
-          <div className="profile-compose-actions">
+              disabled={bootstrapping || busy}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void send(false)
+                }
+              }}
+            />
             <button
               type="button"
-              className="btn primary"
+              className="btn primary profile-compose-send"
               disabled={busy || bootstrapping || !input.trim()}
               onClick={() => send(false)}
             >
-              {busy ? 'Sending…' : 'Send'}
+              {busy ? '…' : 'Send'}
             </button>
-            {showSaveProfile && (
+          </div>
+          <p className="profile-compose-hint">
+            {quickOptions
+              ? 'Tap an option to send · or type and press Enter'
+              : 'Enter to send · Shift+Enter for a new line'}
+          </p>
+          {showSaveProfile && (
+            <div className="profile-compose-actions">
               <button
                 type="button"
                 className="btn"
@@ -480,8 +429,8 @@ export function OnboardingPage() {
               >
                 {busy ? 'Saving…' : 'Save profile'}
               </button>
-            )}
-          </div>
+            </div>
+          )}
           {status && <p className="flash">{status}</p>}
         </footer>
       </div>

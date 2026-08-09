@@ -1,10 +1,11 @@
 /* Profile — AI coach chat experience */
 
-.app-main > .profile-page {
+.app-main > .profile-page:not(.profile-upload-stage) {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  height: 100%;
 }
 
 .profile-page {
@@ -18,7 +19,7 @@
 }
 
 .profile-page:not(.profile-upload-stage) {
-  max-height: calc(100vh - 5.5rem);
+  max-height: none;
 }
 
 .profile-upload-stage {
@@ -64,23 +65,18 @@
   box-sizing: border-box;
 }
 
-.profile-guide-panel {
-  flex-shrink: 0;
-  margin-bottom: 1rem;
-}
-
 .profile-guide-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.65rem;
-  margin-top: 0.75rem;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .profile-guide-meta .upload {
   margin: 0;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.82rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
   border-style: solid;
   border-color: var(--line);
 }
@@ -97,16 +93,32 @@
   overflow: hidden;
 }
 
-.profile-chat-label {
+.profile-chat-header {
   flex-shrink: 0;
-  padding: 0.55rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  padding: 0.6rem 1rem;
   border-bottom: 1px solid var(--line);
   background: var(--bg-2);
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
+}
+
+.profile-chat-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.profile-chat-brand .followup-logo {
+  width: 22px;
+  height: 22px;
 }
 
 .profile-resume-chip {
@@ -129,54 +141,10 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 1.25rem 1.15rem 1.75rem;
+  padding: 1.15rem 1.15rem 2rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-.coach-welcome {
-  display: flex;
-  gap: 0.85rem;
-  align-items: flex-start;
-  padding: 1rem 1.1rem;
-  border-radius: 10px;
-  border: 1px solid rgba(196, 240, 76, 0.22);
-  background: rgba(196, 240, 76, 0.06);
-}
-
-.coach-welcome-body h2 {
-  margin: 0 0 0.35rem;
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-}
-
-.coach-welcome-body p {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.55;
-  color: var(--muted);
-}
-
-.coach-welcome-body p strong {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.coach-snapshot {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.coach-snapshot span {
-  font-size: 0.72rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 4px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  background: rgba(0, 0, 0, 0.2);
 }
 
 .coach-log {
@@ -184,7 +152,7 @@
   flex-direction: column;
   gap: 1rem;
   min-height: 2rem;
-  padding-bottom: 0.75rem;
+  padding-bottom: 1.35rem;
 }
 
 .coach-msg {
@@ -257,8 +225,47 @@
 .profile-chat-compose {
   flex-shrink: 0;
   border-top: 1px solid var(--line);
-  padding: 0.85rem 1rem;
+  padding: 0.65rem 1rem 0.75rem;
   background: var(--bg-2);
+}
+
+.profile-compose-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.profile-compose-row textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.65rem;
+  max-height: 7rem;
+  resize: vertical;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.profile-compose-send {
+  flex-shrink: 0;
+  min-height: 2.65rem;
+  padding-left: 1.1rem;
+  padding-right: 1.1rem;
+}
+
+.profile-compose-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.profile-compose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  align-items: center;
 }
 
 .profile-quick-answers {
@@ -299,30 +306,6 @@
   cursor: not-allowed;
 }
 
-.profile-chat-compose textarea {
-  width: 100%;
-  min-height: 3.25rem;
-  max-height: 8rem;
-  resize: vertical;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  line-height: 1.45;
-}
-
-.profile-compose-hint {
-  margin: 0.5rem 0 0;
-  font-size: 0.78rem;
-  color: var(--muted);
-}
-
-.profile-compose-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.65rem;
-  align-items: center;
-}
-
 .profile-series-banner {
   margin: 0 0 0.75rem;
   padding: 0.65rem 0.85rem;
@@ -338,9 +321,13 @@
 }
 
 @media (max-width: 720px) {
-  .profile-guide-meta {
+  .profile-chat-header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .profile-guide-meta {
+    justify-content: flex-start;
   }
 
   .profile-resume-chip {

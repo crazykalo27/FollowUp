@@ -5,3 +5,4 @@
 - How it works: new lede; step 01 profile-focused copy
 - Product section: "Inside FollowUp" + updated lede
 - Welcome setup: LinkedIn only (other links in Settings); default name John Doe
+- Profile chat: full-height shell, FollowUp AI header, inline send row

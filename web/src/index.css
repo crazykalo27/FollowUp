@@ -313,6 +313,12 @@ h3,
   min-height: 0;
 }
 
+.app-main:has(> .profile-page:not(.profile-upload-stage)) {
+  overflow: hidden;
+  padding-top: 1.25rem;
+  padding-bottom: 1.25rem;
+}
+
 .panel h1 {
   margin-top: 0;
   font-size: 2rem;
