@@ -18,7 +18,13 @@ const ORIENTATION_QUICK_OPTIONS: Record<string, string[]> = {
   remote_preference: ['Remote', 'In-person', 'Hybrid', 'No preference'],
   company_size: ['Large', 'Medium', 'Small', 'No preference'],
   seniority: ['Entry', 'Mid-level', 'Experienced'],
+  industries: ['Confirm'],
+  roles: ['Confirm'],
 }
+
+/** Sent when user taps Confirm on industries / job titles */
+const CONFIRM_SUGGESTED_LIST =
+  'Confirm — use the list above as-is.'
 
 const QUICK_ANSWER_HINT = 'Type or press the buttons below to respond.'
 
@@ -398,9 +404,14 @@ export function OnboardingPage() {
                 <button
                   key={opt}
                   type="button"
-                  className="profile-quick-btn"
+                  className={`profile-quick-btn${opt === 'Confirm' ? ' is-confirm' : ''}`}
                   disabled={busy || bootstrapping}
-                  onClick={() => void send(false, opt)}
+                  onClick={() =>
+                    void send(
+                      false,
+                      opt === 'Confirm' ? CONFIRM_SUGGESTED_LIST : opt,
+                    )
+                  }
                 >
                   {opt}
                 </button>

@@ -54,6 +54,8 @@ const QUICK_ANSWER_KEYS = new Set([
   'remote_preference',
   'company_size',
   'seniority',
+  'industries',
+  'roles',
 ])
 
 const QUICK_ANSWER_HINT = 'Type or press the buttons below to respond.'
@@ -186,6 +188,18 @@ function ensureNoQuestion(text: string): string {
     .replace(/\?\s*$/g, '.')
     .replace(/\?/g, '.')
     .trim()
+}
+
+function isConfirmListMessage(message: string): boolean {
+  const m = message.trim().toLowerCase()
+  if (!m) return false
+  if (/^confirm\b/.test(m)) return true
+  return (
+    m.includes('as-is') ||
+    m.includes('as shown') ||
+    m.includes('list above') ||
+    m.includes('use the list')
+  )
 }
 
 function applyCompanySizeToTypes(profile: Profile): Profile {
@@ -536,8 +550,8 @@ Rules:
 - For remote_preference: remote | in-person | hybrid | no preference.
 - For company_size: large | medium | small | no preference (or mix when not "no preference").
 - For seniority: entry | mid | experienced (normalize their words).
-- For industries: set industries[] from the user's clarification (replace prior guesses). Set roles to [].
-- For roles: set roles[] from their clarification and set roles_confirmed=true.
+- For industries: set industries[] from the user's clarification. If they confirm the suggested list (e.g. "confirm", "as shown"), keep the current industries[] unchanged.
+- For roles: set roles[] from their clarification and set roles_confirmed=true. If they confirm the suggested list, keep current roles[] and set roles_confirmed=true.
 - Do NOT set or keep roles[] until the roles step — when updating industries, roles must be [].
 - Set orientation_q to ${Math.min(SERIES_DONE, qIndex + 1)}.
 - reply: ONE short acknowledgment sentence only. Do NOT ask any question. Do NOT mention the next topic. No question marks.
@@ -578,7 +592,24 @@ Return JSON only:
     }
     profile = applyCompanySizeToTypes(profile)
 
-    if (currentKey === 'industries') {
+    if (currentKey === 'industries' && isConfirmListMessage(message)) {
+      profile = {
+        ...profile,
+        industries: state.profile.industries.length
+          ? state.profile.industries
+          : profile.industries,
+      }
+    }
+
+    if (currentKey === 'roles' && isConfirmListMessage(message)) {
+      profile = {
+        ...profile,
+        roles: state.profile.roles.length ? state.profile.roles : profile.roles,
+        roles_confirmed: true,
+      }
+    }
+
+    if (currentKey === 'industries' && !isConfirmListMessage(message)) {
       profile = { ...profile, roles: [] }
     }
 

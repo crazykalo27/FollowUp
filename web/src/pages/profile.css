@@ -346,6 +346,17 @@
   cursor: not-allowed;
 }
 
+.profile-quick-btn.is-confirm {
+  border-color: rgba(196, 240, 76, 0.65);
+  background: rgba(196, 240, 76, 0.22);
+  font-size: 0.98rem;
+  padding-inline: 1.45rem;
+}
+
+.profile-quick-btn.is-confirm:hover:not(:disabled) {
+  background: rgba(196, 240, 76, 0.38);
+}
+
 .profile-series-banner {
   margin: 0 0 0.75rem;
   padding: 0.65rem 0.85rem;
