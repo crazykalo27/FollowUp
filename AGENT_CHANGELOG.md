@@ -9,3 +9,4 @@
 - Orientation quick answers: centered pill buttons, AI hint for button questions
 - Mobile shell: compact top nav; profile chat keeps internal scroll
 - Resume profile bootstrap: current upload only, roles after industries confirmed
+- CI: deploy all Supabase Edge Functions on main (workflow + script)
