@@ -75,17 +75,17 @@ const QUESTIONS: {
   {
     key: 'employment_types',
     ask: () =>
-      'What type of job are you hoping to find: full-time, part-time, or internship?',
+      'What type of job are you hoping to find: full-time, part-time, contract, or internship?',
   },
   {
     key: 'remote_preference',
     ask: () =>
-      'Are you looking for remote, in-person, or hybrid?',
+      'Are you looking for remote, in-person, hybrid, or no preference?',
   },
   {
     key: 'company_size',
     ask: () =>
-      'Are you looking for large, medium, or small company size?',
+      'Are you looking for large, medium, or small company size — or no preference?',
   },
   {
     key: 'seniority',
@@ -190,7 +190,7 @@ function ensureNoQuestion(text: string): string {
 
 function applyCompanySizeToTypes(profile: Profile): Profile {
   const size = (profile.company_size || '').toLowerCase()
-  if (!size) return profile
+  if (!size || size.includes('no preference')) return profile
   const label =
     size.includes('large') || size.includes('big')
       ? 'large company'
@@ -532,9 +532,9 @@ ${resumeSnippet || '(none)'}
 Rules:
 - Update ONLY the fields relevant to "${currentKey}" from the user's reply (you may lightly refine related fields).
 - For locations: set locations[] (use ["no preference"] if they have none).
-- For employment_types: full-time / part-time / internship (array).
-- For remote_preference: remote | in-person | hybrid | flexible.
-- For company_size: large | medium | small (or mix).
+- For employment_types: full-time / part-time / contract / internship (array; one or more).
+- For remote_preference: remote | in-person | hybrid | no preference.
+- For company_size: large | medium | small | no preference (or mix when not "no preference").
 - For seniority: entry | mid | experienced (normalize their words).
 - For industries: set industries[] from the user's clarification (replace prior guesses). Set roles to [].
 - For roles: set roles[] from their clarification and set roles_confirmed=true.

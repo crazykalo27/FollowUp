@@ -14,9 +14,9 @@ type Msg = { role: 'user' | 'assistant'; content: string }
 /** Closed-ended orientation steps get click-to-send options; open-ended stay text-only. */
 const ORIENTATION_QUICK_OPTIONS: Record<string, string[]> = {
   locations: ['No preference'],
-  employment_types: ['Full-time', 'Part-time', 'Internship'],
-  remote_preference: ['Remote', 'In-person', 'Hybrid'],
-  company_size: ['Large', 'Medium', 'Small'],
+  employment_types: ['Full-time', 'Part-time', 'Contract', 'Internship'],
+  remote_preference: ['Remote', 'In-person', 'Hybrid', 'No preference'],
+  company_size: ['Large', 'Medium', 'Small', 'No preference'],
   seniority: ['Entry', 'Mid-level', 'Experienced'],
 }
 
