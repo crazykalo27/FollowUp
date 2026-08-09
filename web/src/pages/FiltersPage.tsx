@@ -120,8 +120,10 @@ export function FiltersPage() {
   useEffect(() => {
     void loadSearchTargets()
     void loadFilters()
-    void loadPrefs()
-  }, [user])
+    if (!orientation.complete) {
+      void loadPrefs()
+    }
+  }, [user, orientation.complete])
 
   async function saveSearchTargets(): Promise<boolean> {
     if (!user) return false
@@ -484,33 +486,35 @@ export function FiltersPage() {
       </div>
       {status && <p className="flash">{status}</p>}
 
-      <section className="filters-learning" aria-labelledby="filters-learning-title">
-        <h2 id="filters-learning-title">What the AI is learning</h2>
-        <p className="muted small filters-learning-lede">
-          Keep and discard feedback on Contacts teaches which pick signals to repeat or avoid.
-          Filter rewrites use this together with your profile chat.
-        </p>
-        {prefs?.ai_summary && (
-          <div className="pref-summary">
-            <h3>AI preference memo</h3>
-            <p>{prefs.ai_summary}</p>
+      {inOrientation && (
+        <section className="filters-learning" aria-labelledby="filters-learning-title">
+          <h2 id="filters-learning-title">What the AI is learning</h2>
+          <p className="muted small filters-learning-lede">
+            Your feedback on each contact teaches the AI how to find people you want.
+          </p>
+          {prefs?.ai_summary && (
+            <div className="pref-summary">
+              <h3>AI preference memo</h3>
+              <p>{prefs.ai_summary}</p>
+            </div>
+          )}
+          <div className="pref-grid">
+            <div>
+              <h3>Positive feedback</h3>
+              <pre className="pref-log">
+                {prefs?.likes_doc?.trim() || '(empty — keep contacts with feedback)'}
+              </pre>
+            </div>
+            <div>
+              <h3>Negative feedback</h3>
+              <pre className="pref-log">
+                {prefs?.dislikes_doc?.trim() ||
+                  '(empty — discard contacts with reasons)'}
+              </pre>
+            </div>
           </div>
-        )}
-        <div className="pref-grid">
-          <div>
-            <h3>Rewarded pick signals</h3>
-            <pre className="pref-log">
-              {prefs?.likes_doc?.trim() || '(empty — keep contacts with feedback)'}
-            </pre>
-          </div>
-          <div>
-            <h3>Rejected pick signals</h3>
-            <pre className="pref-log">
-              {prefs?.dislikes_doc?.trim() || '(empty — discard with reasons)'}
-            </pre>
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
     </div>
   )
 }
