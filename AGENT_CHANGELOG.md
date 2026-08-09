@@ -12,3 +12,4 @@
 - CI: deploy all Supabase Edge Functions on main (workflow + script)
 - Contacts review: peek cards clipped to side columns; container query hides peeks in narrow panel; merged duplicate review copy
 - Refine page: flow diagram + concise learned summary; centered second-search CTA
+- Orientation drafts step: Kept tab shows only Draft email; merged duplicate copy

@@ -673,7 +673,7 @@ export function ContactsPage() {
     setTab('kept')
     setMsg(
       kept.length > 0
-        ? 'Review complete. Pick a Kept contact and draft an email to continue.'
+        ? null
         : 'You discarded everyone this round — keep at least one person next time, or draft from an earlier Kept contact if you have one.',
     )
     void orientation.advanceTo('drafts')
@@ -935,7 +935,7 @@ export function ContactsPage() {
           : secondPassReview
             ? `Review every person from the refined search (${pending.length} remaining). Keep or discard each with a reason — then pick someone from Kept to draft.`
             : pickKeptForDraft
-              ? 'Pick a Kept contact and create a draft to finish orientation.'
+              ? 'Almost done — pick someone from Kept and press Draft email on their card to open the outbox.'
               : 'Swipe or use Keep / Discard on the center card. Click the card to the left or right to jump to that contact.'}
       </p>
 
@@ -960,23 +960,16 @@ export function ContactsPage() {
         </div>
       )}
 
-      {pickKeptForDraft && (
-        <div className="orientation-coach">
-          <p>
-            <strong>Almost done:</strong> open a Kept contact and press{' '}
-            <strong>Draft email</strong> to continue to the outbox.
-          </p>
-        </div>
-      )}
-
       <div className="tab-row">
-        <button
-          type="button"
-          className={`tab ${tab === 'review' ? 'active' : ''}`}
-          onClick={() => setTab('review')}
-        >
-          Review ({pending.length})
-        </button>
+        {!pickKeptForDraft && (
+          <button
+            type="button"
+            className={`tab ${tab === 'review' ? 'active' : ''}`}
+            onClick={() => setTab('review')}
+          >
+            Review ({pending.length})
+          </button>
+        )}
         {!reviewingQueue && (
           <>
             <button
@@ -1163,16 +1156,18 @@ export function ContactsPage() {
 
       {tab === 'kept' && (
         <div>
-          <div className="actions">
-            <button
-              type="button"
-              className="btn primary"
-              disabled={busy || kept.length === 0}
-              onClick={() => void draftKept()}
-            >
-              {busy ? 'Drafting…' : 'Draft emails for kept'}
-            </button>
-          </div>
+          {!pickKeptForDraft && (
+            <div className="actions">
+              <button
+                type="button"
+                className="btn primary"
+                disabled={busy || kept.length === 0}
+                onClick={() => void draftKept()}
+              >
+                {busy ? 'Drafting…' : 'Draft emails for kept'}
+              </button>
+            </div>
+          )}
           <div className="contact-grid">
             {kept.map((r) => (
               <article key={r.id} className="contact-card">
@@ -1200,30 +1195,34 @@ export function ContactsPage() {
                       {draftingId === r.id ? 'Drafting…' : 'Draft email'}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    disabled={busy}
-                    onClick={() => archiveContact(r)}
-                  >
-                    Archive
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost swipe-discard"
-                    disabled={busy}
-                    onClick={() => openDiscard(r)}
-                  >
-                    Move to discard
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    disabled={busy}
-                    onClick={() => setDeleteTarget(r)}
-                  >
-                    Delete
-                  </button>
+                  {!pickKeptForDraft && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn ghost"
+                        disabled={busy}
+                        onClick={() => archiveContact(r)}
+                      >
+                        Archive
+                      </button>
+                      <button
+                        type="button"
+                        className="btn ghost swipe-discard"
+                        disabled={busy}
+                        onClick={() => openDiscard(r)}
+                      >
+                        Move to discard
+                      </button>
+                      <button
+                        type="button"
+                        className="btn ghost"
+                        disabled={busy}
+                        onClick={() => setDeleteTarget(r)}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
                 </div>
               </article>
             ))}
