@@ -2226,36 +2226,111 @@ th {
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
-    height: auto;
-    min-height: 100vh;
-    overflow: visible;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--line);
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.55rem;
+    padding: 0.45rem 0.65rem;
+    overflow: visible;
+    flex-shrink: 0;
+  }
+
+  .brand-mark {
+    font-size: 1.05rem;
+    flex-shrink: 0;
+  }
+
+  .brand-mark .followup-logo {
+    width: 22px;
+    height: 22px;
   }
 
   .side-nav {
     flex-direction: row;
     flex-wrap: wrap;
+    flex: 1 1 100%;
+    gap: 0.2rem 0.25rem;
+    order: 2;
+  }
+
+  .side-nav a,
+  .side-nav .nav-locked {
+    padding: 0.28rem 0.45rem;
+    font-size: 0.8rem;
+  }
+
+  .side-footer {
+    margin-top: 0;
+    margin-left: auto;
+    order: 1;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    max-width: min(52%, 14rem);
+  }
+
+  .side-footer .muted.small {
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    line-height: 1.2;
+  }
+
+  .side-footer .btn.ghost {
+    flex-shrink: 0;
+    padding: 0.28rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
   }
 
   .app-content {
-    overflow: visible;
+    overflow: hidden;
+    min-height: 0;
+    flex: 1;
   }
 
   .orientation-bar {
-    padding: 0.65rem 1rem;
+    padding: 0.5rem 0.75rem 0.45rem;
+    flex-shrink: 0;
+  }
+
+  .orientation-bar-top {
+    margin-bottom: 0.3rem;
   }
 
   .app-main {
-    overflow: visible;
+    overflow: auto;
+    flex: 1;
+    min-height: 0;
+    padding: 0.85rem 1rem;
+  }
+
+  .app-main:has(> .profile-page:not(.profile-upload-stage)) {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 0.55rem 0.75rem 0.65rem;
   }
 
   .profile-layout {
     height: auto;
-    min-height: calc(100vh - 8rem);
+    min-height: 0;
+    flex: 1;
   }
 
   .profile-body,

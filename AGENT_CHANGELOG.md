@@ -7,3 +7,4 @@
 - Welcome setup: LinkedIn only (other links in Settings); default name John Doe
 - Profile chat: full-height shell, FollowUp AI header, inline send row
 - Orientation quick answers: centered pill buttons, AI hint for button questions
+- Mobile shell: compact top nav; profile chat keeps internal scroll

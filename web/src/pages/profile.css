@@ -360,10 +360,42 @@
   margin: 0.75rem 0 0;
 }
 
+@media (max-width: 900px) {
+  .profile-page:not(.profile-upload-stage) {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .profile-chat-shell {
+    min-height: 0;
+  }
+
+  .profile-chat-header {
+    padding: 0.45rem 0.65rem;
+    gap: 0.45rem;
+  }
+
+  .profile-guide-meta {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .profile-resume-chip {
+    max-width: min(100%, 10rem);
+  }
+
+  .profile-chat-main {
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+}
+
 @media (max-width: 720px) {
   .profile-chat-header {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
   }
 
   .profile-guide-meta {
@@ -371,6 +403,6 @@
   }
 
   .profile-resume-chip {
-    max-width: 100%;
+    max-width: min(100%, 10rem);
   }
 }
