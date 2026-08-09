@@ -10,3 +10,4 @@
 - Mobile shell: compact top nav; profile chat keeps internal scroll
 - Resume profile bootstrap: current upload only, roles after industries confirmed
 - CI: deploy all Supabase Edge Functions on main (workflow + script)
+- Contacts review: peek cards clipped to side columns; container query hides peeks in narrow panel; merged duplicate review copy

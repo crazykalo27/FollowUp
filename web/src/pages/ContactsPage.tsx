@@ -931,9 +931,9 @@ export function ContactsPage() {
       <h1>Contacts</h1>
       <p className="lede">
         {calibrationReview
-          ? 'Review every person from the calibration search. Keep or discard each one with a reason — that feedback steers your industries.'
+          ? `Review every person from the calibration search (${pending.length} remaining). Keep or discard each with a reason — that feedback steers your industries.`
           : secondPassReview
-            ? 'Review every person from the refined search. Keep or discard each with a reason — then pick someone from Kept to draft.'
+            ? `Review every person from the refined search (${pending.length} remaining). Keep or discard each with a reason — then pick someone from Kept to draft.`
             : pickKeptForDraft
               ? 'Pick a Kept contact and create a draft to finish orientation.'
               : 'Swipe or use Keep / Discard on the center card. Click the card to the left or right to jump to that contact.'}
@@ -941,10 +941,6 @@ export function ContactsPage() {
 
       {calibrationReview && (
         <div className="orientation-coach">
-          <p>
-            <strong>Step:</strong> rate all {pending.length} remaining people.
-            Keep = good niche/person; Discard = teach us what to avoid.
-          </p>
           <p className="muted small">
             Reasons are required. When the queue is empty we run a preference
             gradient update (~10% exploration), then a second search.
@@ -957,10 +953,6 @@ export function ContactsPage() {
 
       {secondPassReview && (
         <div className="orientation-coach">
-          <p>
-            <strong>Step:</strong> review all {pending.length} remaining people
-            from the refined search.
-          </p>
           <p className="muted small">
             When you finish, we open Kept so you can draft outreach to one
             person.
