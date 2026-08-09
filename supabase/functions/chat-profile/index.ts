@@ -99,7 +99,7 @@ const QUESTIONS: {
         p.industries.length > 0
           ? p.industries.map((i) => `• ${i}`).join('\n')
           : '• (none confidently extracted — tell me specific niches)'
-      return `From the resume file you uploaded, I inferred these specific industry niches (not generic labels):\n${list}\n\nWhich niches are you actually targeting? Confirm, edit, or replace with equally specific industries for your search.`,
+      return `From the resume file you uploaded, I inferred these specific industry niches (not generic labels):\n${list}\n\nWhich niches are you actually targeting? Confirm, edit, or replace with equally specific industries for your search.`
     },
   },
   {
