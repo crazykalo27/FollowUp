@@ -1021,24 +1021,34 @@ export function ContactsPage() {
                   {pending.length} pending · center card is active
                 </p>
                 <div className="carousel-viewport">
-                  <div className="carousel-track">
-                    <div
-                      className="carousel-side left"
-                      aria-hidden={!prevContact}
-                    >
-                      {prevContact && (
-                        <button
-                          key={prevContact.id}
-                          type="button"
-                          className="carousel-peek swipe-card peek-left"
-                          disabled={busy}
-                          onClick={() => selectContact(prevContact.id)}
-                        >
-                          <ContactDetail contact={prevContact} compact />
-                        </button>
-                      )}
-                    </div>
-
+                  <div
+                    className="carousel-stage"
+                    aria-label="Swipe review — center card active"
+                  >
+                    {prevContact && (
+                      <button
+                        key={prevContact.id}
+                        type="button"
+                        className="swipe-card carousel-peek peek-left"
+                        disabled={busy}
+                        aria-label={`Previous: ${prevContact.full_name || 'contact'}`}
+                        onClick={() => selectContact(prevContact.id)}
+                      >
+                        <ContactDetail contact={prevContact} compact />
+                      </button>
+                    )}
+                    {nextContact && (
+                      <button
+                        key={nextContact.id}
+                        type="button"
+                        className="swipe-card carousel-peek peek-right"
+                        disabled={busy}
+                        aria-label={`Next: ${nextContact.full_name || 'contact'}`}
+                        onClick={() => selectContact(nextContact.id)}
+                      >
+                        <ContactDetail contact={nextContact} compact />
+                      </button>
+                    )}
                     <div className="carousel-center">
                       {exiting && (
                         <article
@@ -1062,23 +1072,6 @@ export function ContactsPage() {
                         )}
                         <ContactDetail contact={current} />
                       </article>
-                    </div>
-
-                    <div
-                      className="carousel-side right"
-                      aria-hidden={!nextContact}
-                    >
-                      {nextContact && (
-                        <button
-                          key={nextContact.id}
-                          type="button"
-                          className="carousel-peek swipe-card peek-right"
-                          disabled={busy}
-                          onClick={() => selectContact(nextContact.id)}
-                        >
-                          <ContactDetail contact={nextContact} compact />
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
