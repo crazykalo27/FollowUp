@@ -76,7 +76,7 @@ export const SEARCH_DEPTHS: DepthPreset[] = [
   },
   {
     id: 'quick',
-    label: 'Low credits',
+    label: 'Low',
     companies: 3,
     perCompany: 2,
     webSearchCredits: webCredits(3),
@@ -88,7 +88,7 @@ export const SEARCH_DEPTHS: DepthPreset[] = [
   },
   {
     id: 'standard',
-    label: 'Medium credits',
+    label: 'Medium',
     companies: 6,
     perCompany: 3,
     webSearchCredits: webCredits(6),
@@ -100,7 +100,7 @@ export const SEARCH_DEPTHS: DepthPreset[] = [
   },
   {
     id: 'deep',
-    label: 'High credits',
+    label: 'High',
     companies: 8,
     perCompany: 4,
     webSearchCredits: webCredits(8),
@@ -114,6 +114,15 @@ export const SEARCH_DEPTHS: DepthPreset[] = [
 
 export function depthPreset(id: SearchDepth): DepthPreset {
   return SEARCH_DEPTHS.find((d) => d.id === id) || SEARCH_DEPTHS[2]
+}
+
+/** Max contacts for general search size (companies × people per company). */
+export function depthPeopleCap(preset: DepthPreset): number {
+  return preset.companies * preset.perCompany
+}
+
+export function depthSizeSummary(preset: DepthPreset): string {
+  return `${preset.companies} companies · ${depthPeopleCap(preset)} people`
 }
 
 /** Depths shown in the normal (post-orientation) picker. */

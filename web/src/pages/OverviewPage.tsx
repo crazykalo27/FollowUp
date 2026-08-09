@@ -9,6 +9,7 @@ import {
   USER_SEARCH_DEPTHS,
   COMPANY_PEOPLE_TARGETS,
   depthPreset,
+  depthSizeSummary,
   loadActiveCompanyPeopleTarget,
   loadActiveRunDepth,
   loadActiveRunId,
@@ -884,45 +885,30 @@ export function OverviewPage() {
 
         {searchMode === 'general' ? (
           <>
-            <h3 className="search-credits-heading">Search size (credits)</h3>
-            <p className="muted small" style={{ marginBottom: '1rem' }}>
-              Low / medium / high sets how many companies we discover and how
-              many people per company. Hunter applies only if enabled in
-              Settings.
-            </p>
+            <h3 className="search-credits-heading">Search size</h3>
             <div className="depth-picker">
-              <div className="depth-grid">
+              <div
+                className="depth-grid depth-grid-simple"
+                role="radiogroup"
+                aria-label="Search size"
+              >
                 {depthChoices.map((d) => (
                   <button
                     key={d.id}
                     type="button"
-                    className={`depth-card ${depth === d.id ? 'selected' : ''}`}
+                    role="radio"
+                    aria-checked={depth === d.id}
+                    className={`depth-card depth-card-simple ${depth === d.id ? 'selected' : ''}`}
                     disabled={searching}
                     onClick={() => setDepth(d.id)}
                   >
-                    <strong>{d.label}</strong>
-                    <span className="depth-eta">
-                      ~{d.webSearchCredits} Bing/Serper searches
+                    <strong className="depth-card-title">{d.label}</strong>
+                    <span className="depth-card-size muted small">
+                      {depthSizeSummary(d)}
                     </span>
-                    <span className="depth-est">
-                      Hunter: ~{d.hunterDomainCalls} domain
-                      {d.hunterMaxFindVerify > 0
-                        ? ` · up to ${d.hunterMaxFindVerify} find/verify`
-                        : ''}
-                    </span>
-                    <span className="muted small">
-                      {d.estimatePeople} · {d.companies} companies ×{' '}
-                      {d.perCompany} max
-                    </span>
-                    <span className="muted small">{d.blurb}</span>
                   </button>
                 ))}
               </div>
-              <p className="small depth-summary">
-                Selected: <strong>{selectedDepth.label}</strong> — ~
-                {selectedDepth.webSearchCredits} web searches,{' '}
-                {selectedDepth.estimatePeople}, {selectedDepth.eta}
-              </p>
             </div>
           </>
         ) : (
@@ -1025,7 +1011,7 @@ export function OverviewPage() {
               ? 'Search running…'
               : searchMode === 'company'
                 ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
-                : `Run search (${selectedDepth.label.toLowerCase()})`}
+                : `Run search (${selectedDepth.label})`}
           </button>
         )}
         {showCancel && (

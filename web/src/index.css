@@ -1681,6 +1681,27 @@ th {
   background: rgba(196, 240, 76, 0.1);
 }
 
+.depth-card-simple {
+  align-items: center;
+  text-align: center;
+  gap: 0.35rem;
+  padding: 0.9rem 0.65rem;
+}
+
+.depth-card-title {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.depth-card-size {
+  line-height: 1.35;
+}
+
+.depth-grid-simple {
+  margin-top: 0.5rem;
+}
+
 .depth-card:disabled {
   opacity: 0.55;
   cursor: not-allowed;
