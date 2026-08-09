@@ -47,6 +47,22 @@ const EMPTY_PROFILE: Profile = {
 
 const SERIES_DONE = 7
 
+/** Closed-ended steps that show tap-to-send buttons in the Profile UI */
+const QUICK_ANSWER_KEYS = new Set([
+  'locations',
+  'employment_types',
+  'remote_preference',
+  'company_size',
+  'seniority',
+])
+
+const QUICK_ANSWER_HINT = 'Type or press the buttons below to respond.'
+
+function withQuickAnswerHint(key: string, question: string): string {
+  if (!QUICK_ANSWER_KEYS.has(key)) return question
+  return `${question}\n\n${QUICK_ANSWER_HINT}`
+}
+
 const QUESTIONS: {
   key: string
   ask: (p: Profile) => string
@@ -338,7 +354,7 @@ Be specific on outreach_targets (who to email at those companies). Do not invent
         orientation_q: 0,
       })
 
-      const q0 = QUESTIONS[0].ask(profile)
+      const q0 = withQuickAnswerHint(QUESTIONS[0].key, QUESTIONS[0].ask(profile))
       const safeReply = ensureSingleQuestion(
         `I scanned your resume for specific niches we can search — not generic labels. I'll ask a short series of questions, then we'll calibrate with a small search.\n\n${q0}`,
       )
@@ -535,7 +551,10 @@ Return JSON only:
       const ackClean = ensureNoQuestion(
         (reply || 'Got it.').replace(/\?/g, '.').trim() || 'Got it.',
       )
-      const nextAsk = QUESTIONS[nextQ].ask(profile)
+      const nextAsk = withQuickAnswerHint(
+        QUESTIONS[nextQ].key,
+        QUESTIONS[nextQ].ask(profile),
+      )
       reply = `${ackClean}\n\n${nextAsk}`
     }
 

@@ -20,6 +20,8 @@ const ORIENTATION_QUICK_OPTIONS: Record<string, string[]> = {
   seniority: ['Entry', 'Mid-level', 'Experienced'],
 }
 
+const QUICK_ANSWER_HINT = 'Type or press the buttons below to respond.'
+
 const ORIENTATION_QUESTION_KEYS = [
   'locations',
   'employment_types',
@@ -271,6 +273,12 @@ export function OnboardingPage() {
     seriesComplete,
     orientation.complete,
   )
+  const lastAssistantText = [...messages]
+    .reverse()
+    .find((m) => m.role === 'assistant')?.content
+  const showQuickHint =
+    Boolean(quickOptions) &&
+    !lastAssistantText?.includes(QUICK_ANSWER_HINT)
 
   if (loading) {
     return <div className="page-center muted">Loading profile…</div>
@@ -363,8 +371,11 @@ export function OnboardingPage() {
           </div>
         </div>
 
-        <footer className="profile-chat-compose">
-          {quickOptions && (
+        {quickOptions && (
+          <div className="profile-quick-panel">
+            {showQuickHint && (
+              <p className="profile-quick-hint">{QUICK_ANSWER_HINT}</p>
+            )}
             <div
               className="profile-quick-answers"
               role="group"
@@ -382,7 +393,10 @@ export function OnboardingPage() {
                 </button>
               ))}
             </div>
-          )}
+          </div>
+        )}
+
+        <footer className="profile-chat-compose">
           <div className="profile-compose-row">
             <textarea
               rows={1}
