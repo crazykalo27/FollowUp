@@ -192,6 +192,9 @@ export function LandingPage() {
         <section className="lp-hero lp-inner">
           <div className="lp-hero-grid">
             <div className="lp-hero-copy">
+              <div className="lp-hero-brand">
+                <FollowUpLogo size={128} alt="" className="lp-hero-logo" />
+              </div>
               <h1>
                 Skip the application black hole.
                 <span className="lp-hero-em">Reach the people who actually hire.</span>
@@ -418,7 +421,7 @@ export function LandingPage() {
                 We&apos;re not trying to help you apply to more jobs.
               </p>
               <p className="lp-statement-line strong">
-                We&apos;re trying to help you reach better people.
+                We&apos;re trying to help you reach more people with impact.
               </p>
               <p className="lp-statement-support">
                 FollowUp treats job boards as signals—not destinations. The goal is to understand

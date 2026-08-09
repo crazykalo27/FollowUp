@@ -162,6 +162,17 @@ button.lp-nav-sign {
   letter-spacing: -0.03em;
 }
 
+.lp-hero-brand {
+  margin-bottom: 1.15rem;
+}
+
+.lp-hero-logo {
+  width: clamp(5.25rem, 20vw, 9rem);
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.45));
+}
+
 .lp-hero-em {
   display: block;
   margin-top: 0.35rem;
