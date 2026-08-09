@@ -445,24 +445,14 @@ export function FiltersPage() {
 
       <div className="actions">
         {inOrientation ? (
-          <>
-            <button
-              type="button"
-              className="btn primary"
-              disabled={continuing || savingTargets}
-              onClick={() => void continueOrientation()}
-            >
-              {continuing ? 'Continuing…' : 'Continue to calibration search'}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={saving || savingTargets}
-              onClick={() => void save()}
-            >
-              {saving ? 'Saving…' : 'Update and save'}
-            </button>
-          </>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={continuing || savingTargets}
+            onClick={() => void continueOrientation()}
+          >
+            {continuing ? 'Saving…' : 'Save and continue to search'}
+          </button>
         ) : (
           <>
             <button
