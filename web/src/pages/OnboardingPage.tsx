@@ -83,7 +83,7 @@ export function OnboardingPage() {
   const chatLogRef = useRef<HTMLDivElement>(null)
   const bootstrapAttempted = useRef(false)
 
-  async function bootstrapChat() {
+  async function bootstrapChat(resumeId?: string) {
     setBootstrapping(true)
     setStatus(null)
     try {
@@ -94,7 +94,10 @@ export function OnboardingPage() {
         series_complete?: boolean
         already_started?: boolean
         filters?: unknown
-      }>('chat-profile', { action: 'bootstrap' })
+      }>('chat-profile', {
+        action: 'bootstrap',
+        ...(resumeId ? { resume_id: resumeId } : {}),
+      })
       if (res.profile) setProfile(res.profile)
       if (res.ready) setReady(true)
       if (res.series_complete) setSeriesComplete(true)
@@ -207,15 +210,25 @@ export function OnboardingPage() {
       if (error) throw error
 
       setFileName(file.name)
-      await invokeFunction('parse-resume', { resume_id: row.id })
-      setStatus('Scanning your resume…')
+      const parsed = await invokeFunction<{ ok?: boolean; chars?: number }>(
+        'parse-resume',
+        { resume_id: row.id },
+      )
+      if (!parsed.chars || parsed.chars < 40) {
+        setStatus(
+          'Resume text was hard to read — try PDF export or .txt/.docx for best results. Continuing with what we extracted.',
+        )
+      } else {
+        setStatus('Scanning your resume…')
+      }
 
       await supabase.from('profile_chat_messages').delete().eq('user_id', user.id)
       setMessages([])
+      setProfile(null)
       setReady(false)
       setSeriesComplete(false)
       bootstrapAttempted.current = true
-      await bootstrapChat()
+      await bootstrapChat(row.id)
       setStatus(null)
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Upload failed')

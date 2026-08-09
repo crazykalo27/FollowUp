@@ -99,7 +99,7 @@ const QUESTIONS: {
         p.industries.length > 0
           ? p.industries.map((i) => `• ${i}`).join('\n')
           : '• (none confidently extracted — tell me specific niches)'
-      return `From your resume I inferred these SPECIFIC industry niches (not generic labels):\n${list}\n\nWhich niches are you actually targeting? Confirm, edit, or replace with equally specific industries (e.g. “radar signal processing”, not “engineering”).`
+      return `From the resume file you uploaded, I inferred these specific industry niches (not generic labels):\n${list}\n\nWhich niches are you actually targeting? Confirm, edit, or replace with equally specific industries for your search.`,
     },
   },
   {
@@ -109,7 +109,7 @@ const QUESTIONS: {
         p.roles.length > 0
           ? p.roles.map((r) => `• ${r}`).join('\n')
           : '• (suggest a few titles you’d want)'
-      return `Based on those industries and your resume, here are job titles I suggest we search for:\n${list}\n\nWhich titles should we use? Confirm, edit, or replace them.`
+      return `Based on the industries you confirmed, here are job titles I suggest we search for:\n${list}\n\nWhich titles should we use? Confirm, edit, or replace them.`
     },
   },
 ]
@@ -208,13 +208,7 @@ function applyCompanySizeToTypes(profile: Profile): Profile {
 
 async function loadState(admin: ReturnType<typeof adminClient>, userId: string) {
   const [{ data: resume }, { data: history }, { data: sp }] = await Promise.all([
-    admin
-      .from('resumes')
-      .select('extracted_text, file_name')
-      .eq('user_id', userId)
-      .order('uploaded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    loadLatestResume(admin, userId),
     admin
       .from('profile_chat_messages')
       .select('role, content')
@@ -233,6 +227,61 @@ async function loadState(admin: ReturnType<typeof adminClient>, userId: string) 
     history: history || [],
     profile: mergeProfile(EMPTY_PROFILE, sp?.profile as Partial<Profile> | undefined),
   }
+}
+
+async function loadLatestResume(
+  admin: ReturnType<typeof adminClient>,
+  userId: string,
+  resumeId?: string,
+) {
+  if (resumeId) {
+    return admin
+      .from('resumes')
+      .select('id, extracted_text, file_name, uploaded_at')
+      .eq('user_id', userId)
+      .eq('id', resumeId)
+      .maybeSingle()
+  }
+  return admin
+    .from('resumes')
+    .select('id, extracted_text, file_name, uploaded_at')
+    .eq('user_id', userId)
+    .order('uploaded_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+}
+
+async function suggestRolesFromIndustries(
+  profile: Profile,
+  resumeSnippet: string,
+): Promise<string[]> {
+  const suggestRaw = await openaiChat(
+    [
+      {
+        role: 'system',
+        content:
+          'Suggest job titles as JSON {"roles":[]} only. Titles must match the user-confirmed industries — no generic or unrelated defaults.',
+      },
+      {
+        role: 'user',
+        content: `The user confirmed these target industry niches (titles MUST fit these — ignore any earlier guesses):
+${profile.industries.map((i) => `- ${i}`).join('\n') || '- (none listed)'}
+
+Seniority: ${profile.seniority || 'not specified'}
+Employment type: ${profile.employment_types.join(', ') || 'not specified'}
+
+Resume text (skills/background only — do not copy past job titles unless they fit the industries above):
+${resumeSnippet || '(no resume text extracted)'}
+
+Return 4–8 job titles to search for in those industries.`,
+      },
+    ],
+    { temperature: 0.35, response_format: { type: 'json_object' } },
+  )
+  const suggested = stripFences(suggestRaw)
+  return Array.isArray(suggested?.roles)
+    ? suggested.roles.filter((r: unknown) => typeof r === 'string' && r.trim())
+    : []
 }
 
 async function saveProfile(
@@ -279,9 +328,19 @@ Deno.serve(async (req) => {
 
     const admin = adminClient()
     const state = await loadState(admin, user.id)
-    const resumeSnippet = (state.resume?.extracted_text || '').slice(0, 12000)
+    const resumeId =
+      typeof body.resume_id === 'string' ? body.resume_id.trim() : undefined
+    const resumeForChat = resumeId
+      ? (await loadLatestResume(admin, user.id, resumeId)).data ?? state.resume
+      : state.resume
+    const resumeSnippet = (resumeForChat?.extracted_text || '').slice(0, 12000)
 
     if (action === 'bootstrap') {
+      const resumeRow = resumeId
+        ? await loadLatestResume(admin, user.id, resumeId)
+        : { data: state.resume }
+      const resume = resumeRow.data
+
       if (state.history.length > 0) {
         const last = state.history[state.history.length - 1]
         const q = state.profile.orientation_q ?? 0
@@ -295,17 +354,21 @@ Deno.serve(async (req) => {
         })
       }
 
-      if (!state.resume) {
+      if (!resume) {
         return errorResponse('Upload a resume before starting the profile chat', 400)
       }
 
+      const resumeSnippet = (resume.extracted_text || '').slice(0, 12000)
+
       const extractPrompt = `You help a job seeker define what they are LOOKING FOR — not a biography of their resume.
 
-Resume file: ${state.resume.file_name}
-Resume text:
-${resumeSnippet || '(little/no text extracted)'}
+IMPORTANT: Use ONLY the resume file and text below. Do not assume any industry (tech, finance, healthcare, etc.) unless this specific document supports it. Do not reuse example niches from instructions — every output must be grounded in this upload.
 
-Use the resume only to INFER plausible next-step targets. Do NOT treat past titles as confirmed goals.
+Resume file name: ${resume.file_name}
+Uploaded resume text:
+${resumeSnippet || '(little or no text could be extracted — leave industries empty rather than guessing)'}
+
+Use the resume only to INFER plausible next-step targets. Do NOT treat past job titles as confirmed search goals.
 
 Return JSON only:
 {
@@ -326,21 +389,20 @@ Return JSON only:
   }
 }
 
-CRITICAL — industries must be SPECIFIC niches (4–8 items), not generic buckets.
-Good: "FPGA semiconductor design", "edge AI inference hardware", "quantum control electronics".
-Bad: "technology", "software", "engineering", "IT", "business".
-Each industry should be a concrete sector a recruiter could search.
-
-Seed roles (4–8 desired titles that fit those niches) and industries (4–8 specific niches) for later confirmation.
-Leave locations/employment/remote/company_size/seniority empty — we ask those first.
-Be specific on outreach_targets (who to email at those companies). Do not invent employers or degrees not in the resume.`
+Rules:
+- roles MUST stay [] — job titles are generated later, after the user confirms industries.
+- industries: 4–8 SPECIFIC niches when the resume supports them; [] if text is missing or too vague. Never use generic buckets like "technology", "software", "engineering", "IT", or "business".
+- Each industry must be a concrete sector someone could search for, derived from THIS resume (any field: arts, trades, public sector, academia, etc.).
+- skills, outreach_targets, company_types: optional hints from this resume only.
+- Leave locations/employment/remote/company_size/seniority empty — we ask those first.
+- Do not invent employers, degrees, or credentials not in the resume text.`
 
       const extractRaw = await openaiChat(
         [
           {
             role: 'system',
             content:
-              'You infer SPECIFIC job-search TARGET niches from resumes. Never return generic industries. Return valid JSON only.',
+              'You infer job-search target niches from the provided resume text only. No field bias. Never seed job titles (roles stay empty). Return valid JSON only.',
           },
           { role: 'user', content: extractPrompt },
         ],
@@ -350,13 +412,15 @@ Be specific on outreach_targets (who to email at those companies). Do not invent
       const extracted = stripFences(extractRaw) || {}
       let profile = mergeProfile(EMPTY_PROFILE, {
         ...(extracted.profile || {}),
+        roles: [],
         roles_confirmed: false,
         orientation_q: 0,
       })
+      profile = { ...profile, roles: [] }
 
       const q0 = withQuickAnswerHint(QUESTIONS[0].key, QUESTIONS[0].ask(profile))
       const safeReply = ensureSingleQuestion(
-        `I scanned your resume for specific niches we can search — not generic labels. I'll ask a short series of questions, then we'll calibrate with a small search.\n\n${q0}`,
+        `I scanned “${resume.file_name}” for specific niches we can search — grounded in that file only, not generic labels. I'll ask a short series of questions, then we'll calibrate with a small search.\n\n${q0}`,
       )
 
       await admin.from('profile_chat_messages').insert({
@@ -472,8 +536,9 @@ Rules:
 - For remote_preference: remote | in-person | hybrid | flexible.
 - For company_size: large | medium | small (or mix).
 - For seniority: entry | mid | experienced (normalize their words).
-- For industries: set industries[] from their clarification.
+- For industries: set industries[] from the user's clarification (replace prior guesses). Set roles to [].
 - For roles: set roles[] from their clarification and set roles_confirmed=true.
+- Do NOT set or keep roles[] until the roles step — when updating industries, roles must be [].
 - Set orientation_q to ${Math.min(SERIES_DONE, qIndex + 1)}.
 - reply: ONE short acknowledgment sentence only. Do NOT ask any question. Do NOT mention the next topic. No question marks.
 - NEVER ask a question in reply.
@@ -513,24 +578,17 @@ Return JSON only:
     }
     profile = applyCompanySizeToTypes(profile)
 
-    // After industries confirmed (step 5 answered → nextQ 6), refresh role suggestions if empty
-    if (nextQ === 6 && profile.roles.length === 0) {
-      const suggestRaw = await openaiChat(
-        [
-          {
-            role: 'system',
-            content: 'Suggest job titles as JSON {"roles":[]} only.',
-          },
-          {
-            role: 'user',
-            content: `Industries: ${profile.industries.join(', ')}\nResume:\n${resumeSnippet.slice(0, 6000)}\nReturn 4–8 desired job titles.`,
-          },
-        ],
-        { temperature: 0.3, response_format: { type: 'json_object' } },
-      )
-      const suggested = stripFences(suggestRaw)
-      if (suggested?.roles?.length) {
-        profile = { ...profile, roles: suggested.roles }
+    if (currentKey === 'industries') {
+      profile = { ...profile, roles: [] }
+    }
+
+    // After industries confirmed (step 6 answered → nextQ 6 is roles question index)
+    // qIndex 5 is industries question; after answer nextQ becomes 6 (roles step)
+    if (nextQ === 6 && currentKey === 'industries') {
+      const suggestedRoles = await suggestRolesFromIndustries(profile, resumeSnippet)
+      profile = {
+        ...profile,
+        roles: suggestedRoles.length > 0 ? suggestedRoles : profile.roles,
       }
     }
 
