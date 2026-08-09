@@ -493,10 +493,10 @@ Rules:
         profile = {
           ...profile,
           outreach_targets: [
-            'Engineering Manager',
             'Hiring Manager',
-            'Director',
             'Team Lead',
+            'Director',
+            'Manager',
           ],
         }
       }

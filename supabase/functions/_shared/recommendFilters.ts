@@ -17,16 +17,15 @@ Return JSON only:
   "rationale": string
 }
 The profile describes what JOBS and INDUSTRIES the user wants — not their resume skills.
-Industries must stay SPECIFIC niches (never collapse to "tech" / "software" / "engineering").
-include_titles must come primarily from profile.outreach_targets (who to email) and roles/industries they want.
-Prefer concrete titles tied to those niches (e.g. "FPGA Design Lead", "Director of Silicon Engineering") over vague ones.
-Prioritize people who refer or influence hiring: Director, Engineering Manager, Principal/Staff Engineer, Research Scientist, Senior Engineer, Lead Engineer.
-Broader technical titles when aligned. Recruiter / Talent Acquisition only as low-priority includes.
-Preference docs describe PICK SIGNALS (hiring signals / match reasons) the user rewarded or rejected —
-NOT biographies of people. Use negative signal feedback (e.g. wrong job type on internship postings)
-to avoid those pick patterns; use positive signal feedback to reinforce good hiring-signal types.
+Industries must stay SPECIFIC niches (never collapse to generic buckets like "tech" unless the profile says so).
+include_titles must come primarily from profile.outreach_targets (who to email) and the roles/industries the user confirmed.
+Use titles that fit THEIR niches only — do not assume software, engineering, or tech unless the profile indicates it.
+Prioritize people who refer or influence hiring for those niches (managers, directors, team leads, senior practitioners in that field).
+Broader titles when aligned with profile. Recruiter / Talent Acquisition only as low-priority includes.
+Preference docs describe feedback on contacts (what to seek or avoid) —
+NOT biographies of people. Use negative feedback to avoid bad match patterns; use positive feedback to reinforce good ones.
 locations mirror profile.locations when present.
-exclude_titles: generic HR/People Ops/Staffing — do not blanket-exclude Recruiter if included.`
+exclude_titles: generic HR/People Ops/Staffing — do not blanket-exclude Recruiter if profile includes them.`
 
 function parseFiltersJson(raw: string): Record<string, unknown> {
   try {
@@ -49,7 +48,7 @@ function normalizeFilters(parsed: Record<string, unknown>) {
       ]),
     ),
     locations: (parsed.locations as string[]) || [],
-    seniority: (parsed.seniority as string[]) || ['senior', 'executive'],
+    seniority: (parsed.seniority as string[]) || [],
     company_size_min: (parsed.company_size_min as number | null) ?? null,
     company_size_max: (parsed.company_size_max as number | null) ?? null,
     max_companies_per_run: Number(parsed.max_companies_per_run) || 6,

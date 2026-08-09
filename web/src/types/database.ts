@@ -51,12 +51,10 @@ export interface SearchFiltersData {
 
 export const DEFAULT_FILTERS: SearchFiltersData = {
   include_titles: [
-    'Engineering Manager',
     'Hiring Manager',
-    'Director',
-    'Head of',
-    'VP',
     'Team Lead',
+    'Director',
+    'Manager',
   ],
   exclude_titles: [
     'Recruiter',
@@ -69,7 +67,7 @@ export const DEFAULT_FILTERS: SearchFiltersData = {
   locations: [],
   company_size_min: null,
   company_size_max: null,
-  seniority: ['senior', 'executive'],
+  seniority: [],
   max_companies_per_run: 10,
   max_contacts_per_company: 3,
   require_verified_email: false,

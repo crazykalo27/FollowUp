@@ -5,6 +5,7 @@ import {
   jsonResponse,
   requireUser,
 } from '../_shared/cors.ts'
+import { DEFAULT_SEARCH_FILTERS } from '../_shared/defaultFilters.ts'
 
 /**
  * Wipe all FollowUp data for the signed-in user and reset orientation.
@@ -52,33 +53,7 @@ Deno.serve(async (req) => {
     await admin.from('search_filters').delete().eq('user_id', uid)
     await admin.from('search_filters').insert({
       user_id: uid,
-      filters: {
-        include_titles: [
-          'Engineering Manager',
-          'Hiring Manager',
-          'Director',
-          'Head of',
-          'VP',
-          'Team Lead',
-        ],
-        exclude_titles: [
-          'Recruiter',
-          'Talent Acquisition',
-          'People Ops',
-          'HR',
-          'Sourcer',
-          'Staffing',
-        ],
-        locations: [],
-        company_size_min: null,
-        company_size_max: null,
-        seniority: ['senior', 'executive'],
-        max_companies_per_run: 10,
-        max_contacts_per_company: 3,
-        require_verified_email: false,
-        accept_accept_all: true,
-        enable_hunter: false,
-      },
+      filters: DEFAULT_SEARCH_FILTERS,
     })
 
     await admin.from('preference_documents').upsert(

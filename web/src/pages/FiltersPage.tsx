@@ -295,7 +295,7 @@ export function FiltersPage() {
         <h1>Filters</h1>
         <p className="lede">
           {inOrientation
-            ? 'Confirm specific company niches and who to contact. Next we run a small 4-person calibration search so your keep/discard feedback can refine these targets.'
+            ? 'Next we will search for 4 people to calibrate your profile. You can provide feedback for what to keep / discard.'
             : 'Company targets drive which employers we hunt. Contact targets narrow who qualifies at each company.'}
         </p>
       </header>
@@ -324,7 +324,7 @@ export function FiltersPage() {
               <textarea
                 value={rolesText}
                 onChange={(e) => setRolesText(e.target.value)}
-                placeholder="Quantum software engineer"
+                placeholder="e.g. Product designer, Account executive"
               />
             </label>
             <label>
@@ -332,7 +332,7 @@ export function FiltersPage() {
               <textarea
                 value={industriesText}
                 onChange={(e) => setIndustriesText(e.target.value)}
-                placeholder="Quantum computing"
+                placeholder="e.g. Healthcare SaaS, municipal parks"
               />
             </label>
             <label>
@@ -340,7 +340,7 @@ export function FiltersPage() {
               <textarea
                 value={companyTypesText}
                 onChange={(e) => setCompanyTypesText(e.target.value)}
-                placeholder="Startups, national labs"
+                placeholder="Startups, nonprofits, agencies"
               />
             </label>
             <label>
