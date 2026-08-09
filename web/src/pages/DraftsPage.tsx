@@ -262,10 +262,6 @@ export function DraftsPage() {
   }
 
   useEffect(() => {
-    if (inOrientation) setTemplateOpen(true)
-  }, [inOrientation])
-
-  useEffect(() => {
     if (!user) return
     void (async () => {
       const [{ data: prof }, { data: resume }] = await Promise.all([
