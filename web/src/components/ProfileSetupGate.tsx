@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 
-/** Redirect new users until full name (and optional links) are saved. */
+/** Redirect new users until full name (and optional LinkedIn) are saved. */
 export function ProfileSetupGate() {
   const { user, loading: authLoading } = useAuth()
   const location = useLocation()

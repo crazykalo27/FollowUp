@@ -3,14 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 
+const DEFAULT_FULL_NAME = 'John Doe'
+
 export function WelcomeSetupPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [fullName, setFullName] = useState('')
+  const [fullName, setFullName] = useState(DEFAULT_FULL_NAME)
   const [linkedinUrl, setLinkedinUrl] = useState('')
-  const [githubUrl, setGithubUrl] = useState('')
-  const [portfolioUrl, setPortfolioUrl] = useState('')
-  const [websiteUrl, setWebsiteUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -19,9 +18,7 @@ export function WelcomeSetupPage() {
     ;(async () => {
       const { data } = await supabase
         .from('profiles')
-        .select(
-          'full_name, linkedin_url, github_url, portfolio_url, website_url, profile_setup_complete',
-        )
+        .select('full_name, linkedin_url, profile_setup_complete')
         .eq('id', user.id)
         .maybeSingle()
       if (data?.profile_setup_complete && data.full_name) {
@@ -30,9 +27,6 @@ export function WelcomeSetupPage() {
       }
       if (data?.full_name) setFullName(data.full_name)
       if (data?.linkedin_url) setLinkedinUrl(data.linkedin_url)
-      if (data?.github_url) setGithubUrl(data.github_url)
-      if (data?.portfolio_url) setPortfolioUrl(data.portfolio_url)
-      if (data?.website_url) setWebsiteUrl(data.website_url)
     })()
   }, [user, navigate])
 
@@ -50,9 +44,6 @@ export function WelcomeSetupPage() {
       full_name: name,
       display_name: name,
       linkedin_url: trim(linkedinUrl),
-      github_url: trim(githubUrl),
-      portfolio_url: trim(portfolioUrl),
-      website_url: trim(websiteUrl),
       profile_setup_complete: true,
       orientation_step: 'profile',
       orientation_complete: false,
@@ -70,9 +61,6 @@ export function WelcomeSetupPage() {
           full_name: name,
           display_name: name,
           linkedin_url: trim(linkedinUrl),
-          github_url: trim(githubUrl),
-          portfolio_url: trim(portfolioUrl),
-          website_url: trim(websiteUrl),
           profile_setup_complete: true,
           updated_at: new Date().toISOString(),
         })
@@ -93,8 +81,8 @@ export function WelcomeSetupPage() {
         <h1>Welcome to FollowUp</h1>
         <p className="lede">
           We help you find direct contacts — not black-hole applications.
-          Your full name signs every outreach email. Add links only if you want
-          them included.
+          Your full name signs every outreach email. Add your LinkedIn if you want
+          it in signatures — other links can go in Settings later.
         </p>
 
         <label>
@@ -103,7 +91,7 @@ export function WelcomeSetupPage() {
             type="text"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            placeholder="Kallen Selby"
+            placeholder={DEFAULT_FULL_NAME}
             autoComplete="name"
           />
         </label>
@@ -115,36 +103,6 @@ export function WelcomeSetupPage() {
             value={linkedinUrl}
             onChange={(e) => setLinkedinUrl(e.target.value)}
             placeholder="https://linkedin.com/in/…"
-          />
-        </label>
-
-        <label>
-          GitHub URL <span className="muted small">optional</span>
-          <input
-            type="url"
-            value={githubUrl}
-            onChange={(e) => setGithubUrl(e.target.value)}
-            placeholder="https://github.com/…"
-          />
-        </label>
-
-        <label>
-          Portfolio URL <span className="muted small">optional</span>
-          <input
-            type="url"
-            value={portfolioUrl}
-            onChange={(e) => setPortfolioUrl(e.target.value)}
-            placeholder="https://…"
-          />
-        </label>
-
-        <label>
-          Website <span className="muted small">optional</span>
-          <input
-            type="url"
-            value={websiteUrl}
-            onChange={(e) => setWebsiteUrl(e.target.value)}
-            placeholder="https://…"
           />
         </label>
 
