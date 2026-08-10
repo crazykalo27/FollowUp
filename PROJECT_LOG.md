@@ -1,3 +1,7 @@
+## 2026-08-10 — Keep reason: Great application connection
+
+- Contacts keep chips include “Great application connection”; preference learning boosts similar titles.
+
 ## 2026-08-10 — Application extract UX + location targeting
 
 - Extract button moved next to Search and centered; larger primary actions.
