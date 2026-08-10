@@ -1,3 +1,9 @@
+## 2026-08-10 — Application search: JD-only targeting
+
+- Application mode no longer merges profile roles/industries/filters into people search; titles and keywords come from the pasted job description only.
+- Sanitize extracted job titles (drop soft-skill fluff like “adaptive, self-motivated…”) and score RTL/hardware design titles for ranking.
+- Application report shows role/people titles instead of profile industries/job-board stats; clearer empty-result diagnosis.
+
 ## 2026-08-10 — Minimalist Search tab redesign
 
 - Search flows (General / Specific / Application) are icon cards with one-line purposes; picking one reveals numbered steps (target → size → run), so the flow reads visually instead of via paragraphs.

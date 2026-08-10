@@ -32,8 +32,69 @@ function uniqTrim(items: string[], limit = 12): string[] {
   return out
 }
 
+/** Reject JD fluff sentences that get mistaken for LinkedIn titles. */
+export function isPlausibleJobTitle(title: string): boolean {
+  const t = title.replace(/\s+/g, ' ').trim()
+  if (!t || t.length < 3 || t.length > 70) return false
+  if ((t.match(/,/g) || []).length >= 1) return false
+  if (/:/.test(t)) return false
+  if (
+    /\b(self-?motivated|passionate|driven|adaptive|motivated|looking for|seeking|opportunity|responsible for|will be|we are|you will|must have|nice to have|leading team to drive|part of a leading|team to drive|job title|position)\b/i
+      .test(t)
+  ) {
+    return false
+  }
+  const words = t.split(/\s+/).filter(Boolean)
+  if (words.length > 8) return false
+  if (
+    !/\b(engineer|manager|director|architect|designer|scientist|lead|developer|specialist|analyst|researcher|principal|staff|intern|fellow|technician|verification|fpga|asic|rtl)\b/i
+      .test(t) &&
+    words.length > 5
+  ) {
+    return false
+  }
+  return true
+}
+
+/** Pull a short role title out of a long hiring phrase when possible. */
+export function extractCoreJobTitle(raw: string): string {
+  const cleaned = raw
+    .replace(/^\s*(?:job\s*title|position|role|title)\s*[:\-–]\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return ''
+  if (isPlausibleJobTitle(cleaned)) return cleaned.slice(0, 100)
+
+  const stop = new Set([
+    'a', 'an', 'the', 'for', 'our', 'your', 'and', 'or', 'to', 'as', 'in',
+    'on', 'of', 'with', 'from', 'into', 'their', 'this', 'that', 'be',
+    'looking', 'seeking', 'hiring', 'join', 'joined', 'want', 'need',
+    'find', 'finding', 'experienced', 'talented', 'skilled', 'job', 'title',
+    'position', 'role',
+  ])
+  const re =
+    /\b(?:[A-Za-z][A-Za-z0-9/+&.\-]*)(?:\s+[A-Za-z][A-Za-z0-9/+&.\-]*){0,6}\s+(?:Engineer|Manager|Architect|Designer|Scientist|Developer|Specialist|Analyst)\b/gi
+  let best = ''
+  let m: RegExpExecArray | null
+  while ((m = re.exec(cleaned)) !== null) {
+    const words = m[0].replace(/\s+/g, ' ').trim().split(/\s+/)
+    for (let n = Math.min(words.length, 6); n >= 2; n--) {
+      let slice = words.slice(-n)
+      while (slice.length && stop.has(slice[0].toLowerCase())) {
+        slice = slice.slice(1)
+      }
+      const cand = slice.join(' ')
+      if (!isPlausibleJobTitle(cand)) continue
+      // Prefer more specific (longer) clean titles
+      if (!best || cand.length > best.length) best = cand
+      break
+    }
+  }
+  return best.slice(0, 100)
+}
+
 function seniorVariants(title: string): string[] {
-  const t = title.trim()
+  const t = extractCoreJobTitle(title)
   if (!t) return []
   const lower = t.toLowerCase()
   const out: string[] = [t]
@@ -42,14 +103,22 @@ function seniorVariants(title: string): string[] {
   }
   if (!/\bmanager\b|\bdirector\b|\bhead\b/i.test(t)) {
     const base = t.replace(/^(senior|staff|principal|lead)\s+/i, '').trim()
-    if (base) {
+    if (base && isPlausibleJobTitle(base)) {
       out.push(`${base} Manager`, `Engineering Manager`)
     }
   }
   if (lower.includes('software engineer')) {
     out.push('Software Engineer', 'Senior Software Engineer', 'Staff Software Engineer')
   }
-  return uniqTrim(out, 10)
+  if (/\brtl\b/i.test(t)) {
+    out.push(
+      'RTL Design Engineer',
+      'Senior RTL Design Engineer',
+      'Digital Design Engineer',
+      'Hardware Design Engineer',
+    )
+  }
+  return uniqTrim(out.filter(isPlausibleJobTitle), 10)
 }
 
 function firstPersonRoleSummary(parts: {
@@ -145,16 +214,19 @@ export function heuristicParseJobPosting(text: string): ParsedJobPosting {
   for (const re of titlePatterns) {
     const m = raw.match(re)
     if (m?.[1]) {
-      const cand = m[1].replace(/\s+/g, ' ').trim()
-      if (!/^(about|responsibilities|requirements|qualifications|benefits)/i.test(cand)) {
-        job_title = cand.slice(0, 100)
+      const cand = extractCoreJobTitle(m[1])
+      if (
+        cand &&
+        !/^(about|responsibilities|requirements|qualifications|benefits)/i.test(cand)
+      ) {
+        job_title = cand
         break
       }
     }
   }
 
   if (!job_title && lines[0] && lines[0].length < 90) {
-    job_title = lines[0]
+    job_title = extractCoreJobTitle(lines[0])
   }
 
   const projects: string[] = []
@@ -227,9 +299,9 @@ location (string — city/region/country or Remote/Hybrid if stated; empty strin
 job_description (string — 1-3 sentences in FIRST PERSON as if YOU are the job seeker who applied, e.g. "I applied for the … role at … on the … project…"),
 projects (string array: named teams/products/projects — prefer exact proper names),
 responsibilities (string array: key duties, max 8),
-search_titles (string array: LinkedIn titles to find — exact role, more senior versions, nearby technical leads/managers on the same team — NOT recruiters/HR),
+search_titles (string array: SHORT LinkedIn-style job titles only, e.g. "RTL Design Engineer", "Senior RTL Design Engineer" — exact role, more senior versions, nearby technical leads/managers on the same team — NOT recruiters/HR, NOT soft-skill phrases, NOT sentence fragments from the JD),
 search_keywords (string array: 2-5 LIGHT keywords only — exact project/team names plus a couple distinctive tech terms from the role; do not dump the whole JD).
-Prefer technical ICs and seniors who own the work described. If company, title, or location is unclear, use empty string.`,
+Prefer technical ICs and seniors who own the work described. If company, title, or location is unclear, use empty string. Never put adjectives like "adaptive" or "self-motivated" into job_title or search_titles.`,
         },
         { role: 'user', content: clipped },
       ],
@@ -243,7 +315,9 @@ Prefer technical ICs and seniors who own the work described. If company, title, 
     const parsed = JSON.parse(content || '{}') as Partial<ParsedJobPosting>
     const fallback = heuristicParseJobPosting(clipped)
 
-    const job_title = String(parsed.job_title || fallback.job_title || '').trim()
+    const job_title = extractCoreJobTitle(
+      String(parsed.job_title || fallback.job_title || ''),
+    )
     const company = String(parsed.company || fallback.company || '').trim()
     const location = String(parsed.location || fallback.location || '').trim().slice(0, 80)
     let job_description = String(
@@ -287,11 +361,11 @@ Prefer technical ICs and seniors who own the work described. If company, title, 
     const search_titles = uniqTrim(
       [
         ...(Array.isArray(parsed.search_titles)
-          ? parsed.search_titles.map(String)
+          ? parsed.search_titles.map(String).map(extractCoreJobTitle)
           : []),
         ...seniorVariants(job_title),
         ...fallback.search_titles,
-      ],
+      ].filter(isPlausibleJobTitle),
       12,
     )
     const search_keywords = uniqTrim(

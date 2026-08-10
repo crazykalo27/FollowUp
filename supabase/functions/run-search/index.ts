@@ -48,7 +48,9 @@ import {
   looksLikeEmployerName,
 } from '../_shared/company_discovery.ts'
 import {
+  extractCoreJobTitle,
   formatApplicationJobDescription,
+  isPlausibleJobTitle,
   lightSearchHintsFromSummary,
   locationMatchScore,
   parseJobPostingWithAi,
@@ -934,6 +936,7 @@ async function searchWebLinkedIn(
     ]
   }
   const titleClause = titleList
+    .filter((t) => t.trim().length > 0 && t.trim().length <= 60 && !t.includes(','))
     .slice(0, 8)
     .map((t) => `"${t}"`)
     .join(' OR ')
@@ -1559,10 +1562,11 @@ Deno.serve(async (req) => {
             aiParsed?.company ||
             targetCompanyName ||
             '',
-          job_title:
+          job_title: extractCoreJobTitle(
             (applicationHints.job_title || '').trim() ||
-            aiParsed?.job_title ||
-            '',
+              aiParsed?.job_title ||
+              '',
+          ),
           job_description:
             (applicationHints.job_description || '').trim() ||
             aiParsed?.job_description ||
@@ -1579,10 +1583,14 @@ Deno.serve(async (req) => {
             applicationHints.responsibilities.length
             ? applicationHints.responsibilities.map(String)
             : aiParsed?.responsibilities || [],
-          search_titles: Array.isArray(applicationHints.search_titles) &&
+          search_titles: (
+            Array.isArray(applicationHints.search_titles) &&
             applicationHints.search_titles.length
-            ? applicationHints.search_titles.map(String)
-            : aiParsed?.search_titles || [],
+              ? applicationHints.search_titles.map(String)
+              : aiParsed?.search_titles || []
+          )
+            .map(extractCoreJobTitle)
+            .filter(isPlausibleJobTitle),
           search_keywords: Array.isArray(applicationHints.search_keywords) &&
             applicationHints.search_keywords.length
             ? applicationHints.search_keywords.map(String)
@@ -1593,6 +1601,22 @@ Deno.serve(async (req) => {
           applicationParsed.job_description = formatApplicationJobDescription(
             applicationParsed,
           )
+        }
+
+        // Ensure we always have short LinkedIn-style titles from the JD role
+        if (!applicationParsed.search_titles.length && applicationParsed.job_title) {
+          applicationParsed.search_titles = buildPeopleSearchTitles({
+            includeTitles: [applicationParsed.job_title],
+            targetRoles: [applicationParsed.job_title],
+            broadFallback: [
+              'Engineering Manager',
+              'Principal Engineer',
+              'Staff Engineer',
+              'Senior Engineer',
+              'Lead Engineer',
+            ],
+            limit: 10,
+          }).filter(isPlausibleJobTitle)
         }
 
         targetCompanyName =
@@ -1609,23 +1633,29 @@ Deno.serve(async (req) => {
           location = applicationLocation
         }
 
-        // Prefer people in this exact role / senior nearby titles
-        if (applicationParsed.search_titles.length) {
-          peopleTitles = [
-            ...applicationParsed.search_titles,
-            ...peopleTitles,
-          ].filter((t, i, arr) =>
-            arr.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i,
-          ).slice(0, 12)
-          includeForRun = [
-            ...applicationParsed.search_titles,
-            ...includeForRun,
-          ].filter((t, i, arr) =>
-            arr.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i,
-          ).slice(0, 16)
-        }
+        // Application mode: use ONLY the JD role/titles — do not merge profile filters
+        const appTitles = applicationParsed.search_titles.length
+          ? applicationParsed.search_titles
+          : applicationParsed.job_title
+            ? [applicationParsed.job_title]
+            : []
+        peopleTitles = buildPeopleSearchTitles({
+          includeTitles: appTitles,
+          targetRoles: applicationParsed.job_title
+            ? [applicationParsed.job_title]
+            : [],
+          broadFallback: [
+            'Engineering Manager',
+            'Principal Engineer',
+            'Staff Engineer',
+            'Senior Engineer',
+            'Lead Engineer',
+          ],
+          limit: 10,
+        }).filter(isPlausibleJobTitle)
+        includeForRun = [...appTitles].filter(isPlausibleJobTitle).slice(0, 16)
 
-        // Light criteria only: exact projects + a few role-summary tokens
+        // Light criteria only: exact projects + a few role-summary tokens (no profile industries)
         applicationLightKeywords = [
           ...applicationParsed.projects.slice(0, 2),
           ...applicationParsed.search_keywords.slice(0, 3),
@@ -1638,13 +1668,14 @@ Deno.serve(async (req) => {
           )
           .slice(0, 4)
 
-        if (applicationLightKeywords.length) {
-          deptKeywords = [...applicationLightKeywords, ...deptKeywords]
-            .filter((t, i, arr) =>
-              arr.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i,
-            )
-            .slice(0, 8)
-        }
+        deptKeywords = applicationLightKeywords.slice(0, 8)
+        jobQueriesForReport = buildJobQueries(
+          applicationParsed.job_title
+            ? [applicationParsed.job_title]
+            : appTitles.slice(0, 3),
+          [],
+          applicationParsed.search_keywords.slice(0, 4),
+        )
 
         pushProgressLog(
           progressMeta,
@@ -2051,16 +2082,40 @@ Deno.serve(async (req) => {
         company_discovery_stats,
         peopleTitles,
         deptKeywords,
-        targetRoles,
-        industries,
-        companyTypes,
-        outreachTargets,
-        skills,
+        // Application mode: report/search roles come from the JD, not the profile
+        targetRoles:
+          searchMode === 'application' && applicationParsed
+            ? applicationParsed.job_title
+              ? [applicationParsed.job_title, ...includeForRun]
+                  .filter((t, i, arr) =>
+                    arr.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i,
+                  )
+                  .slice(0, 8)
+              : includeForRun.slice(0, 8)
+            : targetRoles,
+        industries:
+          searchMode === 'application' ? [] : industries,
+        companyTypes:
+          searchMode === 'application' ? [] : companyTypes,
+        outreachTargets:
+          searchMode === 'application'
+            ? includeForRun.slice(0, 10)
+            : outreachTargets,
+        skills:
+          searchMode === 'application'
+            ? applicationLightKeywords.slice(0, 8)
+            : skills,
         location,
         webConfigured,
         hunterEnabled,
         include: includeForRun,
-        exclude,
+        exclude:
+          searchMode === 'application'
+            ? exclude.filter((t) =>
+                /\b(recruiter|talent acquisition|hr business|people ops|human resources)\b/i
+                  .test(t),
+              )
+            : exclude,
         maxCompanies,
         maxPerCompany,
         require_verified_email: filters.require_verified_email === true,
@@ -2506,7 +2561,11 @@ Deno.serve(async (req) => {
         }
 
         const outreachScore = scoreOutreachTitle(cand.title)
-        const includeBonus = match.ok ? 3 : 0
+        const includeBonus = match.ok
+          ? meta.search_mode === 'application'
+            ? 6
+            : 3
+          : 0
         const locationBonus = locationMatchScore(
           cand.location,
           appLocationHint,
@@ -3012,6 +3071,7 @@ Deno.serve(async (req) => {
               allJobsLen,
               includeRun,
               meta.webConfigured,
+              meta.search_mode || 'general',
             )
           : null,
     }
@@ -3076,11 +3136,17 @@ function diagnose(
   jobs: number,
   include: string[],
   webConfigured: boolean,
+  searchMode: 'general' | 'company' | 'application' = 'general',
 ): string {
   if (!webConfigured && industryCompanies === 0 && jobs === 0) {
     return 'Add SERPER_API_KEY or BING_SEARCH_API_KEY to discover industry-aligned companies.'
   }
-  if (industryCompanies === 0 && jobs === 0) {
+  if (
+    searchMode !== 'company' &&
+    searchMode !== 'application' &&
+    industryCompanies === 0 &&
+    jobs === 0
+  ) {
     return 'No companies matched your industries or job queries — broaden profile industries or roles.'
   }
   if (!webConfigured) {
@@ -3091,8 +3157,20 @@ function diagnose(
     (stats.websearch?.after_title_filter || 0) +
     (stats.proxycurl?.after_title_filter || 0) +
     (stats.osint?.after_title_filter || 0)
+  const found =
+    (stats.hunter?.people_found || 0) +
+    (stats.websearch?.people_found || 0) +
+    (stats.proxycurl?.people_found || 0)
   if (after === 0) {
+    if (searchMode === 'application') {
+      return found > 0
+        ? `Found ${found} people at the employer, but none matched the application role titles (${include.slice(0, 4).join(', ') || 'none'}). Check the extracted job title / search titles.`
+        : `No people found for the application role titles (${include.slice(0, 4).join(', ') || 'none'}). Re-extract the job description or broaden the role title.`
+    }
     return `People found, but none scored above outreach threshold (includes: ${include.slice(0, 4).join(', ') || 'none'}). Widen Filters or lower seniority bar.`
+  }
+  if (searchMode === 'application') {
+    return 'People matched the application role, but emails failed find/verify. Try disabling "Require verified email" or enable Hunter in Filters.'
   }
   return 'People matched but emails failed find/verify. Try disabling "Require verified email" or enable Hunter in Filters.'
 }

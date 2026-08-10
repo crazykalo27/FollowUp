@@ -1,5 +1,6 @@
 # Agent change log
 
+- Application search: use JD role/titles only (not profile); sanitize title fluff; score RTL/design engineers; clearer empty diagnosis
 - Contacts review: ~20% narrower active card; peeks anchored to left/right edges so previous/next stay visible
 - Search tab redesign: flow icon cards + numbered steps + footer Run button; trimmed copy, no feature changes
 - Contacts review: slightly taller/narrower active card; full-width stage so left/right peek cards stay visible for switching

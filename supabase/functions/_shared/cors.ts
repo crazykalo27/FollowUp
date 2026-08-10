@@ -149,8 +149,21 @@ export function titleMatchesFilters(
   }
 
   for (const inc of include) {
-    if (inc && t.includes(inc.toLowerCase())) {
+    if (!inc) continue
+    const needle = inc.toLowerCase().trim()
+    if (!needle || needle.length > 70) continue
+    if (t.includes(needle)) {
       return { ok: true, reason: `matched include "${inc}"` }
+    }
+    // Token overlap for nearby titles (e.g. "RTL Engineer" ≈ "RTL Design Engineer")
+    const incToks = needle
+      .split(/[\s/|,]+/)
+      .filter((w) => w.length > 2 && !/^(and|the|for|with)$/.test(w))
+    if (incToks.length >= 2) {
+      const hits = incToks.filter((tok) => t.includes(tok)).length
+      if (hits >= Math.ceil(incToks.length * 0.7) && hits >= 2) {
+        return { ok: true, reason: `matched include tokens "${inc}"` }
+      }
     }
   }
 
@@ -166,21 +179,33 @@ export function scoreOutreachTitle(title: string | null | undefined): number {
     { re: /\bengineering manager\b/, score: 9 },
     { re: /\bprincipal engineer\b/, score: 8 },
     { re: /\bstaff engineer\b/, score: 8 },
+    { re: /\bstaff (rtl|digital|hardware|asic|fpga)\b/, score: 8 },
     { re: /\bresearch scientist\b/, score: 8 },
     { re: /\bprincipal scientist\b/, score: 8 },
     { re: /\bsenior research scientist\b/, score: 7 },
+    { re: /\blead (rtl|digital|hardware|asic|fpga|design)\b/, score: 7 },
     { re: /\blead engineer\b/, score: 7 },
     { re: /\bsenior scientist\b/, score: 7 },
     { re: /\bquantum (engineer|scientist|researcher)\b/, score: 7 },
+    { re: /\brtl design engineer\b/, score: 7 },
+    { re: /\bdigital design engineer\b/, score: 7 },
+    { re: /\bhardware design engineer\b/, score: 7 },
+    { re: /\basic design engineer\b/, score: 7 },
+    { re: /\bfpga (design )?engineer\b/, score: 7 },
+    { re: /\bsenior (rtl|digital|hardware|design) engineer\b/, score: 7 },
     { re: /\bsenior engineer\b/, score: 6 },
     { re: /\bresearch engineer\b/, score: 6 },
     { re: /\bcompiler engineer\b/, score: 6 },
+    { re: /\bhardware engineer\b/, score: 6 },
+    { re: /\bdesign engineer\b/, score: 6 },
+    { re: /\brtl engineer\b/, score: 6 },
     { re: /\bmember of technical staff\b/, score: 6 },
     { re: /\btechnical staff\b/, score: 5 },
     { re: /\brecruiter\b/, score: 5 },
     { re: /\btalent acquisition\b/, score: 5 },
     { re: /\bsoftware engineer\b/, score: 4 },
     { re: /\bscientist\b/, score: 4 },
+    { re: /\bengineer\b/, score: 3 },
   ]
   let best = 0
   for (const { re, score } of rules) {

@@ -169,6 +169,7 @@ type SearchSummary = {
     profile_industries?: string[]
     profile_skills: string[]
     include_titles: string[]
+    people_search_titles?: string[]
     exclude_titles: string[]
     require_verified_email: boolean
     max_companies_per_run: number
@@ -1545,10 +1546,23 @@ export function OverviewPage() {
               )}
             <ul className="report-list">
               <li>
-                <strong>Target roles:</strong>{' '}
-                {summary.how.profile_roles?.join(', ') || '—'}
+                <strong>
+                  {summary.how.search_mode === 'application'
+                    ? 'Role titles'
+                    : 'Target roles'}
+                  :
+                </strong>{' '}
+                {summary.how.search_mode === 'application'
+                  ? (
+                      summary.how.people_search_titles ||
+                      summary.how.include_titles ||
+                      summary.how.profile_roles ||
+                      []
+                    ).join(', ') || '—'
+                  : summary.how.profile_roles?.join(', ') || '—'}
               </li>
-              {summary.how.profile_industries &&
+              {summary.how.search_mode !== 'application' &&
+                summary.how.profile_industries &&
                 summary.how.profile_industries.length > 0 && (
                   <li>
                     <strong>Industries:</strong>{' '}
@@ -1562,25 +1576,32 @@ export function OverviewPage() {
                   .join(', ') || '—'}
               </li>
               <li>
-                <strong>Job queries:</strong>{' '}
+                <strong>
+                  {summary.how.search_mode === 'application'
+                    ? 'People queries'
+                    : 'Job queries'}
+                  :
+                </strong>{' '}
                 {(summary.how.job_queries ||
                   (summary.how.job_query ? [summary.how.job_query] : [])
                 )
                   .map((q) => `“${q}”`)
                   .join(', ') || '—'}
               </li>
-              <li>
-                <strong>Web companies:</strong>{' '}
-                {summary.how.sources.web_company?.used
-                  ? summary.how.sources.web_company.companies
-                  : summary.how.sources.web_company?.note || '—'}{' '}
-                · <strong>Remotive:</strong>{' '}
-                {summary.how.sources.remotive.jobs} jobs ·{' '}
-                <strong>Adzuna:</strong>{' '}
-                {summary.how.sources.adzuna.used
-                  ? summary.how.sources.adzuna.jobs
-                  : summary.how.sources.adzuna.note}
-              </li>
+              {summary.how.search_mode !== 'application' && (
+                <li>
+                  <strong>Web companies:</strong>{' '}
+                  {summary.how.sources.web_company?.used
+                    ? summary.how.sources.web_company.companies
+                    : summary.how.sources.web_company?.note || '—'}{' '}
+                  · <strong>Remotive:</strong>{' '}
+                  {summary.how.sources.remotive.jobs} jobs ·{' '}
+                  <strong>Adzuna:</strong>{' '}
+                  {summary.how.sources.adzuna.used
+                    ? summary.how.sources.adzuna.jobs
+                    : summary.how.sources.adzuna.note}
+                </li>
+              )}
               <li>
                 <strong>Include titles:</strong>{' '}
                 {summary.how.include_titles.join(', ') || '—'}
