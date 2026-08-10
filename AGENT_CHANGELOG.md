@@ -1,5 +1,6 @@
 # Agent change log
 
+- Search tab redesign: flow icon cards + numbered steps + footer Run button; trimmed copy, no feature changes
 - Search email discovery: ignore @dice.com addresses
 - Keep reason: Great application connection
 - Application extract: bigger Extract beside Search (centered); location field; first-person role summary; light project/summary search hints

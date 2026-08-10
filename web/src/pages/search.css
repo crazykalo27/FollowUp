@@ -13,40 +13,6 @@
   font-size: 1.75rem;
 }
 
-.search-flow-rail {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-  margin-bottom: 1.25rem;
-  padding: 0.65rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.18);
-}
-
-.search-flow-step {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.search-flow-num {
-  font-family: var(--font-display);
-  font-size: 0.95rem;
-  color: var(--accent);
-  line-height: 1;
-}
-
-.search-flow-arrow {
-  color: rgba(196, 240, 76, 0.55);
-  font-size: 1rem;
-}
-
 .search-stats-row {
   display: flex;
   flex-wrap: wrap;
@@ -109,75 +75,169 @@
   font-size: 1.15rem;
 }
 
-.search-credits-heading {
-  margin-top: 1.35rem !important;
+/* Numbered steps inside the run card */
+
+.search-step {
+  padding: 1.1rem 0;
+  border-top: 1px solid var(--line);
 }
 
-.search-mode-lead {
-  margin: 0 0 0.85rem;
+.search-step:first-child {
+  padding-top: 0;
+  border-top: none;
 }
 
-.search-mode-toggle,
+.search-step-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.search-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+  border: 1px solid rgba(196, 240, 76, 0.45);
+  border-radius: 999px;
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.search-step-head h3,
+.search-step-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.search-step-hint {
+  margin-left: auto;
+}
+
+.search-step-actions {
+  display: flex;
+  margin-top: 0.6rem;
+}
+
+/* Flow (mode) cards */
+
+.search-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+
+.search-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.search-mode-card:hover:not(:disabled) {
+  border-color: rgba(196, 240, 76, 0.35);
+}
+
+.search-mode-card.selected {
+  border-color: rgba(196, 240, 76, 0.6);
+  background: rgba(196, 240, 76, 0.08);
+}
+
+.search-mode-card:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.search-mode-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.search-mode-card strong {
+  font-family: var(--font-display);
+  font-size: 1rem;
+}
+
+.search-mode-purpose {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.search-mode-detail {
+  margin: 0.6rem 0 0;
+  line-height: 1.4;
+}
+
 .company-people-toggle {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-bottom: 0.65rem;
 }
 
-.search-mode-pill,
 .company-people-pill {
-  min-width: 5.5rem;
+  min-width: 3rem;
   padding: 0.55rem 1.1rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.22);
   color: var(--ink);
-  font-size: 0.92rem;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
   font-weight: 600;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.company-people-pill {
-  min-width: 3rem;
-  font-family: var(--font-display);
-  font-size: 1.1rem;
-}
-
-.search-mode-pill:hover:not(:disabled),
 .company-people-pill:hover:not(:disabled) {
   border-color: rgba(196, 240, 76, 0.35);
 }
 
-.search-mode-pill.selected,
 .company-people-pill.selected {
   border-color: rgba(196, 240, 76, 0.55);
   background: rgba(196, 240, 76, 0.1);
 }
 
-.search-mode-pill:disabled,
 .company-people-pill:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
 
-.search-mode-explainer {
-  margin: 0 0 1rem;
-  line-height: 1.45;
+.search-run-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--line);
+  text-align: center;
 }
 
-.search-target-company {
-  margin-bottom: 1rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--line);
+.search-run-summary {
+  margin: 0;
 }
 
-.search-target-company label {
-  display: block;
-  font-size: 0.82rem;
-  font-weight: 600;
-  margin-bottom: 0.4rem;
+.search-run-btn {
+  min-width: 16rem;
+  padding: 0.8rem 1.6rem;
+  font-size: 1.05rem;
 }
 
 .search-target-input {
@@ -197,24 +257,6 @@
   border-color: rgba(196, 240, 76, 0.45);
 }
 
-.search-application-block {
-  margin-bottom: 1rem;
-  padding-bottom: 0.85rem;
-  border-bottom: 1px solid var(--line);
-}
-
-.search-application-block > label {
-  display: block;
-  font-size: 0.82rem;
-  font-weight: 600;
-  margin-bottom: 0.35rem;
-}
-
-.search-application-hint {
-  margin: 0 0 0.65rem;
-  line-height: 1.45;
-}
-
 .search-job-posting-input {
   width: 100%;
   padding: 0.65rem 0.75rem;
@@ -231,12 +273,6 @@
 .search-job-posting-input:focus {
   outline: none;
   border-color: rgba(196, 240, 76, 0.45);
-}
-
-.search-application-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin: 0.55rem 0 0.75rem;
 }
 
 .search-application-fields {
@@ -271,10 +307,6 @@
 .search-run-card .depth-picker h3 {
   font-size: 1rem;
   margin-bottom: 0.25rem;
-}
-
-.search-orient-coach-compact {
-  padding: 0.65rem 0.85rem;
 }
 
 .search-calibration-card {
@@ -363,35 +395,14 @@
 .search-actions-bar {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.6rem;
   margin-bottom: 1rem;
 }
 
-.search-actions-bar.search-actions-centered {
-  flex-direction: column;
-  align-items: center;
-}
-
-.search-actions-primary {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-}
-
 .search-extract-btn {
-  min-width: 12rem;
-  padding: 0.75rem 1.35rem;
-  font-size: 1rem;
+  min-width: 10rem;
   font-weight: 600;
-}
-
-.search-actions-primary .btn.primary {
-  min-width: 12rem;
-  padding: 0.75rem 1.35rem;
-  font-size: 1rem;
 }
 
 .search-progress-card {
@@ -431,12 +442,16 @@
 }
 
 @media (max-width: 720px) {
-  .search-flow-rail {
-    flex-direction: column;
-    text-align: center;
+  .search-mode-grid {
+    grid-template-columns: 1fr;
   }
 
-  .search-flow-arrow {
-    transform: rotate(90deg);
+  .search-step-hint {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .search-run-btn {
+    width: 100%;
   }
 }

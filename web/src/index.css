@@ -1768,10 +1768,6 @@ th {
   font-size: 0.9rem;
 }
 
-.depth-summary {
-  margin: 0.75rem 0 0;
-}
-
 @media (max-width: 900px) {
   .depth-grid {
     grid-template-columns: 1fr;

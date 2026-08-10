@@ -1,3 +1,9 @@
+## 2026-08-10 — Minimalist Search tab redesign
+
+- Search flows (General / Specific / Application) are icon cards with one-line purposes; picking one reveals numbered steps (target → size → run), so the flow reads visually instead of via paragraphs.
+- Big centered Run search button in the card footer with a one-line run summary (companies/people/ETA or target person count); Extract details lives with the paste step.
+- Removed the standalone flow rail and long explainer copy; all features (modes, size picker, people target, extract fields, cancel, progress, report) unchanged.
+
 ## 2026-08-10 — Block dice.com emails in search
 
 - People search drops any `@dice.com` email (Hunter, OSINT, and before saving contacts).
