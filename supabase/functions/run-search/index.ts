@@ -48,6 +48,8 @@ import {
 } from '../_shared/company_discovery.ts'
 import {
   formatApplicationJobDescription,
+  lightSearchHintsFromSummary,
+  locationMatchScore,
   parseJobPostingWithAi,
   type ParsedJobPosting,
 } from '../_shared/jobPosting.ts'
@@ -907,6 +909,10 @@ async function searchWebLinkedIn(
   stats: SourceStats,
   deptKeywords: string[] = [],
   searchRound = 0,
+  opts?: {
+    locationHint?: string | null
+    lightKeywords?: string[]
+  },
 ): Promise<Candidate[]> {
   const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
   const serperKey = Deno.env.get('SERPER_API_KEY')
@@ -933,11 +939,23 @@ async function searchWebLinkedIn(
     .slice(0, 4)
     .map((k) => `"${k}"`)
     .join(' OR ')
+  const locationHint = (opts?.locationHint || '').trim()
+  const lightClause = (opts?.lightKeywords || [])
+    .slice(0, 2)
+    .map((k) => `"${k}"`)
+    .join(' OR ')
 
-  // Prefer similar role titles at the company; dept keywords only as a secondary query.
+  // Prefer similar role titles at the company; location is high-priority when known.
+  // Light project/summary keywords are secondary only.
   const queries = [
+    titleClause && locationHint
+      ? `site:linkedin.com/in (${titleClause}) "${companyName}" "${locationHint}"`
+      : null,
     titleClause
       ? `site:linkedin.com/in (${titleClause}) "${companyName}"`
+      : null,
+    lightClause
+      ? `site:linkedin.com/in "${companyName}" (${lightClause})`
       : null,
     deptClause
       ? `site:linkedin.com/in "${companyName}" (${deptClause})`
@@ -949,7 +967,9 @@ async function searchWebLinkedIn(
   }
   if (searchRound >= 1) {
     queries.push(
-      `site:linkedin.com/in "${companyName}" (manager OR director OR lead)`,
+      locationHint
+        ? `site:linkedin.com/in "${companyName}" "${locationHint}" (manager OR director OR lead)`
+        : `site:linkedin.com/in "${companyName}" (manager OR director OR lead)`,
     )
   }
   if (searchRound >= 2) {
@@ -963,7 +983,8 @@ async function searchWebLinkedIn(
     const seen = new Set<string>()
     const preferBing = Boolean(bingKey)
     const via = preferBing ? 'bing' : 'serper'
-    const maxQueries = searchRound >= 2 ? 3 : 2
+    const maxQueries =
+      searchRound >= 2 ? 4 : locationHint || lightClause ? 3 : 2
 
     for (const q of queries.slice(0, maxQueries)) {
       const organic = await runWebSearch(q, 6, { preferBing })
@@ -1192,6 +1213,7 @@ Deno.serve(async (req) => {
       company?: string
       job_title?: string
       job_description?: string
+      location?: string
       projects?: string[]
       responsibilities?: string[]
       search_titles?: string[]
@@ -1428,10 +1450,12 @@ Deno.serve(async (req) => {
       rounds: 0,
       queries: [] as string[],
     }
-    const location =
+    let location =
       (filters.locations && filters.locations[0]) ||
       (profile.locations && profile.locations[0]) ||
       ''
+    let applicationLocation = ''
+    let applicationLightKeywords: string[] = []
 
     let pipeline = await loadPipelineState(admin, runId!)
     let selected: CompanyHit[]
@@ -1471,6 +1495,20 @@ Deno.serve(async (req) => {
         searchMode = pipeline.plan_meta.search_mode
         targetCompanyName = pipeline.plan_meta.target_company || ''
       }
+      if (pipeline.plan_meta.application?.location) {
+        applicationLocation = pipeline.plan_meta.application.location
+        location = applicationLocation
+      }
+      if (pipeline.plan_meta.application?.light_keywords?.length) {
+        applicationLightKeywords = pipeline.plan_meta.application.light_keywords
+      } else if (pipeline.plan_meta.application?.job_description) {
+        applicationLightKeywords = [
+          ...(pipeline.plan_meta.application.projects || []).slice(0, 2),
+          ...lightSearchHintsFromSummary(
+            pipeline.plan_meta.application.job_description,
+          ),
+        ].slice(0, 4)
+      }
       if (progressMeta.companies.length === 0) {
         progressMeta.companies = initCompaniesProgress(
           selected.map((c) => c.company_name),
@@ -1505,7 +1543,7 @@ Deno.serve(async (req) => {
           stage: 'discovering_companies',
           progress: 10,
           message: 'Reading your pasted job application…',
-          detail: 'Extracting company, role, projects, and responsibilities',
+          detail: 'Extracting company, role, location, and projects',
           logLine: 'Parsing job posting for application follow-up',
         })
 
@@ -1526,6 +1564,10 @@ Deno.serve(async (req) => {
           job_description:
             (applicationHints.job_description || '').trim() ||
             aiParsed?.job_description ||
+            '',
+          location:
+            (applicationHints.location || '').trim() ||
+            aiParsed?.location ||
             '',
           projects: Array.isArray(applicationHints.projects) &&
             applicationHints.projects.length
@@ -1559,8 +1601,13 @@ Deno.serve(async (req) => {
           )
         }
         applicationParsed.company = targetCompanyName
+        applicationLocation = applicationParsed.location.trim()
+        // Job posting location is high priority for contact targeting
+        if (applicationLocation) {
+          location = applicationLocation
+        }
 
-        // Prefer people in this exact role / project / senior nearby titles
+        // Prefer people in this exact role / senior nearby titles
         if (applicationParsed.search_titles.length) {
           peopleTitles = [
             ...applicationParsed.search_titles,
@@ -1575,24 +1622,33 @@ Deno.serve(async (req) => {
             arr.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i,
           ).slice(0, 16)
         }
-        const appKw = [
-          ...applicationParsed.search_keywords,
-          ...applicationParsed.projects,
-          ...applicationParsed.responsibilities
-            .map((r) => r.split(/\s+/).slice(0, 3).join(' '))
-            .filter((s) => s.length > 3),
+
+        // Light criteria only: exact projects + a few role-summary tokens
+        applicationLightKeywords = [
+          ...applicationParsed.projects.slice(0, 2),
+          ...applicationParsed.search_keywords.slice(0, 3),
+          ...lightSearchHintsFromSummary(applicationParsed.job_description),
         ]
-        if (appKw.length) {
-          deptKeywords = [...appKw, ...deptKeywords]
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .filter((t, i, arr) =>
+            arr.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i,
+          )
+          .slice(0, 4)
+
+        if (applicationLightKeywords.length) {
+          deptKeywords = [...applicationLightKeywords, ...deptKeywords]
             .filter((t, i, arr) =>
               arr.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i,
             )
-            .slice(0, 12)
+            .slice(0, 8)
         }
 
         pushProgressLog(
           progressMeta,
-          `Application role: ${applicationParsed.job_title || '(unknown)'} @ ${targetCompanyName}`,
+          `Application role: ${applicationParsed.job_title || '(unknown)'} @ ${targetCompanyName}${
+            applicationLocation ? ` · ${applicationLocation}` : ''
+          }`,
         )
       }
 
@@ -2021,9 +2077,11 @@ Deno.serve(async (req) => {
             ? {
                 job_title: applicationParsed.job_title,
                 job_description: applicationParsed.job_description,
+                location: applicationParsed.location || applicationLocation,
                 projects: applicationParsed.projects,
                 responsibilities: applicationParsed.responsibilities,
                 raw_excerpt: jobPostingTextInput.slice(0, 2000),
+                light_keywords: applicationLightKeywords,
               }
             : null,
       },
@@ -2037,6 +2095,28 @@ Deno.serve(async (req) => {
     const deptKeywordsRun = meta.deptKeywords
     const includeRun = meta.include
     const excludeRun = meta.exclude
+    const appLocationHint =
+      meta.application?.location?.trim() ||
+      (meta.search_mode === 'application' ? meta.location : '') ||
+      ''
+    const appLightKeywords =
+      meta.application?.light_keywords?.length
+        ? meta.application.light_keywords
+        : meta.search_mode === 'application'
+          ? [
+              ...(meta.application?.projects || []).slice(0, 2),
+              ...lightSearchHintsFromSummary(
+                meta.application?.job_description || '',
+              ),
+            ].slice(0, 4)
+          : []
+    const linkedInSearchOpts =
+      meta.search_mode === 'application'
+        ? {
+            locationHint: appLocationHint || null,
+            lightKeywords: appLightKeywords,
+          }
+        : undefined
 
     if (justPlanned) {
       pushProgressLog(progressMeta, 'Plan saved — scheduling first company')
@@ -2202,6 +2282,7 @@ Deno.serve(async (req) => {
               source_stats.websearch,
               deptKeywordsRun,
               webSearchRound,
+              linkedInSearchOpts,
             )
           : Promise.resolve([] as Candidate[]),
         proxyKey
@@ -2315,6 +2396,7 @@ Deno.serve(async (req) => {
                 source_stats.websearch,
                 deptKeywordsRun,
                 webSearchRound,
+                linkedInSearchOpts,
               )
             : Promise.resolve([] as Candidate[]),
           proxyKey
@@ -2423,7 +2505,26 @@ Deno.serve(async (req) => {
 
         const outreachScore = scoreOutreachTitle(cand.title)
         const includeBonus = match.ok ? 3 : 0
-        const totalScore = outreachScore + includeBonus
+        const locationBonus = locationMatchScore(
+          cand.location,
+          appLocationHint,
+        )
+        // Light boost when title/snippet mentions exact project / role summary tokens
+        let lightBonus = 0
+        if (appLightKeywords.length) {
+          const ws = cand.source_details?.websearch as
+            | { snippet?: string | null }
+            | undefined
+          const blob = `${cand.title || ''} ${ws?.snippet || ''}`.toLowerCase()
+          for (const kw of appLightKeywords) {
+            if (kw.length > 2 && blob.includes(kw.toLowerCase())) {
+              lightBonus += 1
+            }
+          }
+          lightBonus = Math.min(lightBonus, 2)
+        }
+        const totalScore =
+          outreachScore + includeBonus + locationBonus + lightBonus
         const webOnlyLoose =
           totalScore < 5 &&
           cand.sources.includes('websearch') &&
@@ -2656,6 +2757,7 @@ Deno.serve(async (req) => {
                 company: meta.target_company || company.company_name,
                 job_title: appCtx.job_title,
                 job_description: jobDescForContact || appCtx.job_description,
+                location: appCtx.location || appLocationHint || null,
                 projects: appCtx.projects,
                 responsibilities: appCtx.responsibilities,
               }
@@ -2673,6 +2775,7 @@ Deno.serve(async (req) => {
                     company: meta.target_company || company.company_name,
                     job_title: appCtx.job_title,
                     job_description: jobDescForContact || appCtx.job_description,
+                    location: appCtx.location || appLocationHint || null,
                     projects: appCtx.projects,
                     responsibilities: appCtx.responsibilities,
                   },

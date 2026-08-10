@@ -3,15 +3,17 @@ import { openaiChatRaw } from './cors.ts'
 export type ParsedJobPosting = {
   company: string
   job_title: string
-  /** Concise role summary for emails / hiring signal */
+  /** First-person role summary for emails / light search hints */
   job_description: string
+  /** Job location if stated in the posting (city/region/remote) */
+  location: string
   /** Teams, products, or named projects from the posting */
   projects: string[]
   /** Specific responsibilities / focus areas */
   responsibilities: string[]
   /** Titles to search for (exact role + senior / nearby technical) */
   search_titles: string[]
-  /** Keywords for LinkedIn dept / project queries */
+  /** Keywords for LinkedIn dept / project queries (keep light) */
   search_keywords: string[]
 }
 
@@ -39,17 +41,79 @@ function seniorVariants(title: string): string[] {
     out.push(`Senior ${t}`, `Staff ${t}`, `Lead ${t}`)
   }
   if (!/\bmanager\b|\bdirector\b|\bhead\b/i.test(t)) {
-    // Nearby management for referral outreach
     const base = t.replace(/^(senior|staff|principal|lead)\s+/i, '').trim()
     if (base) {
       out.push(`${base} Manager`, `Engineering Manager`)
     }
   }
-  // Soften overly long titles for search
   if (lower.includes('software engineer')) {
     out.push('Software Engineer', 'Senior Software Engineer', 'Staff Software Engineer')
   }
   return uniqTrim(out, 10)
+}
+
+function firstPersonRoleSummary(parts: {
+  job_title?: string
+  company?: string
+  projects?: string[]
+  responsibilities?: string[]
+  location?: string
+}): string {
+  const title = parts.job_title?.trim()
+  const company = parts.company?.trim()
+  const project = parts.projects?.[0]?.trim()
+  const focus = parts.responsibilities?.[0]?.trim()
+  const location = parts.location?.trim()
+
+  if (!title && !company && !project) return ''
+
+  let s = 'I applied for'
+  if (title) s += ` the ${title} role`
+  else s += ' this role'
+  if (company) s += ` at ${company}`
+  if (project) s += ` on the ${project} team/project`
+  if (location) s += ` (${location})`
+  s += '.'
+  if (focus) {
+    const clipped = focus.replace(/\.$/, '').slice(0, 120)
+    s += ` I'm especially interested in ${clipped}.`
+  }
+  return s.slice(0, 500)
+}
+
+/** Light tokens from a first-person summary — for soft people-search boosts only. */
+export function lightSearchHintsFromSummary(summary: string): string[] {
+  const raw = summary.replace(/\s+/g, ' ').trim()
+  if (!raw) return []
+  const stop = new Set([
+    'i', 'applied', 'for', 'the', 'role', 'at', 'on', 'team', 'project',
+    'and', 'a', 'an', 'to', 'of', 'in', 'my', 'im', "i'm", 'especially',
+    'interested', 'this', 'with', 'that', 'as',
+  ])
+  const words = raw
+    .replace(/[^\w\s\-/.]/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 3 && !stop.has(w.toLowerCase()))
+  return uniqTrim(words, 4)
+}
+
+function heuristicLocation(text: string): string {
+  const patterns = [
+    /(?:^|\n)\s*(?:location|based in|office|hq)\s*[:\-–]\s*(.+)/i,
+    /\b(?:remote|hybrid)\b(?:\s*[-–,/]\s*|\s+)([A-Z][A-Za-z .,\-]{2,40})?/,
+    /\b([A-Z][a-zA-Z.]+(?:\s+[A-Z][a-zA-Z.]+)*,\s*[A-Z]{2})\b/,
+  ]
+  for (const re of patterns) {
+    const m = text.match(re)
+    if (m) {
+      const cand = (m[1] || m[0] || '').replace(/\s+/g, ' ').trim()
+      if (/remote/i.test(cand) && cand.length <= 12) return 'Remote'
+      if (cand.length >= 2 && cand.length <= 60) return cand.slice(0, 60)
+    }
+  }
+  if (/\bremote\b/i.test(text)) return 'Remote'
+  return ''
 }
 
 /** Heuristic parse when OpenAI is unavailable. */
@@ -107,27 +171,32 @@ export function heuristicParseJobPosting(text: string): ParsedJobPosting {
     responsibilities.push(b.replace(/^[-•*·]\s+/, '').replace(/^\d+[.)]\s+/, '').slice(0, 160))
   }
 
-  const summaryBits = [
-    job_title || null,
-    company ? `at ${company}` : null,
-    responsibilities[0] || null,
-  ].filter(Boolean)
+  const location = heuristicLocation(raw)
+  const uniqProjects = uniqTrim(projects, 8)
+  const uniqResponsibilities = uniqTrim(responsibilities, 8)
   const job_description =
-    summaryBits.join(' — ').slice(0, 400) ||
-    raw.slice(0, 400)
+    firstPersonRoleSummary({
+      job_title,
+      company,
+      projects: uniqProjects,
+      responsibilities: uniqResponsibilities,
+      location,
+    }) || raw.slice(0, 400)
 
   const search_titles = seniorVariants(job_title)
+  // Keep keywords light: exact projects first, a few summary tokens
   const search_keywords = uniqTrim(
-    [...projects, ...responsibilities.map((r) => r.split(/\s+/).slice(0, 4).join(' '))],
-    8,
+    [...uniqProjects.slice(0, 2), ...lightSearchHintsFromSummary(job_description)],
+    5,
   )
 
   return {
     company,
     job_title,
     job_description,
-    projects: uniqTrim(projects, 8),
-    responsibilities: uniqTrim(responsibilities, 8),
+    location,
+    projects: uniqProjects,
+    responsibilities: uniqResponsibilities,
     search_titles,
     search_keywords,
   }
@@ -152,12 +221,15 @@ export async function parseJobPostingWithAi(
           role: 'system',
           content: `Extract structured fields from a pasted job application / job description.
 Return JSON only with keys:
-company (string), job_title (string), job_description (string, 1-3 sentence summary of the exact role for an outreach email),
-projects (string array: named teams/products/projects),
+company (string),
+job_title (string),
+location (string — city/region/country or Remote/Hybrid if stated; empty string if unknown),
+job_description (string — 1-3 sentences in FIRST PERSON as if YOU are the job seeker who applied, e.g. "I applied for the … role at … on the … project…"),
+projects (string array: named teams/products/projects — prefer exact proper names),
 responsibilities (string array: key duties, max 8),
-search_titles (string array: LinkedIn titles to find — exact role, more senior versions of that role, nearby technical leads/managers on the same team — NOT recruiters/HR),
-search_keywords (string array: team/project/tech keywords for people search).
-Prefer technical ICs and seniors who own the work described. If company or title is unclear, use empty string.`,
+search_titles (string array: LinkedIn titles to find — exact role, more senior versions, nearby technical leads/managers on the same team — NOT recruiters/HR),
+search_keywords (string array: 2-5 LIGHT keywords only — exact project/team names plus a couple distinctive tech terms from the role; do not dump the whole JD).
+Prefer technical ICs and seniors who own the work described. If company, title, or location is unclear, use empty string.`,
         },
         { role: 'user', content: clipped },
       ],
@@ -173,11 +245,28 @@ Prefer technical ICs and seniors who own the work described. If company or title
 
     const job_title = String(parsed.job_title || fallback.job_title || '').trim()
     const company = String(parsed.company || fallback.company || '').trim()
-    const job_description = String(
+    const location = String(parsed.location || fallback.location || '').trim().slice(0, 80)
+    let job_description = String(
       parsed.job_description || fallback.job_description || '',
     )
       .trim()
       .slice(0, 600)
+
+    // Ensure first-person voice if the model slipped into third person
+    if (job_description && !/^i\b/i.test(job_description)) {
+      job_description =
+        firstPersonRoleSummary({
+          job_title,
+          company,
+          projects: Array.isArray(parsed.projects)
+            ? parsed.projects.map(String)
+            : fallback.projects,
+          responsibilities: Array.isArray(parsed.responsibilities)
+            ? parsed.responsibilities.map(String)
+            : fallback.responsibilities,
+          location,
+        }) || job_description
+    }
 
     const projects = uniqTrim(
       [
@@ -210,10 +299,11 @@ Prefer technical ICs and seniors who own the work described. If company or title
         ...(Array.isArray(parsed.search_keywords)
           ? parsed.search_keywords.map(String)
           : []),
-        ...projects,
+        ...projects.slice(0, 2),
+        ...lightSearchHintsFromSummary(job_description),
         ...fallback.search_keywords,
       ],
-      10,
+      5,
     )
 
     return {
@@ -221,7 +311,14 @@ Prefer technical ICs and seniors who own the work described. If company or title
       job_title,
       job_description:
         job_description ||
-        [job_title, company ? `at ${company}` : ''].filter(Boolean).join(' '),
+        firstPersonRoleSummary({
+          job_title,
+          company,
+          projects,
+          responsibilities,
+          location,
+        }),
+      location,
       projects,
       responsibilities,
       search_titles,
@@ -238,15 +335,48 @@ export function formatApplicationJobDescription(parsed: {
   company?: string | null
   responsibilities?: string[] | null
   projects?: string[] | null
+  location?: string | null
 }): string {
-  const title = parsed.job_title?.trim()
   const summary = parsed.job_description?.trim()
-  if (summary) return summary
-  const bits = [
-    title || null,
-    parsed.company ? `at ${parsed.company}` : null,
-    parsed.projects?.length ? `projects: ${parsed.projects.slice(0, 3).join(', ')}` : null,
-    parsed.responsibilities?.[0] || null,
-  ].filter(Boolean)
-  return bits.join(' — ') || ''
+  if (summary) {
+    if (/^i\b/i.test(summary)) return summary
+    return (
+      firstPersonRoleSummary({
+        job_title: parsed.job_title || undefined,
+        company: parsed.company || undefined,
+        projects: parsed.projects || undefined,
+        responsibilities: parsed.responsibilities || undefined,
+        location: parsed.location || undefined,
+      }) || summary
+    )
+  }
+  return firstPersonRoleSummary({
+    job_title: parsed.job_title || undefined,
+    company: parsed.company || undefined,
+    projects: parsed.projects || undefined,
+    responsibilities: parsed.responsibilities || undefined,
+    location: parsed.location || undefined,
+  })
+}
+
+/** Soft location match for ranking contacts higher when they share the job geo. */
+export function locationMatchScore(
+  candidateLocation: string | null | undefined,
+  targetLocation: string | null | undefined,
+): number {
+  const a = (candidateLocation || '').toLowerCase().trim()
+  const b = (targetLocation || '').toLowerCase().trim()
+  if (!a || !b) return 0
+  if (a === b) return 10
+  if (a.includes(b) || b.includes(a)) return 8
+  const aToks = a.split(/[\s,/;|]+/).filter((t) => t.length > 2)
+  const bToks = b.split(/[\s,/;|]+/).filter((t) => t.length > 2)
+  let hits = 0
+  for (const t of bToks) {
+    if (aToks.some((x) => x === t || x.includes(t) || t.includes(x))) hits += 1
+  }
+  if (hits >= 2) return 7
+  if (hits === 1) return 4
+  if (/\bremote\b/.test(a) && /\bremote\b/.test(b)) return 3
+  return 0
 }

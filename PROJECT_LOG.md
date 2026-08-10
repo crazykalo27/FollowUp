@@ -1,3 +1,9 @@
+## 2026-08-10 — Application extract UX + location targeting
+
+- Extract button moved next to Search and centered; larger primary actions.
+- Job parse extracts optional **location** (user can fill if missing); used as a high-priority people-search / ranking signal.
+- Role summary is first-person (“I applied for…”); exact project + summary tokens used lightly in search.
+
 ## 2026-08-10 — Application search + multi-template drafts
 
 - Search modes: **General** / **Specific** / **Application**. Application pastes a job description, extracts company/role/projects, and finds technical peers (exact or more senior nearby) at that employer for referral follow-up.

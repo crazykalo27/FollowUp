@@ -85,9 +85,11 @@ export type SearchPipelineState = {
     application?: {
       job_title: string
       job_description: string
+      location?: string
       projects: string[]
       responsibilities: string[]
       raw_excerpt: string
+      light_keywords?: string[]
     } | null
   }
 }

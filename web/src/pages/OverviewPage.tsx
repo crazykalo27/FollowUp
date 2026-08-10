@@ -583,6 +583,7 @@ export function OverviewPage() {
         company: parsed.company || '',
         job_title: parsed.job_title || '',
         job_description: parsed.job_description || '',
+        location: parsed.location || '',
         projects: parsed.projects || [],
         responsibilities: parsed.responsibilities || [],
         search_titles: parsed.search_titles,
@@ -599,6 +600,27 @@ export function OverviewPage() {
     } finally {
       setExtractingJob(false)
     }
+  }
+
+  function patchApplicationExtract(
+    patch: Partial<ApplicationExtract>,
+  ): ApplicationExtract {
+    const next: ApplicationExtract = {
+      company: patch.company ?? applicationExtract?.company ?? targetCompany ?? '',
+      job_title: patch.job_title ?? applicationExtract?.job_title ?? '',
+      job_description:
+        patch.job_description ?? applicationExtract?.job_description ?? '',
+      location: patch.location ?? applicationExtract?.location ?? '',
+      projects: patch.projects ?? applicationExtract?.projects ?? [],
+      responsibilities:
+        patch.responsibilities ?? applicationExtract?.responsibilities ?? [],
+      search_titles: patch.search_titles ?? applicationExtract?.search_titles,
+      search_keywords:
+        patch.search_keywords ?? applicationExtract?.search_keywords,
+    }
+    setApplicationExtract(next)
+    saveActiveApplicationExtract(next)
+    return next
   }
 
   async function runSearch() {
@@ -762,6 +784,7 @@ export function OverviewPage() {
                   company: applicationExtract.company,
                   job_title: applicationExtract.job_title,
                   job_description: applicationExtract.job_description,
+                  location: applicationExtract.location,
                   projects: applicationExtract.projects,
                   responsibilities: applicationExtract.responsibilities,
                   search_titles: applicationExtract.search_titles,
@@ -983,14 +1006,14 @@ export function OverviewPage() {
             <p className="muted small search-application-hint">
               Paste the <strong>company name</strong> and the{' '}
               <strong>full job description</strong> (role, team, projects,
-              responsibilities). We extract those fields and search for people
+              location if listed). We extract those fields and search for people
               on that team — ideally the same role or a more senior peer.
             </p>
             <textarea
               id="search-job-posting"
               className="search-job-posting-input"
               rows={8}
-              placeholder={`Example:\nCompany: Acme Robotics\nRole: Embedded Software Engineer\n\nJoin the Perception team working on the Orion stack…\nResponsibilities:\n- Own firmware for sensor fusion\n- Partner with the Orion project leads…`}
+              placeholder={`Example:\nCompany: Acme Robotics\nLocation: Austin, TX (Hybrid)\nRole: Embedded Software Engineer\n\nJoin the Perception team working on the Orion stack…\nResponsibilities:\n- Own firmware for sensor fusion\n- Partner with the Orion project leads…`}
               value={jobPostingText}
               disabled={searching || extractingJob}
               onChange={(e) => {
@@ -998,16 +1021,6 @@ export function OverviewPage() {
                 saveActiveJobPosting(e.target.value)
               }}
             />
-            <div className="search-application-actions">
-              <button
-                type="button"
-                className="btn ghost btn-sm"
-                disabled={searching || extractingJob || !jobPostingText.trim()}
-                onClick={() => void extractJobPosting()}
-              >
-                {extractingJob ? 'Extracting…' : 'Extract company & role'}
-              </button>
-            </div>
             <div className="search-application-fields">
               <label>
                 Company
@@ -1022,19 +1035,7 @@ export function OverviewPage() {
                     const company = e.target.value
                     setTargetCompany(company)
                     saveActiveRunTargetCompany(company)
-                    const next = {
-                      company,
-                      job_title: applicationExtract?.job_title || '',
-                      job_description:
-                        applicationExtract?.job_description || '',
-                      projects: applicationExtract?.projects || [],
-                      responsibilities:
-                        applicationExtract?.responsibilities || [],
-                      search_titles: applicationExtract?.search_titles,
-                      search_keywords: applicationExtract?.search_keywords,
-                    }
-                    setApplicationExtract(next)
-                    saveActiveApplicationExtract(next)
+                    patchApplicationExtract({ company })
                   }}
                   placeholder="Extracted or typed company"
                   autoComplete="organization"
@@ -1047,48 +1048,42 @@ export function OverviewPage() {
                   className="search-target-input"
                   value={applicationExtract?.job_title || ''}
                   disabled={searching}
-                  onChange={(e) => {
-                    const next = {
-                      company:
-                        applicationExtract?.company || targetCompany || '',
-                      job_title: e.target.value,
-                      job_description:
-                        applicationExtract?.job_description || '',
-                      projects: applicationExtract?.projects || [],
-                      responsibilities:
-                        applicationExtract?.responsibilities || [],
-                      search_titles: applicationExtract?.search_titles,
-                      search_keywords: applicationExtract?.search_keywords,
-                    }
-                    setApplicationExtract(next)
-                    saveActiveApplicationExtract(next)
-                  }}
+                  onChange={(e) =>
+                    patchApplicationExtract({ job_title: e.target.value })
+                  }
                   placeholder="e.g. Senior FPGA Engineer"
                 />
               </label>
+              <label>
+                Location{' '}
+                <span className="muted" style={{ fontWeight: 400 }}>
+                  (optional — add if extract misses it)
+                </span>
+                <input
+                  type="text"
+                  className="search-target-input"
+                  value={applicationExtract?.location || ''}
+                  disabled={searching}
+                  onChange={(e) =>
+                    patchApplicationExtract({ location: e.target.value })
+                  }
+                  placeholder="e.g. Seattle, WA or Remote"
+                  autoComplete="address-level2"
+                />
+              </label>
               <label className="search-application-summary">
-                Role summary (used in drafts as [job description])
+                Role summary (first person — used in drafts as [job description])
                 <textarea
                   rows={3}
                   className="search-job-posting-input"
                   value={applicationExtract?.job_description || ''}
                   disabled={searching}
-                  onChange={(e) => {
-                    const next = {
-                      company:
-                        applicationExtract?.company || targetCompany || '',
-                      job_title: applicationExtract?.job_title || '',
+                  onChange={(e) =>
+                    patchApplicationExtract({
                       job_description: e.target.value,
-                      projects: applicationExtract?.projects || [],
-                      responsibilities:
-                        applicationExtract?.responsibilities || [],
-                      search_titles: applicationExtract?.search_titles,
-                      search_keywords: applicationExtract?.search_keywords,
-                    }
-                    setApplicationExtract(next)
-                    saveActiveApplicationExtract(next)
-                  }}
-                  placeholder="Short summary of the exact role you applied to"
+                    })
+                  }
+                  placeholder="I applied for the … role at …"
                 />
               </label>
               {(applicationExtract?.projects?.length ||
@@ -1248,29 +1243,58 @@ export function OverviewPage() {
         )}
       </section>
 
-      <div className="search-actions-bar">
-        {showFullSearchUi && (
+      <div
+        className={`search-actions-bar${
+          showFullSearchUi && searchMode === 'application'
+            ? ' search-actions-centered'
+            : ''
+        }`}
+      >
+        {showFullSearchUi && searchMode === 'application' && (
+          <div className="search-actions-primary">
+            <button
+              type="button"
+              className="btn search-extract-btn"
+              disabled={searching || extractingJob || !jobPostingText.trim()}
+              onClick={() => void extractJobPosting()}
+            >
+              {extractingJob ? 'Extracting…' : 'Extract company & role'}
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={
+                searching ||
+                extractingJob ||
+                !stats.onboarding ||
+                (!jobPostingText.trim() &&
+                  !targetCompany.trim() &&
+                  !(applicationExtract?.company || '').trim())
+              }
+              onClick={runSearch}
+            >
+              {searching
+                ? 'Search running…'
+                : `Search for ${companyPeopleTarget} people related to this application`}
+            </button>
+          </div>
+        )}
+        {showFullSearchUi && searchMode !== 'application' && (
           <button
             type="button"
             className="btn primary"
             disabled={
               searching ||
               !stats.onboarding ||
-              (searchMode === 'company' && !targetCompany.trim()) ||
-              (searchMode === 'application' &&
-                !jobPostingText.trim() &&
-                !targetCompany.trim() &&
-                !(applicationExtract?.company || '').trim())
+              (searchMode === 'company' && !targetCompany.trim())
             }
             onClick={runSearch}
           >
             {searching
               ? 'Search running…'
-              : searchMode === 'application'
-                ? `Search for ${companyPeopleTarget} people related to this application`
-                : searchMode === 'company'
-                  ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
-                  : `Run search (${selectedDepth.label})`}
+              : searchMode === 'company'
+                ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
+                : `Run search (${selectedDepth.label})`}
           </button>
         )}
         {showCancel && (

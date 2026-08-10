@@ -1,5 +1,6 @@
 # Agent change log
 
+- Application extract: bigger Extract beside Search (centered); location field; first-person role summary; light project/summary search hints
 - Application search mode: paste JD, extract company/role/projects, find related technical people
 - Contacts store application_context; drafts fill [job description] / [job_description]
 - Drafts: named template dropdown with add/rename; Application follow-up preset

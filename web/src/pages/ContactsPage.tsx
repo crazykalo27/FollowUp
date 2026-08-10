@@ -35,6 +35,7 @@ type ContactRow = {
       company?: string
       job_title?: string
       job_description?: string
+      location?: string
       projects?: string[]
       responsibilities?: string[]
     }
@@ -44,6 +45,7 @@ type ContactRow = {
     company?: string
     job_title?: string
     job_description?: string
+    location?: string
     projects?: string[]
     responsibilities?: string[]
   } | null

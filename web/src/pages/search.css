@@ -242,6 +242,7 @@
 .search-application-fields {
   display: grid;
   gap: 0.65rem;
+  margin-top: 0.85rem;
 }
 
 .search-application-fields label {
@@ -364,6 +365,33 @@
   flex-wrap: wrap;
   gap: 0.6rem;
   margin-bottom: 1rem;
+}
+
+.search-actions-bar.search-actions-centered {
+  flex-direction: column;
+  align-items: center;
+}
+
+.search-actions-primary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.search-extract-btn {
+  min-width: 12rem;
+  padding: 0.75rem 1.35rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.search-actions-primary .btn.primary {
+  min-width: 12rem;
+  padding: 0.75rem 1.35rem;
+  font-size: 1rem;
 }
 
 .search-progress-card {

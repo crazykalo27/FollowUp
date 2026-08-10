@@ -149,6 +149,8 @@ export type ApplicationExtract = {
   company: string
   job_title: string
   job_description: string
+  /** Optional job location from the posting */
+  location: string
   projects: string[]
   responsibilities: string[]
   search_titles?: string[]
@@ -245,6 +247,7 @@ export function loadActiveApplicationExtract(): ApplicationExtract | null {
       company: String(parsed.company || ''),
       job_title: String(parsed.job_title || ''),
       job_description: String(parsed.job_description || ''),
+      location: String(parsed.location || ''),
       projects: Array.isArray(parsed.projects)
         ? parsed.projects.map(String)
         : [],
