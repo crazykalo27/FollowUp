@@ -1929,11 +1929,11 @@ th {
   overflow: hidden;
   container-type: inline-size;
   container-name: contact-carousel;
-  /* Slightly narrower center so left/right peeks stay visible as switch targets */
-  --card-w: clamp(300px, 78cqi, 980px);
-  --center-scale: clamp(0.88, 0.58 + 100cqi * 0.0007, 1);
-  --peek-scale: calc(var(--center-scale) * 0.6);
-  --peek-shift: calc(var(--card-w) * 0.58);
+  /* Narrower center leaves clear side gutters for prev/next peeks */
+  --card-w: clamp(280px, 62cqi, 784px);
+  --center-scale: clamp(0.9, 0.62 + 100cqi * 0.00065, 1);
+  --peek-w: min(22rem, max(11rem, 28cqi));
+  --peek-inset: 0.4rem;
 }
 
 .carousel-stage {
@@ -1941,7 +1941,7 @@ th {
   width: 100%;
   max-width: 100%;
   margin: 0 auto;
-  min-height: calc(260px * var(--center-scale) + 0.75rem);
+  min-height: calc(280px * var(--center-scale) + 0.75rem);
 }
 
 .carousel-center {
@@ -2020,11 +2020,10 @@ th {
 
 .carousel-peek.swipe-card {
   position: absolute;
-  top: calc(0.55rem + 140px * var(--center-scale));
-  left: 50%;
+  top: 1.35rem;
   z-index: 1;
-  width: var(--card-w);
-  max-width: min(100%, var(--card-w));
+  width: var(--peek-w);
+  max-width: calc(50% - 1rem);
   min-height: 0;
   max-height: min(46dvh, 360px);
   margin: 0;
@@ -2037,10 +2036,9 @@ th {
   text-align: left;
   font: inherit;
   color: inherit;
-  opacity: 0.64;
-  filter: brightness(0.92);
+  opacity: 0.72;
+  filter: brightness(0.94);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.38);
-  transform-origin: center center;
   transition:
     transform 0.2s ease,
     opacity 0.2s ease,
@@ -2048,31 +2046,34 @@ th {
     filter 0.2s ease;
 }
 
+/* Anchor peeks to the stage edges so both sides stay in view */
 .carousel-peek.peek-left {
-  transform: translate(-50%, -50%) translateX(calc(-1 * var(--peek-shift)))
-    scale(var(--peek-scale)) rotate(-4deg);
+  left: var(--peek-inset);
+  right: auto;
+  transform: rotate(-3deg);
+  transform-origin: left center;
 }
 
 .carousel-peek.peek-right {
-  transform: translate(-50%, -50%) translateX(var(--peek-shift))
-    scale(var(--peek-scale)) rotate(4deg);
+  right: var(--peek-inset);
+  left: auto;
+  transform: rotate(3deg);
+  transform-origin: right center;
 }
 
 .carousel-peek:hover:not(:disabled) {
-  opacity: 0.9;
+  opacity: 0.95;
   filter: brightness(1);
   border-color: rgba(196, 240, 76, 0.45);
   z-index: 2;
 }
 
 .carousel-peek.peek-left:hover:not(:disabled) {
-  transform: translate(-50%, -50%) translateX(calc(-1 * var(--peek-shift) * 0.9))
-    scale(calc(var(--peek-scale) * 1.05)) rotate(-3deg);
+  transform: translateX(0.35rem) rotate(-2deg) scale(1.03);
 }
 
 .carousel-peek.peek-right:hover:not(:disabled) {
-  transform: translate(-50%, -50%) translateX(calc(var(--peek-shift) * 0.9))
-    scale(calc(var(--peek-scale) * 1.05)) rotate(3deg);
+  transform: translateX(-0.35rem) rotate(2deg) scale(1.03);
 }
 
 .carousel-peek:disabled {
@@ -2120,16 +2121,16 @@ th {
 
 @container contact-carousel (max-width: 720px) {
   .carousel-viewport {
-    --card-w: clamp(280px, 84cqi, 980px);
-    --peek-scale: calc(var(--center-scale) * 0.52);
-    --peek-shift: calc(var(--card-w) * 0.5);
+    --card-w: clamp(260px, 70cqi, 784px);
+    --peek-w: min(14rem, 26cqi);
   }
 }
 
 @container contact-carousel (max-width: 420px) {
   .carousel-viewport {
-    --peek-shift: calc(var(--card-w) * 0.34);
-    --peek-scale: calc(var(--center-scale) * 0.46);
+    --card-w: clamp(240px, 78cqi, 784px);
+    --peek-w: min(9.5rem, 24cqi);
+    --peek-inset: 0.15rem;
   }
 
   .carousel-peek .contact-detail-grid dt {
