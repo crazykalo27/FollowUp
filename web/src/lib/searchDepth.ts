@@ -14,23 +14,23 @@ export const SEARCH_MODES: SearchModeOption[] = [
   {
     id: 'general',
     label: 'General',
-    purpose: 'Discover employers that fit your profile',
+    purpose: 'Discover companies + people in your niches',
     detail:
-      'We search your industries and roles, rank companies, then find people in similar positions at each — best for broad outreach.',
+      'We rank companies in your target industries, then find people in similar roles at each.',
   },
   {
     id: 'company',
     label: 'Specific',
-    purpose: 'Focus on one employer you already know',
+    purpose: 'Target one company you name',
     detail:
-      'Name one employer. We focus contacts there and keep trying until we find your target number of people or hit three failed attempts in a row.',
+      'We keep searching that employer until we hit your target count (or 3 empty rounds).',
   },
   {
     id: 'application',
     label: 'Application',
-    purpose: 'Follow up after you applied to a posting',
+    purpose: 'Follow up on a job you applied to',
     detail:
-      'Paste the company and job description. We extract the role, team, and projects, then find technical people on that team — ideally the exact job or a more senior peer — for a referral ask.',
+      'Paste the posting — we extract the role and find team peers for a referral ask.',
   },
 ]
 

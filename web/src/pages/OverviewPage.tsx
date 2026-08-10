@@ -177,6 +177,45 @@ type SearchSummary = {
   }
 }
 
+function ModeIcon({ mode }: { mode: SearchMode }) {
+  const common = {
+    viewBox: '0 0 24 24',
+    width: 20,
+    height: 20,
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.7,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  }
+  if (mode === 'company') {
+    return (
+      <svg {...common}>
+        <path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16" />
+        <path d="M15 9h4a1 1 0 0 1 1 1v11" />
+        <path d="M2 21h20" />
+        <path d="M8 8h3M8 12h3M8 16h3" />
+      </svg>
+    )
+  }
+  if (mode === 'application') {
+    return (
+      <svg {...common}>
+        <path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8z" />
+        <path d="M14 3v5h4" />
+        <path d="M9 13h6M9 17h6" />
+      </svg>
+    )
+  }
+  return (
+    <svg {...common}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  )
+}
+
 function SourceCard({
   name,
   stats,
@@ -842,6 +881,32 @@ export function OverviewPage() {
     : 'Search'
   const selectedModeMeta =
     SEARCH_MODES.find((m) => m.id === searchMode) ?? SEARCH_MODES[0]
+  const targetCompanyLabel =
+    targetCompany.trim() || applicationExtract?.company?.trim() || ''
+  const peopleWord = companyPeopleTarget === 1 ? 'person' : 'people'
+  const runSummary =
+    searchMode === 'general'
+      ? `${selectedDepth.companies} companies · ${selectedDepth.estimatePeople} · ${selectedDepth.eta}`
+      : searchMode === 'company'
+        ? `${companyPeopleTarget} ${peopleWord} at ${targetCompanyLabel || 'your company'}`
+        : `${companyPeopleTarget} ${peopleWord} related to ${
+            applicationExtract?.job_title || 'this role'
+          } at ${targetCompanyLabel || 'the employer'}`
+  const runDisabled =
+    searching ||
+    extractingJob ||
+    !stats.onboarding ||
+    (searchMode === 'company' && !targetCompany.trim()) ||
+    (searchMode === 'application' &&
+      !jobPostingText.trim() &&
+      !targetCompany.trim() &&
+      !(applicationExtract?.company || '').trim())
+  const showStuckCancel =
+    Boolean(activeRunId) && !searching && live?.stage !== 'done'
+  const showGoToContacts =
+    showFullSearchUi &&
+    !orientationSearchLocked &&
+    (orientation.canAccess('contacts') || orientPrompt)
 
   return (
     <div className="panel search-page">
@@ -850,78 +915,33 @@ export function OverviewPage() {
         <p className="lede">
           {inOrientationSearch
             ? isSecondCalibration
-              ? 'We will find 4 more people using your feedback. Keep or discard each one to teach FollowUp AI.'
-              : 'We will find 4 people in your stated industry. Keep or discard each one with feedback to teach FollowUp AI.'
-            : searchMode === 'application'
-              ? 'Paste the posting you applied to. We extract the company, role, and projects, then find technical people closely related to that job for a referral follow-up.'
-              : searchMode === 'company'
-                ? 'Name the employer you want to reach. We find people there for a thoughtful follow-up — not a spray-and-pray blast.'
-                : orientation.complete
-                  ? 'We find companies in your target industries, then people to contact directly — not job-board black holes. Search keeps running if you leave this page.'
-                  : 'Run a search to discover companies and direct contacts based on your profile and filters. When it finishes, review contacts next.'}
+              ? '4 more people, refined by your feedback. Keep or discard each one.'
+              : '4 people in your stated industry. Keep or discard each one to teach FollowUp AI.'
+            : orientation.complete
+              ? 'Pick a flow, set the size, run. Searches keep going if you leave the page.'
+              : 'Run a search to find companies and direct contacts, then review them.'}
         </p>
       </header>
-
-      <div className="search-flow-rail" aria-label="Search pipeline">
-        {searchMode === 'general' ? (
-          <>
-            <div className="search-flow-step">
-              <span className="search-flow-num">01</span>
-              <span>Discover companies</span>
-            </div>
-            <span className="search-flow-arrow" aria-hidden>→</span>
-            <div className="search-flow-step">
-              <span className="search-flow-num">02</span>
-              <span>Find people</span>
-            </div>
-          </>
-        ) : searchMode === 'application' ? (
-          <>
-            <div className="search-flow-step">
-              <span className="search-flow-num">01</span>
-              <span>Paste job description</span>
-            </div>
-            <span className="search-flow-arrow" aria-hidden>→</span>
-            <div className="search-flow-step">
-              <span className="search-flow-num">02</span>
-              <span>Find team / role peers</span>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="search-flow-step">
-              <span className="search-flow-num">01</span>
-              <span>Name your employer</span>
-            </div>
-            <span className="search-flow-arrow" aria-hidden>→</span>
-            <div className="search-flow-step">
-              <span className="search-flow-num">02</span>
-              <span>Find people to follow up</span>
-            </div>
-          </>
-        )}
-      </div>
 
       {!orientation.complete && !inOrientationSearch && (
         <div className="search-orient-coach">
           {orientationSearchLocked ? (
             <>
               <p>
-                <strong>Next:</strong> review every contact from this search
-                (keep or discard with a reason). That feedback updates your
-                niches
+                <strong>Next:</strong> review each contact from this search
+                (keep or discard with a reason)
                 {isSecondCalibration || orientation.step === 'contacts2'
-                  ? ', then you will pick someone from Kept to draft.'
-                  : ', then we run one more refined search.'}
+                  ? ' — then pick someone from Kept to draft.'
+                  : ' — then we run one more refined search.'}
               </p>
               <p className="muted small">
-                Another search is locked until you finish reviewing.
+                Search unlocks after you finish reviewing.
               </p>
             </>
           ) : (
             <p>
-              Choose a search size below, then press <strong>Run search</strong>.
-              Stay on this page or leave — progress continues either way.
+              Press <strong>Run search</strong> when ready. Progress continues
+              even if you leave.
             </p>
           )}
         </div>
@@ -952,36 +972,53 @@ export function OverviewPage() {
       >
         {showFullSearchUi ? (
           <>
-        <h3>What kind of search?</h3>
-        <div
-          className="search-mode-toggle"
-          role="radiogroup"
-          aria-label="Search type"
-        >
-          {SEARCH_MODES.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              role="radio"
-              aria-checked={searchMode === m.id}
-              className={`search-mode-pill ${searchMode === m.id ? 'selected' : ''}`}
-              disabled={searching}
-              onClick={() => {
-                setSearchMode(m.id)
-                saveActiveRunMode(m.id)
-              }}
-            >
-              {m.label}
-            </button>
-          ))}
+        <div className="search-step">
+          <div className="search-step-head">
+            <span className="search-step-num">1</span>
+            <h3>Flow</h3>
+          </div>
+          <div
+            className="search-mode-grid"
+            role="radiogroup"
+            aria-label="Search type"
+          >
+            {SEARCH_MODES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                role="radio"
+                aria-checked={searchMode === m.id}
+                className={`search-mode-card ${searchMode === m.id ? 'selected' : ''}`}
+                disabled={searching}
+                onClick={() => {
+                  setSearchMode(m.id)
+                  saveActiveRunMode(m.id)
+                }}
+              >
+                <span className="search-mode-icon">
+                  <ModeIcon mode={m.id} />
+                </span>
+                <strong>{m.label}</strong>
+                <span className="search-mode-purpose">{m.purpose}</span>
+              </button>
+            ))}
+          </div>
+          <p className="muted small search-mode-detail">
+            {selectedModeMeta.detail}
+          </p>
         </div>
-        <p className="muted small search-mode-explainer">
-          <strong>{selectedModeMeta.purpose}</strong> — {selectedModeMeta.detail}
-        </p>
 
         {searchMode === 'company' && (
-          <div className="search-target-company">
-            <label htmlFor="search-target-company-input">Company name</label>
+          <div className="search-step">
+            <div className="search-step-head">
+              <span className="search-step-num">2</span>
+              <label
+                className="search-step-title"
+                htmlFor="search-target-company-input"
+              >
+                Company
+              </label>
+            </div>
             <input
               id="search-target-company-input"
               type="text"
@@ -999,117 +1036,162 @@ export function OverviewPage() {
         )}
 
         {searchMode === 'application' && (
-          <div className="search-application-block">
-            <label htmlFor="search-job-posting">
-              Job application details
-            </label>
-            <p className="muted small search-application-hint">
-              Paste the <strong>company name</strong> and the{' '}
-              <strong>full job description</strong> (role, team, projects,
-              location if listed). We extract those fields and search for people
-              on that team — ideally the same role or a more senior peer.
-            </p>
-            <textarea
-              id="search-job-posting"
-              className="search-job-posting-input"
-              rows={8}
-              placeholder={`Example:\nCompany: Acme Robotics\nLocation: Austin, TX (Hybrid)\nRole: Embedded Software Engineer\n\nJoin the Perception team working on the Orion stack…\nResponsibilities:\n- Own firmware for sensor fusion\n- Partner with the Orion project leads…`}
-              value={jobPostingText}
-              disabled={searching || extractingJob}
-              onChange={(e) => {
-                setJobPostingText(e.target.value)
-                saveActiveJobPosting(e.target.value)
-              }}
-            />
-            <div className="search-application-fields">
-              <label>
-                Company
-                <input
-                  type="text"
-                  className="search-target-input"
-                  value={
-                    applicationExtract?.company ?? targetCompany
-                  }
-                  disabled={searching}
-                  onChange={(e) => {
-                    const company = e.target.value
-                    setTargetCompany(company)
-                    saveActiveRunTargetCompany(company)
-                    patchApplicationExtract({ company })
-                  }}
-                  placeholder="Extracted or typed company"
-                  autoComplete="organization"
-                />
-              </label>
-              <label>
-                Job title
-                <input
-                  type="text"
-                  className="search-target-input"
-                  value={applicationExtract?.job_title || ''}
-                  disabled={searching}
-                  onChange={(e) =>
-                    patchApplicationExtract({ job_title: e.target.value })
-                  }
-                  placeholder="e.g. Senior FPGA Engineer"
-                />
-              </label>
-              <label>
-                Location{' '}
-                <span className="muted" style={{ fontWeight: 400 }}>
-                  (optional — add if extract misses it)
+          <>
+            <div className="search-step">
+              <div className="search-step-head">
+                <span className="search-step-num">2</span>
+                <label
+                  className="search-step-title"
+                  htmlFor="search-job-posting"
+                >
+                  Paste the posting
+                </label>
+                <span className="muted small search-step-hint">
+                  Company name + full job description
                 </span>
-                <input
-                  type="text"
-                  className="search-target-input"
-                  value={applicationExtract?.location || ''}
-                  disabled={searching}
-                  onChange={(e) =>
-                    patchApplicationExtract({ location: e.target.value })
-                  }
-                  placeholder="e.g. Seattle, WA or Remote"
-                  autoComplete="address-level2"
-                />
-              </label>
-              <label className="search-application-summary">
-                Role summary (first person — used in drafts as [job description])
-                <textarea
-                  rows={3}
-                  className="search-job-posting-input"
-                  value={applicationExtract?.job_description || ''}
-                  disabled={searching}
-                  onChange={(e) =>
-                    patchApplicationExtract({
-                      job_description: e.target.value,
-                    })
-                  }
-                  placeholder="I applied for the … role at …"
-                />
-              </label>
-              {(applicationExtract?.projects?.length ||
-                applicationExtract?.responsibilities?.length) ? (
-                <p className="muted small">
-                  {applicationExtract?.projects?.length
-                    ? `Projects/teams: ${applicationExtract.projects.join(', ')}`
-                    : null}
-                  {applicationExtract?.projects?.length &&
-                  applicationExtract?.responsibilities?.length
-                    ? ' · '
-                    : null}
-                  {applicationExtract?.responsibilities?.length
-                    ? `Focus: ${applicationExtract.responsibilities
-                        .slice(0, 2)
-                        .join('; ')}`
-                    : null}
-                </p>
-              ) : null}
+              </div>
+              <textarea
+                id="search-job-posting"
+                className="search-job-posting-input"
+                rows={7}
+                placeholder={`Example:\nCompany: Acme Robotics\nLocation: Austin, TX (Hybrid)\nRole: Embedded Software Engineer\n\nJoin the Perception team working on the Orion stack…\nResponsibilities:\n- Own firmware for sensor fusion\n- Partner with the Orion project leads…`}
+                value={jobPostingText}
+                disabled={searching || extractingJob}
+                onChange={(e) => {
+                  setJobPostingText(e.target.value)
+                  saveActiveJobPosting(e.target.value)
+                }}
+              />
+              <div className="search-step-actions">
+                <button
+                  type="button"
+                  className="btn search-extract-btn"
+                  disabled={searching || extractingJob || !jobPostingText.trim()}
+                  onClick={() => void extractJobPosting()}
+                >
+                  {extractingJob ? 'Extracting…' : 'Extract details'}
+                </button>
+              </div>
             </div>
-          </div>
+            <div className="search-step">
+              <div className="search-step-head">
+                <span className="search-step-num">3</span>
+                <h3>Confirm details</h3>
+                <span className="muted small search-step-hint">
+                  Auto-filled by Extract — edit anything
+                </span>
+              </div>
+              <div className="search-application-fields">
+                <label>
+                  Company
+                  <input
+                    type="text"
+                    className="search-target-input"
+                    value={
+                      applicationExtract?.company ?? targetCompany
+                    }
+                    disabled={searching}
+                    onChange={(e) => {
+                      const company = e.target.value
+                      setTargetCompany(company)
+                      saveActiveRunTargetCompany(company)
+                      patchApplicationExtract({ company })
+                    }}
+                    placeholder="Extracted or typed company"
+                    autoComplete="organization"
+                  />
+                </label>
+                <label>
+                  Job title
+                  <input
+                    type="text"
+                    className="search-target-input"
+                    value={applicationExtract?.job_title || ''}
+                    disabled={searching}
+                    onChange={(e) =>
+                      patchApplicationExtract({ job_title: e.target.value })
+                    }
+                    placeholder="e.g. Senior FPGA Engineer"
+                  />
+                </label>
+                <label>
+                  Location{' '}
+                  <span className="muted" style={{ fontWeight: 400 }}>
+                    (optional)
+                  </span>
+                  <input
+                    type="text"
+                    className="search-target-input"
+                    value={applicationExtract?.location || ''}
+                    disabled={searching}
+                    onChange={(e) =>
+                      patchApplicationExtract({ location: e.target.value })
+                    }
+                    placeholder="e.g. Seattle, WA or Remote"
+                    autoComplete="address-level2"
+                  />
+                </label>
+                <label className="search-application-summary">
+                  Role summary{' '}
+                  <span className="muted" style={{ fontWeight: 400 }}>
+                    (first person — fills [job description] in drafts)
+                  </span>
+                  <textarea
+                    rows={3}
+                    className="search-job-posting-input"
+                    value={applicationExtract?.job_description || ''}
+                    disabled={searching}
+                    onChange={(e) =>
+                      patchApplicationExtract({
+                        job_description: e.target.value,
+                      })
+                    }
+                    placeholder="I applied for the … role at …"
+                  />
+                </label>
+                {(applicationExtract?.projects?.length ||
+                  applicationExtract?.responsibilities?.length) ? (
+                  <p className="muted small">
+                    {applicationExtract?.projects?.length
+                      ? `Projects/teams: ${applicationExtract.projects.join(', ')}`
+                      : null}
+                    {applicationExtract?.projects?.length &&
+                    applicationExtract?.responsibilities?.length
+                      ? ' · '
+                      : null}
+                    {applicationExtract?.responsibilities?.length
+                      ? `Focus: ${applicationExtract.responsibilities
+                          .slice(0, 2)
+                          .join('; ')}`
+                      : null}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </>
         )}
 
-        {searchMode === 'general' ? (
-          <>
-            <h3 className="search-credits-heading">Search size</h3>
+        <div className="search-step">
+          <div className="search-step-head">
+            <span className="search-step-num">
+              {searchMode === 'general'
+                ? 2
+                : searchMode === 'company'
+                  ? 3
+                  : 4}
+            </span>
+            <h3>
+              {searchMode === 'general' ? 'Size' : 'How many people?'}
+            </h3>
+            {searchMode !== 'general' && (
+              <span className="muted small search-step-hint">
+                {searchMode === 'application'
+                  ? 'Exact role first, then senior teammates · up to 3 retry rounds'
+                  : 'New contacts only · stops after 3 empty rounds'}
+              </span>
+            )}
+          </div>
+          {searchMode === 'general' ? (
             <div className="depth-picker">
               <div
                 className="depth-grid depth-grid-simple"
@@ -1134,27 +1216,7 @@ export function OverviewPage() {
                 ))}
               </div>
             </div>
-          </>
-        ) : (
-          <>
-            <h3 className="search-credits-heading">How many people?</h3>
-            <p className="muted small" style={{ marginBottom: '0.75rem' }}>
-              {searchMode === 'application'
-                ? 'We prioritize the exact role and nearby technical seniors on that project/team, then broaden within the company.'
-                : 'We keep searching (broader queries each round) until we find this many'}{' '}
-              {searchMode !== 'application' && (
-                <>
-                  <strong>new</strong> contacts (not already on file) or hit{' '}
-                  <strong>3 rounds in a row</strong> with no new person.
-                </>
-              )}
-              {searchMode === 'application' && (
-                <>
-                  Target <strong>new</strong> contacts (not already on file), with
-                  up to <strong>3 retry rounds</strong> if needed.
-                </>
-              )}
-            </p>
+          ) : (
             <div
               className="company-people-toggle"
               role="radiogroup"
@@ -1177,20 +1239,20 @@ export function OverviewPage() {
                 </button>
               ))}
             </div>
-            <p className="small depth-summary">
-              Target: <strong>{companyPeopleTarget}</strong> people
-              {searchMode === 'application'
-                ? ` related to ${
-                    applicationExtract?.job_title || 'this role'
-                  } at ${
-                    targetCompany.trim() ||
-                    applicationExtract?.company ||
-                    'the employer'
-                  }`
-                : ` at ${targetCompany.trim() || 'your company'}`}
-            </p>
-          </>
-        )}
+          )}
+        </div>
+
+        <div className="search-run-footer">
+          <p className="muted small search-run-summary">{runSummary}</p>
+          <button
+            type="button"
+            className="btn primary search-run-btn"
+            disabled={runDisabled}
+            onClick={runSearch}
+          >
+            {searching ? 'Search running…' : 'Run search'}
+          </button>
+        </div>
           </>
         ) : (
           <div className="search-calibration-center">
@@ -1234,8 +1296,7 @@ export function OverviewPage() {
                       : 'Run calibration search'}
                 </button>
                 <p className="search-calibration-disclaimer muted small">
-                  This may take a minute or two. You can stay on this page or
-                  leave — the search keeps running either way.
+                  Takes a minute or two — keeps running if you leave this page.
                 </p>
               </>
             )}
@@ -1243,92 +1304,39 @@ export function OverviewPage() {
         )}
       </section>
 
-      <div
-        className={`search-actions-bar${
-          showFullSearchUi && searchMode === 'application'
-            ? ' search-actions-centered'
-            : ''
-        }`}
-      >
-        {showFullSearchUi && searchMode === 'application' && (
-          <div className="search-actions-primary">
+      {(showCancel || showStuckCancel || showGoToContacts) && (
+        <div className="search-actions-bar">
+          {showCancel && (
             <button
               type="button"
-              className="btn search-extract-btn"
-              disabled={searching || extractingJob || !jobPostingText.trim()}
-              onClick={() => void extractJobPosting()}
+              className="btn ghost"
+              disabled={cancelling}
+              onClick={() => void cancelSearch()}
             >
-              {extractingJob ? 'Extracting…' : 'Extract company & role'}
+              {cancelling ? 'Cancelling…' : 'Cancel search'}
             </button>
+          )}
+          {showStuckCancel && (
             <button
               type="button"
-              className="btn primary"
-              disabled={
-                searching ||
-                extractingJob ||
-                !stats.onboarding ||
-                (!jobPostingText.trim() &&
-                  !targetCompany.trim() &&
-                  !(applicationExtract?.company || '').trim())
-              }
-              onClick={runSearch}
+              className="btn ghost"
+              disabled={cancelling}
+              onClick={() => void cancelSearch()}
             >
-              {searching
-                ? 'Search running…'
-                : `Search for ${companyPeopleTarget} people related to this application`}
+              {cancelling ? 'Cancelling…' : 'Cancel stuck search'}
             </button>
-          </div>
-        )}
-        {showFullSearchUi && searchMode !== 'application' && (
-          <button
-            type="button"
-            className="btn primary"
-            disabled={
-              searching ||
-              !stats.onboarding ||
-              (searchMode === 'company' && !targetCompany.trim())
-            }
-            onClick={runSearch}
-          >
-            {searching
-              ? 'Search running…'
-              : searchMode === 'company'
-                ? `Search at ${targetCompany.trim() || 'company'} (${companyPeopleTarget} people)`
-                : `Run search (${selectedDepth.label})`}
-          </button>
-        )}
-        {showCancel && (
-          <button
-            type="button"
-            className="btn ghost"
-            disabled={cancelling}
-            onClick={() => void cancelSearch()}
-          >
-            {cancelling ? 'Cancelling…' : 'Cancel search'}
-          </button>
-        )}
-        {activeRunId && !searching && live?.stage !== 'done' && (
-          <button
-            type="button"
-            className="btn ghost"
-            disabled={cancelling}
-            onClick={() => void cancelSearch()}
-          >
-            {cancelling ? 'Cancelling…' : 'Cancel stuck search'}
-          </button>
-        )}
-        {showFullSearchUi &&
-          !orientationSearchLocked &&
-          (orientation.canAccess('contacts') || orientPrompt) && (
-          <button
-            type="button"
-            className="btn"
-            onClick={() => navigate('/app/contacts')}
-          >
-            Go to contacts
-          </button>
-        )}
-      </div>
+          )}
+          {showGoToContacts && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => navigate('/app/contacts')}
+            >
+              Go to contacts
+            </button>
+          )}
+        </div>
+      )}
 
       {orientPrompt && inOrientationFlow && !orientationSearchLocked && (
         <p className="flash orientation-coach orientation-coach-inline">
