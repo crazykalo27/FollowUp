@@ -21,6 +21,23 @@ function buildVars(
     first_name?: string | null
     title?: string | null
     filter_match_reason?: string | null
+    application_context?: {
+      job_title?: string | null
+      job_description?: string | null
+      company?: string | null
+      projects?: string[] | null
+      responsibilities?: string[] | null
+    } | null
+    source_details?: {
+      job_description?: string | null
+      application?: {
+        job_title?: string | null
+        job_description?: string | null
+        company?: string | null
+        projects?: string[] | null
+        responsibilities?: string[] | null
+      } | null
+    } | null
   },
   company: {
     name?: string
@@ -44,6 +61,19 @@ function buildVars(
     contact.full_name?.trim() ||
     contact.first_name?.trim() ||
     'there'
+  const app =
+    contact.application_context ||
+    contact.source_details?.application ||
+    null
+  const jobDescription =
+    (typeof contact.source_details?.job_description === 'string'
+      ? contact.source_details.job_description
+      : null)?.trim() ||
+    app?.job_description?.trim() ||
+    app?.job_title?.trim() ||
+    company?.hiring_signal_title?.trim() ||
+    ''
+
   return {
     recipient,
     first_name: contact.first_name?.trim() || recipient.split(/\s+/)[0] || '',
@@ -55,10 +85,14 @@ function buildVars(
     }),
     job: contact.title?.trim() || 'your team',
     target_role: profile.roles?.[0]?.trim() || 'opportunities',
-    company: company?.name?.trim() || 'your company',
+    company: company?.name?.trim() || app?.company?.trim() || 'your company',
     industry: profile.industries?.[0]?.trim() || 'your field',
     hiring_signal:
-      company?.hiring_signal_title?.trim() || 'your open roles',
+      company?.hiring_signal_title?.trim() ||
+      app?.job_title?.trim() ||
+      'your open roles',
+    job_description: jobDescription,
+    'job description': jobDescription,
     employment_type: formatEmploymentTypes(profile.employment_types),
     remote: formatRemotePref(profile.remote_preference),
     linkedin: sender.linkedin_url?.trim() || '',
@@ -109,7 +143,7 @@ Deno.serve(async (req) => {
     let contactsQuery = admin
       .from('contacts')
       .select(
-        'id, full_name, first_name, title, email, filter_match_reason, company_id, companies(name, domain, hiring_signal_title, hiring_signal_url)',
+        'id, full_name, first_name, title, email, filter_match_reason, company_id, application_context, source_details, companies(name, domain, hiring_signal_title, hiring_signal_url)',
       )
       .eq('user_id', user.id)
       .not('email', 'is', null)

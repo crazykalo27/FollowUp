@@ -89,6 +89,7 @@ export interface Database {
           website_url: string | null
           email_subject_template: string | null
           email_body_template: string | null
+          email_templates: Json | null
           profile_setup_complete: boolean
           onboarding_complete: boolean
           orientation_step: string
@@ -106,6 +107,7 @@ export interface Database {
           website_url?: string | null
           email_subject_template?: string | null
           email_body_template?: string | null
+          email_templates?: Json | null
           profile_setup_complete?: boolean
           onboarding_complete?: boolean
           orientation_step?: string
@@ -122,6 +124,7 @@ export interface Database {
           website_url?: string | null
           email_subject_template?: string | null
           email_body_template?: string | null
+          email_templates?: Json | null
           profile_setup_complete?: boolean
           onboarding_complete?: boolean
           orientation_step?: string
@@ -232,6 +235,7 @@ export interface Database {
           email: string | null
           verification_status: string | null
           filter_match_reason: string | null
+          application_context: Json | null
           created_at: string
         }
         Insert: {
@@ -245,6 +249,7 @@ export interface Database {
           email?: string | null
           verification_status?: string | null
           filter_match_reason?: string | null
+          application_context?: Json | null
           created_at?: string
         }
         Update: {
@@ -255,6 +260,7 @@ export interface Database {
           email?: string | null
           verification_status?: string | null
           filter_match_reason?: string | null
+          application_context?: Json | null
         }
       }
       outreach_drafts: {

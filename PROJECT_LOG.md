@@ -1,3 +1,10 @@
+## 2026-08-10 — Application search + multi-template drafts
+
+- Search modes: **General** / **Specific** / **Application**. Application pastes a job description, extracts company/role/projects, and finds technical peers (exact or more senior nearby) at that employer for referral follow-up.
+- Contacts from Application runs carry `application_context`; email templates support `[job description]` (and `[job_description]`).
+- Drafts: dropdown of named templates with add/rename; active template drives new drafts; new “Application follow-up” starter preset.
+- New Edge Function `parse-job-posting`; `run-search` + `draft-emails` updated.
+
 ## 2026-08-08 — Contrastive discard-note polarity
 
 - Notes like “fusion not embedded automotive” parse as REJECT fusion / PREFER embedded automotive.

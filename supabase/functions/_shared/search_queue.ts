@@ -78,9 +78,17 @@ export type SearchPipelineState = {
     maxPerCompany: number
     require_verified_email: boolean
     accept_accept_all: boolean
-    search_mode?: 'general' | 'company'
+    search_mode?: 'general' | 'company' | 'application'
     target_company?: string | null
     company_people_target?: number
+    /** Application-mode job context attached to contacts */
+    application?: {
+      job_title: string
+      job_description: string
+      projects: string[]
+      responsibilities: string[]
+      raw_excerpt: string
+    } | null
   }
 }
 

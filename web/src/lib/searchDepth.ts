@@ -1,6 +1,6 @@
 export type SearchDepth = 'quick' | 'standard' | 'deep' | 'orientation'
 
-export type SearchMode = 'general' | 'company'
+export type SearchMode = 'general' | 'company' | 'application'
 
 export type SearchModeOption = {
   id: SearchMode
@@ -21,9 +21,16 @@ export const SEARCH_MODES: SearchModeOption[] = [
   {
     id: 'company',
     label: 'Specific',
-    purpose: 'Follow up after you applied somewhere',
+    purpose: 'Focus on one employer you already know',
     detail:
       'Name one employer. We focus contacts there and keep trying until we find your target number of people or hit three failed attempts in a row.',
+  },
+  {
+    id: 'application',
+    label: 'Application',
+    purpose: 'Follow up after you applied to a posting',
+    detail:
+      'Paste the company and job description. We extract the role, team, and projects, then find technical people on that team — ideally the exact job or a more senior peer — for a referral ask.',
   },
 ]
 
@@ -135,6 +142,18 @@ const ACTIVE_DEPTH_KEY = 'followup_active_search_depth'
 const ACTIVE_MODE_KEY = 'followup_active_search_mode'
 const ACTIVE_TARGET_KEY = 'followup_active_search_target'
 const ACTIVE_COMPANY_PEOPLE_KEY = 'followup_active_company_people'
+const ACTIVE_JOB_POSTING_KEY = 'followup_active_job_posting'
+const ACTIVE_APPLICATION_KEY = 'followup_active_application'
+
+export type ApplicationExtract = {
+  company: string
+  job_title: string
+  job_description: string
+  projects: string[]
+  responsibilities: string[]
+  search_titles?: string[]
+  search_keywords?: string[]
+}
 
 export function saveActiveRunDepth(depth: SearchDepth) {
   try {
@@ -166,7 +185,7 @@ export function saveActiveRunMode(mode: SearchMode) {
 export function loadActiveRunMode(): SearchMode {
   try {
     const m = sessionStorage.getItem(ACTIVE_MODE_KEY) as SearchMode | null
-    if (m === 'general' || m === 'company') return m
+    if (m === 'general' || m === 'company' || m === 'application') return m
   } catch {
     // ignore
   }
@@ -187,6 +206,60 @@ export function loadActiveRunTargetCompany(): string {
     return sessionStorage.getItem(ACTIVE_TARGET_KEY) || ''
   } catch {
     return ''
+  }
+}
+
+export function saveActiveJobPosting(text: string | null) {
+  try {
+    if (text?.trim()) sessionStorage.setItem(ACTIVE_JOB_POSTING_KEY, text)
+    else sessionStorage.removeItem(ACTIVE_JOB_POSTING_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export function loadActiveJobPosting(): string {
+  try {
+    return sessionStorage.getItem(ACTIVE_JOB_POSTING_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function saveActiveApplicationExtract(data: ApplicationExtract | null) {
+  try {
+    if (data) sessionStorage.setItem(ACTIVE_APPLICATION_KEY, JSON.stringify(data))
+    else sessionStorage.removeItem(ACTIVE_APPLICATION_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export function loadActiveApplicationExtract(): ApplicationExtract | null {
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_APPLICATION_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as ApplicationExtract
+    if (!parsed || typeof parsed !== 'object') return null
+    return {
+      company: String(parsed.company || ''),
+      job_title: String(parsed.job_title || ''),
+      job_description: String(parsed.job_description || ''),
+      projects: Array.isArray(parsed.projects)
+        ? parsed.projects.map(String)
+        : [],
+      responsibilities: Array.isArray(parsed.responsibilities)
+        ? parsed.responsibilities.map(String)
+        : [],
+      search_titles: Array.isArray(parsed.search_titles)
+        ? parsed.search_titles.map(String)
+        : undefined,
+      search_keywords: Array.isArray(parsed.search_keywords)
+        ? parsed.search_keywords.map(String)
+        : undefined,
+    }
+  } catch {
+    return null
   }
 }
 

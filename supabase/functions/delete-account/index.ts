@@ -79,6 +79,7 @@ Deno.serve(async (req) => {
         website_url: null,
         email_subject_template: null,
         email_body_template: null,
+        email_templates: null,
         profile_setup_complete: false,
         onboarding_complete: false,
         orientation_step: 'welcome',

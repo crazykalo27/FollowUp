@@ -45,6 +45,25 @@ Best,
 [linkedin] | [portfolio] | [website]`,
   },
   {
+    id: 'application_referral',
+    label: 'Application follow-up',
+    blurb:
+      'After applying — ask someone close to the role for a referral or intro.',
+    subjectTemplate:
+      'Applied to [job description] at [company] – [name]',
+    bodyTemplate: `Hi [recipient],
+
+I recently applied to the [job description] role at [company] and wanted to reach out directly.
+
+Your work looks closely related to that team, and I'd value any advice — or a referral / intro to whoever owns hiring for this area if you're open to it. Happy to keep it brief.
+
+Thank you,
+
+[name]
+[linkedin]
+[portfolio]`,
+  },
+  {
     id: 'warm_referral',
     label: 'Warm intro / referral',
     blurb: 'Short note when you found them via research or a pointer.',

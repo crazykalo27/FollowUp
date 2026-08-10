@@ -11,6 +11,11 @@ export const TEMPLATE_PLACEHOLDER_HELP: Array<{
   { key: 'company', description: 'Company name' },
   { key: 'industry', description: 'Top target industry from profile' },
   { key: 'hiring_signal', description: 'Hiring signal or open role we found' },
+  {
+    key: 'job description',
+    description:
+      'Exact role from Application search — also accept [job_description]',
+  },
   { key: 'employment_type', description: 'What you’re seeking (full-time, internship, etc.)' },
   { key: 'remote', description: 'Remote / hybrid / onsite preference' },
   { key: 'linkedin', description: 'Your LinkedIn URL (if set in Settings)' },
@@ -34,18 +39,23 @@ Best,
 
 export type TemplateVars = Record<string, string>
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export function applyTemplate(template: string, vars: TemplateVars): string {
   let out = template
-  for (const [key, value] of Object.entries(vars)) {
-    const safe = value || ''
-    out = out.replace(new RegExp(`\\[${key}\\]`, 'gi'), safe)
+  const keys = Object.keys(vars).sort((a, b) => b.length - a.length)
+  for (const key of keys) {
+    const safe = vars[key] || ''
+    out = out.replace(new RegExp(`\\[${escapeRegExp(key)}\\]`, 'gi'), safe)
   }
   return cleanupOptionalLines(out)
 }
 
 export function unresolvedPlaceholders(text: string): string[] {
   const found = new Set<string>()
-  const re = /\[([a-z_]+)\]/gi
+  const re = /\[([a-z_ ]+)\]/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     found.add(m[1].toLowerCase())
@@ -59,7 +69,7 @@ export function cleanupOptionalLines(text: string): string {
     .filter((line) => {
       const t = line.trim()
       if (!t) return true
-      if (/^\[[a-z_]+\]$/i.test(t)) return false
+      if (/^\[[a-z_ ]+\]$/i.test(t)) return false
       return true
     })
     .join('\n')
@@ -85,7 +95,7 @@ export function formatRemotePref(pref: string | undefined): string {
 /** Remove any placeholder tags that had no data. */
 export function stripRemainingPlaceholders(text: string): string {
   return text
-    .replace(/\[[a-z_]+\]/gi, '')
+    .replace(/\[[a-z_ ]+\]/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }

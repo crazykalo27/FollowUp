@@ -15,6 +15,14 @@ import {
   TEMPLATE_PLACEHOLDER_HELP,
 } from '../lib/emailTemplate'
 import { EMAIL_TEMPLATE_PRESETS } from '../lib/emailTemplatePresets'
+import {
+  activeTemplate,
+  defaultEmailTemplatesState,
+  newTemplateId,
+  normalizeEmailTemplates,
+  type EmailTemplatesState,
+  type SavedEmailTemplate,
+} from '../lib/emailTemplatesStore'
 
 type DraftRow = {
   id: string
@@ -71,6 +79,11 @@ export function DraftsPage() {
     DEFAULT_EMAIL_SUBJECT_TEMPLATE,
   )
   const [bodyTemplate, setBodyTemplate] = useState(DEFAULT_EMAIL_BODY_TEMPLATE)
+  const [templatesState, setTemplatesState] = useState<EmailTemplatesState>(
+    () => defaultEmailTemplatesState(),
+  )
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
   const [savingTemplate, setSavingTemplate] = useState(false)
   const focusedContactRef = useRef<string | null>(null)
   const [completeOpen, setCompleteOpen] = useState(false)
@@ -136,7 +149,67 @@ export function DraftsPage() {
     if (!preset) return
     setSubjectTemplate(preset.subjectTemplate)
     setBodyTemplate(preset.bodyTemplate)
-    setMsg(`Imported “${preset.label}” — click Save template to keep it.`)
+    setTemplatesState((prev) => ({
+      ...prev,
+      items: prev.items.map((item) =>
+        item.id === prev.active_id
+          ? {
+              ...item,
+              subject: preset.subjectTemplate,
+              body: preset.bodyTemplate,
+            }
+          : item,
+      ),
+    }))
+    setMsg(`Imported “${preset.label}” into the active template — click Save to keep it.`)
+  }
+
+  function selectTemplate(id: string) {
+    setTemplatesState((prev) => {
+      // Persist current edits into the previous active item before switching
+      const syncedItems = prev.items.map((item) =>
+        item.id === prev.active_id
+          ? { ...item, subject: subjectTemplate, body: bodyTemplate }
+          : item,
+      )
+      const next = syncedItems.find((i) => i.id === id) || syncedItems[0]
+      setSubjectTemplate(next.subject)
+      setBodyTemplate(next.body)
+      setRenaming(false)
+      return { active_id: next.id, items: syncedItems }
+    })
+  }
+
+  function addTemplate() {
+    const id = newTemplateId()
+    const item: SavedEmailTemplate = {
+      id,
+      name: `Template ${templatesState.items.length + 1}`,
+      subject: subjectTemplate,
+      body: bodyTemplate,
+    }
+    setTemplatesState((prev) => {
+      const syncedItems = prev.items.map((t) =>
+        t.id === prev.active_id
+          ? { ...t, subject: subjectTemplate, body: bodyTemplate }
+          : t,
+      )
+      return { active_id: id, items: [...syncedItems, item] }
+    })
+    setRenameValue(item.name)
+    setRenaming(true)
+    setMsg('Added a new template — rename it and Save when ready.')
+  }
+
+  function commitRename() {
+    const name = renameValue.trim() || 'Untitled'
+    setTemplatesState((prev) => ({
+      ...prev,
+      items: prev.items.map((item) =>
+        item.id === prev.active_id ? { ...item, name } : item,
+      ),
+    }))
+    setRenaming(false)
   }
 
   async function load(preferredContactId?: string | null) {
@@ -267,7 +340,9 @@ export function DraftsPage() {
       const [{ data: prof }, { data: resume }] = await Promise.all([
         supabase
           .from('profiles')
-          .select('email_subject_template, email_body_template')
+          .select(
+            'email_subject_template, email_body_template, email_templates',
+          )
           .eq('id', user.id)
           .maybeSingle(),
         supabase
@@ -278,12 +353,15 @@ export function DraftsPage() {
           .limit(1)
           .maybeSingle(),
       ])
-      if (prof?.email_subject_template?.trim()) {
-        setSubjectTemplate(prof.email_subject_template.trim())
-      }
-      if (prof?.email_body_template?.trim()) {
-        setBodyTemplate(prof.email_body_template.trim())
-      }
+      const normalized = normalizeEmailTemplates(
+        prof?.email_templates,
+        prof?.email_subject_template,
+        prof?.email_body_template,
+      )
+      setTemplatesState(normalized)
+      const active = activeTemplate(normalized)
+      setSubjectTemplate(active.subject)
+      setBodyTemplate(active.body)
       setResumeFileName(resume?.file_name || null)
     })()
     void (async () => {
@@ -320,17 +398,34 @@ export function DraftsPage() {
     if (!user) return
     setSavingTemplate(true)
     setMsg(null)
+    const synced: EmailTemplatesState = {
+      active_id: templatesState.active_id,
+      items: templatesState.items.map((item) =>
+        item.id === templatesState.active_id
+          ? {
+              ...item,
+              subject: subjectTemplate.trim(),
+              body: bodyTemplate.trim(),
+            }
+          : item,
+      ),
+    }
+    const active = activeTemplate(synced)
     const { error } = await supabase
       .from('profiles')
       .update({
-        email_subject_template: subjectTemplate.trim(),
-        email_body_template: bodyTemplate.trim(),
+        email_subject_template: active.subject,
+        email_body_template: active.body,
+        email_templates: synced,
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id)
     setSavingTemplate(false)
     if (error) setMsg(error.message)
-    else setMsg('Template saved.')
+    else {
+      setTemplatesState(synced)
+      setMsg(`Saved “${active.name}” — new drafts use this template.`)
+    }
   }
 
   async function saveEdits() {
@@ -451,8 +546,10 @@ export function DraftsPage() {
             <span className="drafts-template-toggle-label">Email template</span>
             <span className="drafts-template-toggle-hint muted small">
               {templateOpen
-                ? 'New drafts use this wording — collapse when you’re reviewing.'
-                : subjectTemplate.trim() || 'Set subject & body for new drafts'}
+                ? 'Switch, add, or rename templates — new drafts use the active one.'
+                : `${activeTemplate(templatesState).name}: ${
+                    subjectTemplate.trim() || 'Set subject & body'
+                  }`}
             </span>
           </span>
           {!templateOpen && (
@@ -466,6 +563,64 @@ export function DraftsPage() {
           <div className="drafts-template-drawer" id="drafts-template-drawer">
             <div className="drafts-template-panel">
               <div className="drafts-template-edit">
+                <div className="template-library-row">
+                  <label className="template-select-label">
+                    Active template
+                    <select
+                      className="template-select"
+                      value={templatesState.active_id}
+                      onChange={(e) => selectTemplate(e.target.value)}
+                    >
+                      {templatesState.items.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="template-library-actions">
+                    <button
+                      type="button"
+                      className="btn ghost btn-sm"
+                      onClick={addTemplate}
+                    >
+                      Add template
+                    </button>
+                    {renaming ? (
+                      <span className="template-rename-inline">
+                        <input
+                          type="text"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitRename()
+                            if (e.key === 'Escape') setRenaming(false)
+                          }}
+                          aria-label="Template name"
+                        />
+                        <button
+                          type="button"
+                          className="btn primary btn-sm"
+                          onClick={commitRename}
+                        >
+                          Rename
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn ghost btn-sm"
+                        onClick={() => {
+                          const cur = activeTemplate(templatesState)
+                          setRenameValue(cur.name)
+                          setRenaming(true)
+                        }}
+                      >
+                        Rename
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <div className="template-preset-row">
                   {EMAIL_TEMPLATE_PRESETS.map((preset) => (
                     <button

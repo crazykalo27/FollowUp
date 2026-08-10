@@ -30,7 +30,22 @@ type ContactRow = {
     hiring_signal_url?: string
     job_source?: string
     location?: string
+    job_description?: string
+    application?: {
+      company?: string
+      job_title?: string
+      job_description?: string
+      projects?: string[]
+      responsibilities?: string[]
+    }
     websearch?: { location?: string; snippet?: string }
+  } | null
+  application_context?: {
+    company?: string
+    job_title?: string
+    job_description?: string
+    projects?: string[]
+    responsibilities?: string[]
   } | null
   companies: {
     id: string
@@ -121,6 +136,13 @@ function ContactDetail({
     contact.source_details?.hiring_signal_url ||
     contact.companies?.hiring_signal_url ||
     null
+  const appCtx =
+    contact.application_context || contact.source_details?.application || null
+  const appliedRole =
+    appCtx?.job_description ||
+    contact.source_details?.job_description ||
+    appCtx?.job_title ||
+    null
   const sources = contactSources(contact)
   const companyName = contact.companies?.name || '—'
   const companyDomain = contact.companies?.domain
@@ -208,6 +230,13 @@ function ContactDetail({
           )}
         </dd>
 
+        {appliedRole && (
+          <>
+            <dt>Applied role</dt>
+            <dd className="contact-detail-signal">{appliedRole}</dd>
+          </>
+        )}
+
         {hiring && (
           <>
             <dt>Hiring signal</dt>
@@ -290,7 +319,7 @@ export function ContactsPage() {
       supabase
         .from('contacts')
         .select(
-          'id, company_id, full_name, title, email, location, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, created_at, source_details, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
+          'id, company_id, full_name, title, email, location, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, created_at, source_details, application_context, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
         )
         .eq('user_id', user.id)
         .order('created_at', { ascending: false }),

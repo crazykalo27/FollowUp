@@ -1,5 +1,8 @@
 # Agent change log
 
+- Application search mode: paste JD, extract company/role/projects, find related technical people
+- Contacts store application_context; drafts fill [job description] / [job_description]
+- Drafts: named template dropdown with add/rename; Application follow-up preset
 - Hero: move applications headline to contrast boxes; shrink/stylize traditional panel (loading, red X)
 - Problem section: new headline; stronger bad vs good card styling
 - How it works: new lede; step 01 profile-focused copy

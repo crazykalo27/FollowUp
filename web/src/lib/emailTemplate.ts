@@ -11,6 +11,11 @@ export const TEMPLATE_PLACEHOLDER_HELP: Array<{
   { key: 'company', description: 'Company name' },
   { key: 'industry', description: 'Your top target industry from profile' },
   { key: 'hiring_signal', description: 'Hiring signal or open role' },
+  {
+    key: 'job description',
+    description:
+      'Exact role you applied to (from Application search) — also [job_description]',
+  },
   { key: 'employment_type', description: 'Full-time, internship, part-time, etc.' },
   { key: 'remote', description: 'Remote / hybrid / onsite preference' },
   { key: 'linkedin', description: 'Your LinkedIn (Settings)' },
@@ -34,10 +39,17 @@ Best,
 
 export type TemplateVars = Record<string, string>
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export function applyTemplate(template: string, vars: TemplateVars): string {
   let out = template
-  for (const [key, value] of Object.entries(vars)) {
-    out = out.replace(new RegExp(`\\[${key}\\]`, 'gi'), value || '')
+  // Longer keys first so [job description] wins over [job]
+  const keys = Object.keys(vars).sort((a, b) => b.length - a.length)
+  for (const key of keys) {
+    const value = vars[key] || ''
+    out = out.replace(new RegExp(`\\[${escapeRegExp(key)}\\]`, 'gi'), value)
   }
   return cleanupOptionalLines(out)
 }
@@ -48,7 +60,7 @@ export function cleanupOptionalLines(text: string): string {
     .filter((line) => {
       const t = line.trim()
       if (!t) return true
-      if (/^\[[a-z_]+\]$/i.test(t)) return false
+      if (/^\[[a-z_ ]+\]$/i.test(t)) return false
       return true
     })
     .join('\n')
@@ -58,7 +70,7 @@ export function cleanupOptionalLines(text: string): string {
 
 export function stripRemainingPlaceholders(text: string): string {
   return text
-    .replace(/\[[a-z_]+\]/gi, '')
+    .replace(/\[[a-z_ ]+\]/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
@@ -73,6 +85,10 @@ export const SAMPLE_PREVIEW_VARS: TemplateVars = {
   company: 'Example Corp',
   industry: 'quantum computing',
   hiring_signal: 'open quantum compiler roles',
+  job_description:
+    'Senior Quantum Software Engineer on the compiler team — optimizing IR lowering for superconducting QPUs',
+  'job description':
+    'Senior Quantum Software Engineer on the compiler team — optimizing IR lowering for superconducting QPUs',
   employment_type: 'full-time',
   remote: 'remote-friendly',
   linkedin: 'https://linkedin.com/in/you',

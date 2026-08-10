@@ -197,6 +197,71 @@
   border-color: rgba(196, 240, 76, 0.45);
 }
 
+.search-application-block {
+  margin-bottom: 1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.search-application-block > label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.search-application-hint {
+  margin: 0 0 0.65rem;
+  line-height: 1.45;
+}
+
+.search-job-posting-input {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--ink);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.search-job-posting-input:focus {
+  outline: none;
+  border-color: rgba(196, 240, 76, 0.45);
+}
+
+.search-application-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.55rem 0 0.75rem;
+}
+
+.search-application-fields {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.search-application-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.search-application-fields .search-target-input {
+  max-width: none;
+  margin-bottom: 0;
+  font-weight: 400;
+}
+
+.search-application-summary .search-job-posting-input {
+  font-weight: 400;
+}
+
 .search-run-card .depth-picker {
   margin: 0;
   max-width: none;
