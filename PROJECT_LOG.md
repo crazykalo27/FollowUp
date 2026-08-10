@@ -1,3 +1,7 @@
+## 2026-08-10 — Block dice.com emails in search
+
+- People search drops any `@dice.com` email (Hunter, OSINT, and before saving contacts).
+
 ## 2026-08-10 — Keep reason: Great application connection
 
 - Contacts keep chips include “Great application connection”; preference learning boosts similar titles.

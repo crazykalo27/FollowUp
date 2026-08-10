@@ -43,6 +43,38 @@ async function readTextWithLimit(
 const EMAIL_RE =
   /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/gi
 
+/** Inboxes we never attach to contacts during people search (job boards / aggregators). */
+const BLOCKED_OUTREACH_EMAIL_DOMAINS = new Set(['dice.com'])
+
+export function outreachEmailDomain(email: string): string | null {
+  const trimmed = email.trim().toLowerCase()
+  const at = trimmed.lastIndexOf('@')
+  if (at < 1) return null
+  return trimmed.slice(at + 1).replace(/^www\./, '')
+}
+
+export function isBlockedOutreachEmail(
+  email: string | null | undefined,
+): boolean {
+  if (!email?.trim()) return false
+  const domain = outreachEmailDomain(email)
+  if (!domain) return false
+  return BLOCKED_OUTREACH_EMAIL_DOMAINS.has(domain)
+}
+
+/** Drop blocked domains; normalize to lowercase when kept. */
+export function sanitizeOutreachEmail(
+  email: string | null | undefined,
+): string | null {
+  if (!email?.trim()) return null
+  const normalized = email.trim().toLowerCase()
+  return isBlockedOutreachEmail(normalized) ? null : normalized
+}
+
+function filterEmailHits(hits: EmailHit[]): EmailHit[] {
+  return hits.filter((h) => !isBlockedOutreachEmail(h.email))
+}
+
 const CRAWL_PATHS = [
   '/',
   '/contact',
@@ -236,14 +268,14 @@ export async function crawlSiteEmails(
       let m: RegExpExecArray | null
       while ((m = mailtoRe.exec(html)) !== null) {
         const addr = m[1].trim().toLowerCase()
-        if (addr.includes('@')) {
+        if (addr.includes('@') && !isBlockedOutreachEmail(addr)) {
           emails.set(addr, { email: addr, source: 'site_crawl', url })
         }
       }
       EMAIL_RE.lastIndex = 0
       while ((m = EMAIL_RE.exec(html)) !== null) {
         const addr = m[0].toLowerCase()
-        if (addr.endsWith(`@${host}`)) {
+        if (addr.endsWith(`@${host}`) && !isBlockedOutreachEmail(addr)) {
           emails.set(addr, { email: addr, source: 'site_crawl', url })
         }
       }
@@ -318,11 +350,16 @@ export async function fetchOsintWorker(
         errors: [body?.detail || `worker ${res.status}`],
       }
     }
-    const hits = ((body.hits || []) as Array<{ email: string }>).map((h) => ({
-      email: h.email.toLowerCase(),
-      source: 'osint_worker' as const,
+    const hits = ((body.hits || []) as Array<{ email: string }>)
+      .map((h) => ({
+        email: h.email.toLowerCase(),
+        source: 'osint_worker' as const,
+      }))
+      .filter((h) => !isBlockedOutreachEmail(h.email))
+    const outPeople = ((body.people || []) as OsintWorkerPerson[]).map((p) => ({
+      ...p,
+      email: sanitizeOutreachEmail(p.email),
     }))
-    const outPeople = (body.people || []) as OsintWorkerPerson[]
     return { hits, people: outPeople, errors: body.errors || [] }
   } catch (e) {
     return {
@@ -340,7 +377,7 @@ function extractEmailsFromText(text: string, domain: string): string[] {
   let m: RegExpExecArray | null
   while ((m = EMAIL_RE.exec(text)) !== null) {
     const em = m[0].toLowerCase()
-    if (em.endsWith(`@${host}`)) found.add(em)
+    if (em.endsWith(`@${host}`) && !isBlockedOutreachEmail(em)) found.add(em)
   }
   return [...found]
 }
@@ -404,6 +441,7 @@ export async function discoverEmailsFromSearchSnippets(
   for (const row of rows) {
     const text = `${row.title || ''} ${row.snippet || ''}`
     for (const em of extractEmailsFromText(text, host)) {
+      if (isBlockedOutreachEmail(em)) continue
       hits.set(em, { email: em, source: 'web_snippet' })
     }
   }
@@ -521,10 +559,12 @@ export async function enrichCompanyOsint(
   const fast = opts?.fast === true
   let crawlHits: EmailHit[] = []
   try {
-    crawlHits = await crawlSiteEmails(domain, {
+    crawlHits = filterEmailHits(
+      await crawlSiteEmails(domain, {
       maxPages: fast ? 3 : 5,
       timeoutMs: fast ? 3500 : 4500,
-    })
+    }),
+    )
   } catch (e) {
     errors.push(e instanceof Error ? e.message : 'site_crawl failed')
   }
@@ -532,7 +572,7 @@ export async function enrichCompanyOsint(
   let sitemapHits: EmailHit[] = []
   if (!fast && timeLeft() > 4000) {
     try {
-      sitemapHits = await crawlSitemapHintPages(domain)
+      sitemapHits = filterEmailHits(await crawlSitemapHintPages(domain))
     } catch (e) {
       errors.push(e instanceof Error ? e.message : 'sitemap crawl failed')
     }
@@ -541,7 +581,9 @@ export async function enrichCompanyOsint(
   let snippetHits: EmailHit[] = []
   if (!fast && opts?.emailWebSearch !== false && timeLeft() > 3500) {
     try {
-      snippetHits = await discoverEmailsFromSearchSnippets(domain)
+      snippetHits = filterEmailHits(
+        await discoverEmailsFromSearchSnippets(domain),
+      )
     } catch (e) {
       errors.push(e instanceof Error ? e.message : 'web_snippet search failed')
     }
@@ -557,7 +599,7 @@ export async function enrichCompanyOsint(
     timeLeft() > 8000
   ) {
     const w = await fetchOsintWorker(domain, peopleForWorker.slice(0, 8))
-    workerHits = w.hits
+    workerHits = filterEmailHits(w.hits)
     workerPeople = w.people
     errors.push(...w.errors)
   }
@@ -595,6 +637,7 @@ export function findEmailForPersonOsint(
   const source_details: Record<string, unknown> = {}
 
   for (const hit of bundle.hits) {
+    if (isBlockedOutreachEmail(hit.email)) continue
     if (emailMatchesPerson(hit.email, first, last)) {
       sources.push(
         hit.source === 'site_crawl'
@@ -619,9 +662,11 @@ export function findEmailForPersonOsint(
       p.last_name?.toLowerCase() === last.toLowerCase() &&
       p.email,
   )
-  if (wp?.email) {
+  if (wp?.email && !isBlockedOutreachEmail(wp.email)) {
+    const email = sanitizeOutreachEmail(wp.email)
+    if (!email) return null
     return {
-      email: wp.email,
+      email,
       verification_status: wp.verification_status || 'mx_check',
       sources: wp.sources?.length ? wp.sources : ['pattern', 'verify_mx'],
       source_details: { worker: wp.source_details },
@@ -643,6 +688,7 @@ export async function discoverPersonEmailOsint(
   const pattern = bundle.pattern
   const candidates = generateEmailCandidates(first, last, domain, pattern, 3)
   for (const email of candidates) {
+    if (isBlockedOutreachEmail(email)) continue
     const fin = await finalizeOsintEmail(email, bundle, first, last)
     const status = fin.verification_status
     if (!status || status === 'invalid') continue

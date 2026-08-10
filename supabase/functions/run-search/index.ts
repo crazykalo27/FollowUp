@@ -15,6 +15,7 @@ import {
   finalizeOsintEmail,
   isHunterQuotaResponse,
   passesEmailVerification,
+  sanitizeOutreachEmail,
 } from '../_shared/email_discovery.ts'
 import {
   formatProfileLocation,
@@ -410,7 +411,8 @@ function mergeCandidate(into: Candidate, from: Candidate): Candidate {
     last_name: into.last_name || from.last_name,
     full_name: into.full_name || from.full_name,
     title: into.title || from.title,
-    email: into.email || from.email,
+    email:
+      sanitizeOutreachEmail(into.email) || sanitizeOutreachEmail(from.email),
     linkedin_url: into.linkedin_url || from.linkedin_url,
     location: pickBetterLocation(into, from),
     verification_status: into.verification_status || from.verification_status,
@@ -717,7 +719,7 @@ async function searchHunter(
         last_name: p.last_name || null,
         full_name: full || null,
         title: p.position || null,
-        email: p.value || null,
+        email: sanitizeOutreachEmail(p.value || null),
         linkedin_url: p.linkedin || null,
         location: null,
         verification_status: p.verification?.status || null,
@@ -2582,15 +2584,18 @@ Deno.serve(async (req) => {
               hunterState,
             )
             if (found?.email) {
-              cand.email = found.email
-              cand.verification_status =
-                found.verification_status || cand.verification_status
-              if (!cand.sources.includes('hunter')) {
-                cand.sources.push('hunter')
-              }
-              cand.source_details.hunter_email = {
-                via: 'email-finder',
-                domain,
+              const em = sanitizeOutreachEmail(found.email)
+              if (em) {
+                cand.email = em
+                cand.verification_status =
+                  found.verification_status || cand.verification_status
+                if (!cand.sources.includes('hunter')) {
+                  cand.sources.push('hunter')
+                }
+                cand.source_details.hunter_email = {
+                  via: 'email-finder',
+                  domain,
+                }
               }
             }
           }
@@ -2629,26 +2634,31 @@ Deno.serve(async (req) => {
               // skip person osint
             }
             if (osint.email) {
-              cand.email = osint.email
-              cand.verification_status =
-                osint.verification_status || cand.verification_status
-              for (const s of osint.sources) {
-                if (!cand.sources.includes(s)) cand.sources.push(s)
-              }
-              cand.source_details = {
-                ...cand.source_details,
-                ...osint.source_details,
-              }
-              for (const s of osint.sources) {
-                if (source_stats[s]) {
-                  source_stats[s].people_found += 1
-                } else if (source_stats.osint) {
-                  source_stats.osint.people_found += 1
+              const em = sanitizeOutreachEmail(osint.email)
+              if (em) {
+                cand.email = em
+                cand.verification_status =
+                  osint.verification_status || cand.verification_status
+                for (const s of osint.sources) {
+                  if (!cand.sources.includes(s)) cand.sources.push(s)
+                }
+                cand.source_details = {
+                  ...cand.source_details,
+                  ...osint.source_details,
+                }
+                for (const s of osint.sources) {
+                  if (source_stats[s]) {
+                    source_stats[s].people_found += 1
+                  } else if (source_stats.osint) {
+                    source_stats.osint.people_found += 1
+                  }
                 }
               }
             }
           }
         }
+
+        cand.email = sanitizeOutreachEmail(cand.email)
 
         if (cand.email) {
           for (const s of cand.sources) {

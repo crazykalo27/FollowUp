@@ -1,5 +1,6 @@
 # Agent change log
 
+- Search email discovery: ignore @dice.com addresses
 - Keep reason: Great application connection
 - Application extract: bigger Extract beside Search (centered); location field; first-person role summary; light project/summary search hints
 - Application search mode: paste JD, extract company/role/projects, find related technical people
