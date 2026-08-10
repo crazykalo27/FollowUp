@@ -71,6 +71,7 @@ const DISCARD_REASONS = [
 const KEEP_REASONS = [
   { id: 'great_location', label: 'Great location' },
   { id: 'great_hiring_connection', label: 'Great hiring connection' },
+  { id: 'great_application_connection', label: 'Great application connection' },
   { id: 'great_industry_match', label: 'Great industry match' },
   { id: 'great_job_type_match', label: 'Great job type match' },
 ] as const

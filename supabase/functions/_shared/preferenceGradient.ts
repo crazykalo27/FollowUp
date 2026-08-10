@@ -295,6 +295,10 @@ export function applyDecisionGradient(
       if (reasons.has('great_hiring_connection') && title) {
         bump(next.include_titles, title, lr * 0.6)
       }
+      if (reasons.has('great_application_connection') && title) {
+        bump(next.include_titles, title, lr * 0.7)
+        bump(next.roles, title, lr * 0.35)
+      }
     } else {
       // Discard: apply contrastive note polarity first (REJECT vs PREFER)
       if (
