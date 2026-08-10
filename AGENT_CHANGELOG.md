@@ -1,5 +1,6 @@
 # Agent change log
 
+- Contacts review: slightly taller/narrower active card; full-width stage so left/right peek cards stay visible for switching
 - Contacts review: significantly wider active card (scales with panel); denser multi-column fields; height-capped card + sticky Keep/Discard so actions stay on screen
 - Search email discovery: ignore @dice.com addresses
 - Keep reason: Great application connection
