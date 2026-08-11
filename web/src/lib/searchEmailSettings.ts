@@ -3,12 +3,14 @@ import { DEFAULT_FILTERS, type SearchFiltersData } from '../types/database'
 
 export type SearchEmailSettings = {
   enable_hunter: boolean
+  enable_apollo: boolean
   require_verified_email: boolean
   accept_accept_all: boolean
 }
 
 export const DEFAULT_SEARCH_EMAIL_SETTINGS: SearchEmailSettings = {
   enable_hunter: false,
+  enable_apollo: false,
   require_verified_email: false,
   accept_accept_all: true,
 }
@@ -22,6 +24,7 @@ export function emailSettingsFromFilters(
   }
   return {
     enable_hunter: raw.enable_hunter === true,
+    enable_apollo: raw.enable_apollo === true,
     require_verified_email: raw.require_verified_email === true,
     accept_accept_all: raw.accept_accept_all !== false,
   }
@@ -57,6 +60,7 @@ export async function saveSearchEmailSettings(
     ...DEFAULT_FILTERS,
     ...prev,
     enable_hunter: settings.enable_hunter,
+    enable_apollo: settings.enable_apollo,
     require_verified_email: settings.require_verified_email,
     accept_accept_all: settings.accept_accept_all,
   }

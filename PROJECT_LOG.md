@@ -1,3 +1,12 @@
+## 2026-08-11 — Apollo email enrichment; Proxycurl removed
+
+- Apollo.io `people/match` integrated for optional email lookup (`enable_apollo` in Settings, `APOLLO_API_KEY` secret).
+- Email pipeline order when enabled: Apollo → Hunter → OSINT (sequential; skip later steps if email found).
+- Apollo location always overrides web-inferred location; Apollo enrichment runs even when email already known.
+- LinkedIn location heuristics tightened — reject job titles/headlines (e.g. "Director, Engineering"); prefer trailing SERP segments and geo signals.
+- Proxycurl people search and profile backfill removed/disabled.
+- Web search (LinkedIn) + OSINT remain the default people/email discovery path.
+
 ## 2026-08-11 — Email provenance on contact cards
 
 - Contact cards show whether the email was **Found** (Hunter / company site / web) or **Guessed** (name pattern), plus verification (verified / likely / MX-only).

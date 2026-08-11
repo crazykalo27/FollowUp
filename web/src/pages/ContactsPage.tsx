@@ -56,6 +56,7 @@ type ContactRow = {
       responsibilities?: string[]
     }
     websearch?: { location?: string; snippet?: string }
+    apollo?: { location?: string; via?: string; domain?: string; apollo_id?: string | null; headline?: string | null }
   } | null
   application_context?: {
     company?: string
@@ -116,8 +117,8 @@ function personDiscoverySources(r: ContactRow): string[] {
 function formatSourceLabel(source: string) {
   const labels: Record<string, string> = {
     hunter: 'Hunter.io',
+    apollo: 'Apollo.io',
     websearch: 'Web search',
-    proxycurl: 'Proxycurl',
     site_crawl: 'Company site',
     pattern: 'Email pattern',
     verify_mx: 'MX verified',
@@ -129,9 +130,14 @@ function formatSourceLabel(source: string) {
 }
 
 function contactLocation(contact: ContactRow): string | null {
+  const sd = contact.source_details
+  const apolloLoc = sd?.apollo?.location
+  if (typeof apolloLoc === 'string' && apolloLoc.trim()) {
+    return apolloLoc.trim()
+  }
+
   const stored = contact.location?.trim()
   if (stored && looksLikeLocationString(stored)) return stored
-  const sd = contact.source_details
   if (!sd) return stored || null
   if (typeof sd.location === 'string' && sd.location.trim()) {
     const fromSd = sd.location.trim()
@@ -146,7 +152,7 @@ function contactLocation(contact: ContactRow): string | null {
   if (typeof snippet === 'string') {
     return parseLocationFromLinkedInSnippet(snippet)
   }
-  return null
+  return stored && looksLikeLocationString(stored) ? stored : null
 }
 
 function ContactDetail({

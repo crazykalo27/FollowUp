@@ -47,6 +47,8 @@ export interface SearchFiltersData {
   accept_accept_all: boolean
   /** Use Hunter.io for domain search + email find/verify (uses API credits). */
   enable_hunter?: boolean
+  /** Use Apollo people/match for email enrichment before Hunter/OSINT. */
+  enable_apollo?: boolean
 }
 
 export const DEFAULT_FILTERS: SearchFiltersData = {
@@ -73,6 +75,7 @@ export const DEFAULT_FILTERS: SearchFiltersData = {
   require_verified_email: false,
   accept_accept_all: true,
   enable_hunter: false,
+  enable_apollo: false,
 }
 
 export interface Database {

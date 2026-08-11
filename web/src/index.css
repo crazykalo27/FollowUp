@@ -1878,6 +1878,11 @@ th {
   }
 }
 
+.pill.source-apollo {
+  border-color: rgba(180, 200, 255, 0.5);
+  color: #b8c8ff;
+}
+
 .pill.source-proxycurl {
   border-color: rgba(255, 180, 120, 0.5);
   color: #ffc49a;

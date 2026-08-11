@@ -9,6 +9,7 @@ import {
   scoreOutreachTitle,
   titleMatchesFilters,
 } from '../_shared/cors.ts'
+import { apolloEnrichPerson } from '../_shared/apollo.ts'
 import {
   discoverPersonEmailOsint,
   enrichCompanyOsint,
@@ -19,8 +20,8 @@ import {
   buildEmailProvenance,
 } from '../_shared/email_discovery.ts'
 import {
-  formatProfileLocation,
   parseLocationFromLinkedInSnippet,
+  parseLocationFromLinkedInTitle,
   pickBetterLocation,
   looksLikeLocationString,
 } from '../_shared/linkedin_location.ts'
@@ -68,6 +69,8 @@ type Filters = {
   accept_accept_all: boolean
   /** When false, email find/verify uses OSINT pipeline only. */
   enable_hunter?: boolean
+  /** When true, Apollo people/match runs before Hunter/OSINT for email lookup. */
+  enable_apollo?: boolean
   company_size_min?: number | null
   company_size_max?: number | null
   seniority?: string[]
@@ -790,56 +793,28 @@ async function hunterEmailVerifier(
   }
 }
 
-async function fetchProxycurlProfileLocation(
-  linkedinUrl: string,
-): Promise<string | null> {
-  const key = Deno.env.get('PROXYCURL_API_KEY')
-  if (!key) return null
+async function apolloEmailLookup(
+  domain: string,
+  first_name: string,
+  last_name: string,
+  stats: SourceStats,
+  opts?: { linkedin_url?: string | null; company_name?: string | null },
+): Promise<Awaited<ReturnType<typeof apolloEnrichPerson>> | null> {
+  if (!Deno.env.get('APOLLO_API_KEY')) return null
   try {
-    const url = new URL('https://nubela.co/proxycurl/api/linkedin')
-    url.searchParams.set('url', linkedinUrl)
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${key}` },
-    })
-    if (!res.ok) return null
-    const body = await res.json()
-    return formatProfileLocation(body)
-  } catch {
+    stats.attempted += 1
+    const result = await apolloEnrichPerson(
+      domain,
+      first_name,
+      last_name,
+      opts,
+    )
+    if (result?.email) stats.people_found += 1
+    return result
+  } catch (e) {
+    stats.errors.push(e instanceof Error ? e.message : 'Apollo failed')
     return null
   }
-}
-
-async function backfillLinkedInLocations(
-  candidates: Iterable<Candidate>,
-  maxProfiles: number,
-): Promise<void> {
-  if (!Deno.env.get('PROXYCURL_API_KEY')) return
-  const need = [...candidates]
-    .filter(
-      (c) =>
-        c.linkedin_url &&
-        !c.location?.trim() &&
-        !c.sources.includes('proxycurl'),
-    )
-    .slice(0, maxProfiles)
-  await Promise.all(
-    need.map(async (c) => {
-      const loc = await fetchProxycurlProfileLocation(c.linkedin_url!)
-      if (!loc) return
-      c.location = loc
-      c.sources = [...new Set([...c.sources, 'proxycurl'])]
-      c.source_details = {
-        ...c.source_details,
-        proxycurl: {
-          ...(typeof c.source_details?.proxycurl === 'object'
-            ? (c.source_details.proxycurl as Record<string, unknown>)
-            : {}),
-          via: 'v2/linkedin',
-          location: loc,
-        },
-      }
-    }),
-  )
 }
 
 function parseLinkedInTitle(title: string, companyName: string): {
@@ -860,7 +835,6 @@ function parseLinkedInTitle(title: string, companyName: string): {
 
   const full_name = parts[0] || null
   let person_title: string | null = null
-  let location: string | null = null
   const companyLower = companyName.toLowerCase()
 
   for (let i = 1; i < parts.length; i++) {
@@ -868,13 +842,11 @@ function parseLinkedInTitle(title: string, companyName: string): {
     if (segment.toLowerCase() === companyLower) continue
     if (!person_title) {
       person_title = segment
-      continue
-    }
-    if (looksLikeLocationString(segment)) {
-      location = segment
       break
     }
   }
+
+  const location = parseLocationFromLinkedInTitle(title, companyName)
   return { full_name, person_title, location }
 }
 
@@ -1033,82 +1005,6 @@ async function searchWebLinkedIn(
     return out
   } catch (e) {
     stats.errors.push(e instanceof Error ? e.message : 'Web search failed')
-    return []
-  }
-}
-
-async function searchProxycurl(
-  domain: string,
-  companyName: string,
-  titles: string[],
-  stats: SourceStats,
-): Promise<Candidate[]> {
-  const key = Deno.env.get('PROXYCURL_API_KEY')
-  if (!key) return []
-  stats.attempted += 1
-
-  try {
-    const roleExpr = titles
-      .slice(0, 6)
-      .map((t) => t.replace(/[()]/g, ' ').trim())
-      .filter(Boolean)
-      .join(' OR ')
-
-    const url = new URL('https://nubela.co/proxycurl/api/v2/search/person')
-    url.searchParams.set('current_company_domain_name', domain)
-    if (roleExpr) url.searchParams.set('current_role_title', roleExpr)
-    url.searchParams.set('page_size', '10')
-    url.searchParams.set('enrich_profiles', 'enrich')
-
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${key}` },
-    })
-    const body = await res.json()
-    if (!res.ok) {
-      stats.errors.push(body?.description || body?.error || `Proxycurl ${res.status}`)
-      return []
-    }
-
-    const results = (body.results || []) as Array<{
-      linkedin_profile_url?: string
-      profile?: {
-        full_name?: string
-        first_name?: string
-        last_name?: string
-        occupation?: string
-        city?: string
-        state?: string
-        country?: string
-        country_full_name?: string
-        experiences?: Array<{ title?: string }>
-      }
-    }>
-    stats.people_found += results.length
-    return results.map((r) => {
-      const profile = r.profile || {}
-      const title =
-        profile.occupation || profile.experiences?.[0]?.title || null
-      const full =
-        profile.full_name ||
-        [profile.first_name, profile.last_name].filter(Boolean).join(' ') ||
-        null
-      return {
-        first_name: profile.first_name || null,
-        last_name: profile.last_name || null,
-        full_name: full,
-        title,
-        email: null,
-        linkedin_url: r.linkedin_profile_url || null,
-        location: formatProfileLocation(profile),
-        verification_status: null,
-        sources: ['proxycurl'],
-        source_details: {
-          proxycurl: { via: 'v2/search/person', domain, company: companyName },
-        },
-      } satisfies Candidate
-    })
-  } catch (e) {
-    stats.errors.push(e instanceof Error ? e.message : 'Proxycurl failed')
     return []
   }
 }
@@ -1391,11 +1287,12 @@ Deno.serve(async (req) => {
     })
 
     const hunterKey = Deno.env.get('HUNTER_API_KEY')
-    const proxyKey = Deno.env.get('PROXYCURL_API_KEY')
+    const apolloKey = Deno.env.get('APOLLO_API_KEY')
     const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
     const serperKey = Deno.env.get('SERPER_API_KEY')
     const webConfigured = Boolean(bingKey || serperKey)
     const hunterEnabled = filters.enable_hunter === true
+    const apolloEnabled = filters.enable_apollo === true
     const osintWorkerConfigured = Boolean(Deno.env.get('OSINT_WORKER_URL'))
     const hunterState: HunterRunState = {
       quotaExhausted: false,
@@ -1405,10 +1302,17 @@ Deno.serve(async (req) => {
     const hunterNote = !hunterKey
       ? 'HUNTER_API_KEY missing'
       : !hunterEnabled
-        ? 'Disabled in Filters — OSINT email pipeline'
-        : 'Domain search (10/domain); finder/verify when credits available'
+        ? 'Disabled in Settings — skipped unless enabled'
+        : 'Domain search (10/domain); email-finder when Apollo/OSINT miss'
+
+    const apolloNote = !apolloKey
+      ? 'APOLLO_API_KEY missing'
+      : !apolloEnabled
+        ? 'Disabled in Settings — skipped unless enabled'
+        : 'People/match enrichment before Hunter/OSINT email lookup'
 
     const source_stats: Record<string, SourceStats> = {
+      apollo: emptyStats(Boolean(apolloKey) && apolloEnabled, apolloNote),
       hunter: emptyStats(Boolean(hunterKey) && hunterEnabled, hunterNote),
       osint: emptyStats(
         true,
@@ -1423,10 +1327,6 @@ Deno.serve(async (req) => {
             ? 'Serper → LinkedIn profile URLs'
             : 'Bing → LinkedIn profile URLs'
           : 'Set SERPER_API_KEY or BING_SEARCH_API_KEY',
-      ),
-      proxycurl: emptyStats(
-        Boolean(proxyKey),
-        proxyKey ? null : 'Optional — PROXYCURL_API_KEY',
       ),
     }
 
@@ -2109,6 +2009,7 @@ Deno.serve(async (req) => {
         location,
         webConfigured,
         hunterEnabled,
+        apolloEnabled,
         include: includeForRun,
         exclude:
           searchMode === 'application'
@@ -2259,7 +2160,6 @@ Deno.serve(async (req) => {
       let hunterPeople: Candidate[] = []
       let hunterOrg: string | null = null
       let webPeople: Candidate[] = []
-      let proxyPeople: Candidate[] = []
 
       const report: Record<string, unknown> = skipCompanySetup
         ? (pipeline!.company_reports[pipeline!.company_reports.length - 1] ?? {
@@ -2268,7 +2168,7 @@ Deno.serve(async (req) => {
             hiring_signal: company.hiring_signal || null,
             relevance: company.relevance || 0,
             source: company.source,
-            by_provider: { hunter: 0, websearch: 0, proxycurl: 0 },
+            by_provider: { websearch: 0, hunter: 0 },
             kept: 0,
             outcome: '',
           })
@@ -2278,7 +2178,7 @@ Deno.serve(async (req) => {
             hiring_signal: company.hiring_signal || null,
             relevance: company.relevance || 0,
             source: company.source,
-            by_provider: { hunter: 0, websearch: 0, proxycurl: 0 },
+            by_provider: { websearch: 0, hunter: 0 },
             kept: 0,
             outcome: '',
           }
@@ -2323,15 +2223,12 @@ Deno.serve(async (req) => {
 
       await syncProgress(admin, runId, progressMeta, {
         companyName: company.company_name,
-        companyStep: 'LinkedIn + Hunter domain search (parallel)',
+        companyStep: 'LinkedIn web search + optional Hunter domain search',
         companyProgress: 22,
         logLine: `${company.company_name}: searching people on ${domain}`,
       })
 
-      const [hunterResult, webHits, proxyHits] = await Promise.all([
-        hunterKey && hunterEnabled && !hunterState.quotaExhausted
-          ? searchHunter(domain, source_stats.hunter, hunterState)
-          : Promise.resolve({ people: [] as Candidate[], organization: null }),
+      const [webHits, hunterResult] = await Promise.all([
         webConfigured
           ? searchWebLinkedIn(
               company.company_name,
@@ -2343,19 +2240,13 @@ Deno.serve(async (req) => {
               linkedInSearchOpts,
             )
           : Promise.resolve([] as Candidate[]),
-        proxyKey
-          ? searchProxycurl(
-              domain,
-              company.company_name,
-              peopleTitlesRun,
-              source_stats.proxycurl,
-            )
-          : Promise.resolve([] as Candidate[]),
+        hunterKey && hunterEnabled && !hunterState.quotaExhausted
+          ? searchHunter(domain, source_stats.hunter, hunterState)
+          : Promise.resolve({ people: [] as Candidate[], organization: null }),
       ])
+      webPeople = webHits
       hunterPeople = hunterResult.people
       hunterOrg = hunterResult.organization
-      webPeople = webHits
-      proxyPeople = proxyHits
 
       canonicalName = pickCanonicalCompanyName(
         company.company_name,
@@ -2441,55 +2332,45 @@ Deno.serve(async (req) => {
       if (skipCompanySetup) {
         await syncProgress(admin, runId, progressMeta, {
           companyName: company.company_name,
-          companyStep: 'LinkedIn + broader web search (retry)',
+          companyStep: 'LinkedIn web search (retry)',
           companyProgress: 22,
           logLine: `${canonicalName}: retry ${webSearchRound} people search`,
         })
-        const [webHitsRetry, proxyHitsRetry] = await Promise.all([
-          webConfigured
-            ? searchWebLinkedIn(
-                company.company_name,
-                domain,
-                peopleTitlesRun,
-                source_stats.websearch,
-                deptKeywordsRun,
-                webSearchRound,
-                linkedInSearchOpts,
-              )
-            : Promise.resolve([] as Candidate[]),
-          proxyKey
-            ? searchProxycurl(
-                domain,
-                company.company_name,
-                peopleTitlesRun,
-                source_stats.proxycurl,
-              )
-            : Promise.resolve([] as Candidate[]),
-        ])
-        webPeople = webHitsRetry
-        proxyPeople = proxyHitsRetry
+        webPeople = webConfigured
+          ? await searchWebLinkedIn(
+              company.company_name,
+              domain,
+              peopleTitlesRun,
+              source_stats.websearch,
+              deptKeywordsRun,
+              webSearchRound,
+              linkedInSearchOpts,
+            )
+          : []
       }
 
       await syncProgress(admin, runId, progressMeta, {
-        message: `Scored ${canonicalName}: H${hunterPeople.length} / Web${webPeople.length} / P${proxyPeople.length}`,
+        message: `Scored ${canonicalName}: Web${webPeople.length} / H${hunterPeople.length}`,
         detail: `Domain ${domain}`,
         current_company: canonicalName,
         companyName: company.company_name,
-        companyStep: `Merged ${hunterPeople.length + webPeople.length + proxyPeople.length} raw hits — ranking titles`,
+        companyStep: `Merged ${webPeople.length + hunterPeople.length} raw hits — ranking titles`,
         companyProgress: 38,
         progress: computeRunProgress(progressMeta, i, 25),
-        logLine: `${canonicalName}: H${hunterPeople.length} Hunter · Web${webPeople.length} LinkedIn · P${proxyPeople.length} Proxycurl`,
+        logLine: `${canonicalName}: Web${webPeople.length} LinkedIn · H${hunterPeople.length} Hunter`,
       })
 
-      ;(report.by_provider as Record<string, number>).hunter = hunterPeople.length
       ;(report.by_provider as Record<string, number>).websearch = webPeople.length
-      ;(report.by_provider as Record<string, number>).proxycurl = proxyPeople.length
+      ;(report.by_provider as Record<string, number>).hunter = hunterPeople.length
 
       await syncProgress(admin, runId, progressMeta, {
         message: `${canonicalName}: scoring & emails…`,
-        detail: hunterEnabled && !hunterState.quotaExhausted
-          ? 'Outreach title score + Hunter / OSINT emails'
-          : 'Outreach title score + OSINT email pipeline',
+        detail:
+          apolloEnabled && apolloKey
+            ? 'Apollo → Hunter → OSINT email lookup'
+            : hunterEnabled && !hunterState.quotaExhausted
+              ? 'Hunter → OSINT emails'
+              : 'OSINT email pipeline',
         current_company: canonicalName,
         companyName: company.company_name,
         companyStep: 'Title fit scoring',
@@ -2497,13 +2378,11 @@ Deno.serve(async (req) => {
       })
 
       const merged = new Map<string, Candidate>()
-      for (const c of [...hunterPeople, ...webPeople, ...proxyPeople]) {
+      for (const c of [...webPeople, ...hunterPeople]) {
         const key = dedupeKey(c, domain)
         const prev = merged.get(key)
         merged.set(key, prev ? mergeCandidate(prev, c) : c)
       }
-
-      await backfillLinkedInLocations(merged.values(), 5)
 
       const peopleForOsint = [...merged.values()]
         .filter((c) => {
@@ -2631,8 +2510,55 @@ Deno.serve(async (req) => {
           if (source_stats[s]) source_stats[s].after_title_filter += 1
         }
 
-        if (!cand.email && cand.first_name && cand.last_name) {
+        if (cand.first_name && cand.last_name) {
+          if (apolloKey && apolloEnabled) {
+            const apollo = await apolloEmailLookup(
+              domain,
+              cand.first_name,
+              cand.last_name,
+              source_stats.apollo,
+              {
+                linkedin_url: cand.linkedin_url,
+                company_name: canonicalName,
+              },
+            )
+            if (apollo) {
+              if (apollo.title && !cand.title) cand.title = apollo.title
+              if (apollo.linkedin_url && !cand.linkedin_url) {
+                cand.linkedin_url = apollo.linkedin_url
+              }
+              if (apollo.location) {
+                cand.location = apollo.location
+              }
+              const apolloDetails = {
+                via: 'people/match',
+                domain,
+                apollo_id: apollo.apollo_id,
+                headline: apollo.headline,
+                ...(apollo.location ? { location: apollo.location } : {}),
+              }
+              if (apollo.email) {
+                const em = sanitizeOutreachEmail(apollo.email)
+                if (em) {
+                  cand.email = em
+                  cand.verification_status =
+                    apollo.verification_status || cand.verification_status
+                  if (!cand.sources.includes('apollo')) {
+                    cand.sources.push('apollo')
+                  }
+                  cand.source_details.apollo = apolloDetails
+                }
+              } else if (apollo.location || apollo.title || apollo.linkedin_url) {
+                if (!cand.sources.includes('apollo')) {
+                  cand.sources.push('apollo')
+                }
+                cand.source_details.apollo = apolloDetails
+              }
+            }
+          }
+
           if (
+            !cand.email &&
             hunterKey &&
             hunterEnabled &&
             !hunterState.quotaExhausted
@@ -2736,7 +2662,18 @@ Deno.serve(async (req) => {
         if (!cand.email) continue
 
         if (meta.require_verified_email === true) {
+          const apolloVerified =
+            apolloEnabled &&
+            cand.sources.includes('apollo') &&
+            Boolean(apolloKey) &&
+            passesEmailVerification(
+              cand.verification_status,
+              true,
+              meta.accept_accept_all,
+            )
+
           const hunterPrimary =
+            !apolloVerified &&
             hunterEnabled &&
             !hunterState.quotaExhausted &&
             cand.sources.includes('hunter') &&
@@ -2916,7 +2853,7 @@ Deno.serve(async (req) => {
         report.outcome =
           companyKept > 0
             ? `Kept ${companyKept}/${peopleGoal} new contact(s)${skippedDup ? ` · ${skippedDup} already on file` : ''}`
-            : `No new contacts kept (H${hunterPeople.length}/W${webPeople.length}/P${proxyPeople.length}${skippedDup ? ` · ${skippedDup} dup` : ''})`
+            : `No new contacts kept (Web${webPeople.length}/H${hunterPeople.length}${skippedDup ? ` · ${skippedDup} dup` : ''})`
         company_reports.push(report)
         markCompanyDone(progressMeta, company.company_name, report.outcome as string)
         pipeline!.company_ctx = null
@@ -3034,6 +2971,7 @@ Deno.serve(async (req) => {
       department_keywords: deptKeywordsRun.slice(0, 8),
       require_verified_email: meta.require_verified_email,
       enable_hunter: meta.hunterEnabled,
+      enable_apollo: meta.apolloEnabled,
       hunter_quota_exhausted: hunterState.quotaExhausted,
       max_companies_per_run: meta.maxCompanies,
       max_contacts_per_company: meta.maxPerCompany,
@@ -3049,7 +2987,6 @@ Deno.serve(async (req) => {
         relevance: c.relevance || 0,
         source: c.source,
       })),
-      note_apollo: 'Apollo removed — use Serper/Bing + Hunter instead.',
       known_contacts_before_run: contactIndex.total,
     }
 
@@ -3165,12 +3102,11 @@ function diagnose(
   const after =
     (stats.hunter?.after_title_filter || 0) +
     (stats.websearch?.after_title_filter || 0) +
-    (stats.proxycurl?.after_title_filter || 0) +
+    (stats.apollo?.after_title_filter || 0) +
     (stats.osint?.after_title_filter || 0)
   const found =
     (stats.hunter?.people_found || 0) +
-    (stats.websearch?.people_found || 0) +
-    (stats.proxycurl?.people_found || 0)
+    (stats.websearch?.people_found || 0)
   if (after === 0) {
     if (searchMode === 'application') {
       return found > 0
@@ -3180,7 +3116,7 @@ function diagnose(
     return `People found, but none scored above outreach threshold (includes: ${include.slice(0, 4).join(', ') || 'none'}). Widen Filters or lower seniority bar.`
   }
   if (searchMode === 'application') {
-    return 'People matched the application role, but emails failed find/verify. Try disabling "Require verified email" or enable Hunter in Filters.'
+    return 'People matched the application role, but emails failed find/verify. Try disabling "Require verified email" or enable Apollo/Hunter in Settings.'
   }
-  return 'People matched but emails failed find/verify. Try disabling "Require verified email" or enable Hunter in Filters.'
+    return 'People matched but emails failed find/verify. Try disabling "Require verified email" or enable Apollo/Hunter in Settings.'
 }

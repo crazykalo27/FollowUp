@@ -765,6 +765,7 @@ export type EmailProvenance = {
   method: 'found' | 'guessed'
   /** Where the address came from */
   origin:
+    | 'apollo'
     | 'hunter'
     | 'site_crawl'
     | 'web_snippet'
@@ -844,6 +845,8 @@ export function buildEmailProvenance(opts: {
   const pattern =
     typeof patternDetail?.inferred === 'string' ? patternDetail.inferred : null
 
+  const hasApollo =
+    sources.includes('apollo') || Boolean(details.apollo)
   const hasHunter =
     sources.includes('hunter') || Boolean(details.hunter_email) ||
     Boolean(details.hunter)
@@ -861,6 +864,9 @@ export function buildEmailProvenance(opts: {
   } else if (hasSnippet) {
     method = 'found'
     origin = 'web_snippet'
+  } else if (hasApollo || details.apollo) {
+    method = 'found'
+    origin = 'apollo'
   } else if (hasHunter || details.hunter_email) {
     method = 'found'
     origin = 'hunter'
@@ -885,6 +891,7 @@ export function buildEmailProvenance(opts: {
     detail = `Assembled from ${pLabel} pattern · ${verifyBit}`
   } else {
     const originLabel: Record<EmailProvenance['origin'], string> = {
+      apollo: 'Apollo.io',
       hunter: 'Hunter.io',
       site_crawl: 'company site',
       web_snippet: 'web results',
