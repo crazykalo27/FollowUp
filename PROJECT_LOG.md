@@ -1,3 +1,8 @@
+## 2026-08-11 — Email provenance on contact cards
+
+- Contact cards show whether the email was **Found** (Hunter / company site / web) or **Guessed** (name pattern), plus verification (verified / likely / MX-only).
+- New contacts store `source_details.email_provenance`; older contacts derive the same labels from sources + verification status.
+
 ## 2026-08-10 — Application search: JD-only targeting
 
 - Application mode no longer merges profile roles/industries/filters into people search; titles and keywords come from the pasted job description only.

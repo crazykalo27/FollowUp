@@ -1442,6 +1442,42 @@ th {
   margin-top: 0.2rem;
 }
 
+.contact-email-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.contact-email-provenance .contact-detail-verify {
+  display: inline;
+  margin-top: 0;
+  line-height: 1.35;
+}
+
+.pill.email-method {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+.pill.email-method-found {
+  color: #b8e0c8;
+  background: rgba(70, 140, 100, 0.22);
+  border-color: rgba(120, 190, 150, 0.35);
+}
+
+.pill.email-method-guessed {
+  color: #e6d4a8;
+  background: rgba(160, 120, 40, 0.22);
+  border-color: rgba(200, 160, 70, 0.35);
+}
+
 .contact-detail-link {
   color: var(--accent);
   text-decoration: underline;
