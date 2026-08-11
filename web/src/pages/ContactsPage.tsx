@@ -313,6 +313,34 @@ function ContactDetail({
   )
 }
 
+function ContactSelectCheckbox({
+  checked,
+  disabled,
+  label,
+  onToggle,
+}: {
+  checked: boolean
+  disabled?: boolean
+  label: string
+  onToggle: () => void
+}) {
+  return (
+    <label
+      className={`contact-select${checked ? ' checked' : ''}`}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        aria-label={label}
+        onChange={onToggle}
+      />
+    </label>
+  )
+}
+
 export function ContactsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -338,6 +366,8 @@ export function ContactsPage() {
   const [selectedReasons, setSelectedReasons] = useState<string[]>([])
   const [discardNote, setDiscardNote] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<ContactRow | null>(null)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [discardCompanyOpen, setDiscardCompanyOpen] = useState(false)
   const [swipeDir, setSwipeDir] = useState<'left' | 'right' | null>(null)
   const [tab, setTab] = useState<'review' | 'kept' | 'archived'>('review')
@@ -580,7 +610,7 @@ export function ContactsPage() {
   }
 
   function enqueueContactAction(
-    action: 'archive' | 'delete',
+    action: 'archive' | 'delete' | 'restore',
     contactId: string,
     snapshot: ContactRow,
   ) {
@@ -760,6 +790,41 @@ export function ContactsPage() {
     setTab('kept')
   }, [pickKeptForDraft])
 
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setBulkDeleteOpen(false)
+  }, [tab])
+
+  useEffect(() => {
+    const valid = new Set(rows.map((r) => r.id))
+    setSelectedIds((prev) => {
+      let changed = false
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (valid.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [rows])
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectAllFrom(list: ContactRow[]) {
+    setSelectedIds(new Set(list.map((r) => r.id)))
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set())
+  }
+
   function archiveContact(row: ContactRow) {
     if (busy) return
     const snapshot = row
@@ -768,8 +833,32 @@ export function ContactsPage() {
         r.id === row.id ? { ...r, review_status: 'archived' } : r,
       ),
     )
+    setSelectedIds((prev) => {
+      if (!prev.has(row.id)) return prev
+      const next = new Set(prev)
+      next.delete(row.id)
+      return next
+    })
     setMsg(`Archived ${row.full_name || 'contact'} (no negative signal).`)
     enqueueContactAction('archive', row.id, snapshot)
+  }
+
+  function restoreContact(row: ContactRow) {
+    if (busy) return
+    const snapshot = row
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === row.id ? { ...r, review_status: 'kept' } : r,
+      ),
+    )
+    setSelectedIds((prev) => {
+      if (!prev.has(row.id)) return prev
+      const next = new Set(prev)
+      next.delete(row.id)
+      return next
+    })
+    setMsg(`Restored ${row.full_name || 'contact'} to Kept.`)
+    enqueueContactAction('restore', row.id, snapshot)
   }
 
   function deleteContact(row: ContactRow) {
@@ -777,8 +866,102 @@ export function ContactsPage() {
     const snapshot = row
     setDeleteTarget(null)
     setRows((prev) => prev.filter((r) => r.id !== row.id))
+    setSelectedIds((prev) => {
+      if (!prev.has(row.id)) return prev
+      const next = new Set(prev)
+      next.delete(row.id)
+      return next
+    })
+    if (activeId === row.id) {
+      const remaining = pending.filter((p) => p.id !== row.id)
+      setActiveId(remaining[0]?.id || null)
+    }
     setMsg(`Deleted ${row.full_name || 'contact'}.`)
     enqueueContactAction('delete', row.id, snapshot)
+  }
+
+  function selectedFrom(list: ContactRow[]) {
+    return list.filter((r) => selectedIds.has(r.id))
+  }
+
+  function archiveSelected(list: ContactRow[]) {
+    const targets = selectedFrom(list)
+    if (busy || targets.length === 0) return
+    for (const row of targets) {
+      archiveContact(row)
+    }
+    clearSelection()
+    setMsg(`Archived ${targets.length} contact(s).`)
+  }
+
+  function restoreSelected(list: ContactRow[]) {
+    const targets = selectedFrom(list)
+    if (busy || targets.length === 0) return
+    for (const row of targets) {
+      restoreContact(row)
+    }
+    clearSelection()
+    setMsg(`Restored ${targets.length} contact(s) to Kept.`)
+  }
+
+  function confirmBulkDelete() {
+    const targets = rows.filter((r) => selectedIds.has(r.id))
+    if (busy || targets.length === 0) return
+    setBulkDeleteOpen(false)
+    const deletingActive = activeId != null && selectedIds.has(activeId)
+    const snapshots = targets
+    setRows((prev) => prev.filter((r) => !selectedIds.has(r.id)))
+    if (deletingActive) {
+      const remaining = pending.filter((p) => !selectedIds.has(p.id))
+      setActiveId(remaining[0]?.id || null)
+    }
+    clearSelection()
+    setMsg(`Deleted ${snapshots.length} contact(s).`)
+    for (const row of snapshots) {
+      enqueueContactAction('delete', row.id, row)
+    }
+  }
+
+  async function draftSelected(list: ContactRow[]) {
+    const targets = selectedFrom(list).filter((r) => r.email)
+    if (targets.length === 0) {
+      setMsg('Select kept contacts that have an email address.')
+      return
+    }
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await invokeFunction<{
+        drafts: unknown[]
+        skipped_already_sent?: Array<{ contact_id: string; name: string | null }>
+      }>('draft-emails', {
+        contact_ids: targets.map((r) => r.id).slice(0, 15),
+      })
+      const skipped = res.skipped_already_sent?.length ?? 0
+      const created = res.drafts.length
+      for (const r of targets) {
+        if (!res.skipped_already_sent?.some((s) => s.contact_id === r.id)) {
+          setDraftedContactIds((prev) => new Set(prev).add(r.id))
+        }
+      }
+      if (created === 0 && skipped > 0) {
+        setMsg(
+          'No new drafts — selected contacts already have outreach sent. Follow up in Gmail.',
+        )
+      } else if (skipped > 0) {
+        setMsg(
+          `Created ${created} draft(s). Skipped ${skipped} already sent — follow up in Gmail.`,
+        )
+      } else {
+        setMsg(`Created ${created} draft(s) for selected contacts.`)
+      }
+      clearSelection()
+      void load()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Drafting failed')
+    } finally {
+      setBusy(false)
+    }
   }
 
   function applyFavoriteCompany() {
@@ -1198,19 +1381,61 @@ export function ContactsPage() {
             <section className="review-deck-list" aria-label="All pending contacts">
               <h2>All pending</h2>
               <p className="muted small">
-                Click a card to review it in the carousel above.
+                Click a card to review it in the carousel above. Select cards to
+                delete in bulk (keep/discard stay one at a time).
               </p>
+              <div className="selection-toolbar">
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  disabled={busy || pending.length === 0}
+                  onClick={() =>
+                    selectedIds.size === pending.length
+                      ? clearSelection()
+                      : selectAllFrom(pending)
+                  }
+                >
+                  {selectedIds.size === pending.length && pending.length > 0
+                    ? 'Clear selection'
+                    : 'Select all'}
+                </button>
+                {selectedIds.size > 0 && (
+                  <>
+                    <span className="muted small">
+                      {selectedIds.size} selected
+                    </span>
+                    <button
+                      type="button"
+                      className="btn ghost small swipe-discard"
+                      disabled={busy}
+                      onClick={() => setBulkDeleteOpen(true)}
+                    >
+                      Delete selected
+                    </button>
+                  </>
+                )}
+              </div>
               <div className="contact-grid">
                 {pending.map((r) => (
-                  <button
+                  <article
                     key={r.id}
-                    type="button"
-                    className={`contact-card selectable ${r.id === current?.id ? 'highlighted' : ''}`}
-                    onClick={() => selectContact(r.id)}
-                    disabled={busy}
+                    className={`contact-card selectable ${r.id === current?.id ? 'highlighted' : ''} ${selectedIds.has(r.id) ? 'is-selected' : ''}`}
                   >
-                    <ContactDetail contact={r} />
-                  </button>
+                    <ContactSelectCheckbox
+                      checked={selectedIds.has(r.id)}
+                      disabled={busy}
+                      label={`Select ${r.full_name || 'contact'}`}
+                      onToggle={() => toggleSelected(r.id)}
+                    />
+                    <button
+                      type="button"
+                      className="contact-card-hit"
+                      onClick={() => selectContact(r.id)}
+                      disabled={busy}
+                    >
+                      <ContactDetail contact={r} />
+                    </button>
+                  </article>
                 ))}
               </div>
             </section>
@@ -1232,9 +1457,67 @@ export function ContactsPage() {
               </button>
             </div>
           )}
+          {kept.length > 0 && (
+            <div className="selection-toolbar">
+              <button
+                type="button"
+                className="btn ghost small"
+                disabled={busy}
+                onClick={() =>
+                  selectedIds.size === kept.length
+                    ? clearSelection()
+                    : selectAllFrom(kept)
+                }
+              >
+                {selectedIds.size === kept.length ? 'Clear selection' : 'Select all'}
+              </button>
+              {selectedIds.size > 0 && (
+                <>
+                  <span className="muted small">{selectedIds.size} selected</span>
+                  <button
+                    type="button"
+                    className="btn primary small"
+                    disabled={busy}
+                    onClick={() => void draftSelected(kept)}
+                  >
+                    Draft for selected
+                  </button>
+                  {!pickKeptForDraft && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn ghost small"
+                        disabled={busy}
+                        onClick={() => archiveSelected(kept)}
+                      >
+                        Archive selected
+                      </button>
+                      <button
+                        type="button"
+                        className="btn ghost small swipe-discard"
+                        disabled={busy}
+                        onClick={() => setBulkDeleteOpen(true)}
+                      >
+                        Delete selected
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <div className="contact-grid">
             {kept.map((r) => (
-              <article key={r.id} className="contact-card">
+              <article
+                key={r.id}
+                className={`contact-card ${selectedIds.has(r.id) ? 'is-selected' : ''}`}
+              >
+                <ContactSelectCheckbox
+                  checked={selectedIds.has(r.id)}
+                  disabled={busy}
+                  label={`Select ${r.full_name || 'contact'}`}
+                  onToggle={() => toggleSelected(r.id)}
+                />
                 <ContactDetail contact={r} />
                 <div className="actions contact-manage">
                   {sentOutreachIds.has(r.id) ? (
@@ -1303,11 +1586,67 @@ export function ContactsPage() {
             Archived contacts are hidden from your active list. Archiving does not
             teach the AI to avoid them.
           </p>
+          {archived.length > 0 && (
+            <div className="selection-toolbar">
+              <button
+                type="button"
+                className="btn ghost small"
+                disabled={busy}
+                onClick={() =>
+                  selectedIds.size === archived.length
+                    ? clearSelection()
+                    : selectAllFrom(archived)
+                }
+              >
+                {selectedIds.size === archived.length
+                  ? 'Clear selection'
+                  : 'Select all'}
+              </button>
+              {selectedIds.size > 0 && (
+                <>
+                  <span className="muted small">{selectedIds.size} selected</span>
+                  <button
+                    type="button"
+                    className="btn ghost small"
+                    disabled={busy}
+                    onClick={() => restoreSelected(archived)}
+                  >
+                    Restore selected
+                  </button>
+                  <button
+                    type="button"
+                    className="btn ghost small swipe-discard"
+                    disabled={busy}
+                    onClick={() => setBulkDeleteOpen(true)}
+                  >
+                    Delete selected
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           <div className="contact-grid">
             {archived.map((r) => (
-              <article key={r.id} className="contact-card">
+              <article
+                key={r.id}
+                className={`contact-card ${selectedIds.has(r.id) ? 'is-selected' : ''}`}
+              >
+                <ContactSelectCheckbox
+                  checked={selectedIds.has(r.id)}
+                  disabled={busy}
+                  label={`Select ${r.full_name || 'contact'}`}
+                  onToggle={() => toggleSelected(r.id)}
+                />
                 <ContactDetail contact={r} />
                 <div className="actions contact-manage">
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    disabled={busy}
+                    onClick={() => restoreContact(r)}
+                  >
+                    Restore
+                  </button>
                   <button
                     type="button"
                     className="btn ghost"
@@ -1360,6 +1699,45 @@ export function ContactsPage() {
                 onClick={() => deleteContact(deleteTarget)}
               >
                 Delete permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkDeleteOpen && selectedIds.size > 0 && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => !busy && setBulkDeleteOpen(false)}
+        >
+          <div
+            className="modal"
+            role="dialog"
+            aria-labelledby="bulk-delete-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="bulk-delete-title">Delete selected contacts?</h2>
+            <p className="muted small">
+              Permanently removes <strong>{selectedIds.size}</strong> contact(s)
+              and their drafts. This does not update AI preferences.
+            </p>
+            <div className="actions">
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={busy}
+                onClick={() => setBulkDeleteOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn swipe-discard"
+                disabled={busy}
+                onClick={() => confirmBulkDelete()}
+              >
+                Delete {selectedIds.size} permanently
               </button>
             </div>
           </div>

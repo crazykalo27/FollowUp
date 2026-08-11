@@ -305,7 +305,11 @@ Deno.serve(async (req) => {
     const body = await req.json()
     const contactId = body.contact_id as string
     const companyAction = body.company_action as 'discard_all' | 'favorite' | undefined
-    const contactAction = body.action as 'archive' | 'delete' | undefined
+    const contactAction = body.action as
+      | 'archive'
+      | 'delete'
+      | 'restore'
+      | undefined
     const decision = body.decision as 'keep' | 'discard' | undefined
     const reasons = (body.reasons || []) as string[]
     const note = typeof body.note === 'string' ? body.note.trim() : ''
@@ -338,7 +342,11 @@ Deno.serve(async (req) => {
       companies: company,
     })
 
-    if (contactAction === 'archive' || contactAction === 'delete') {
+    if (
+      contactAction === 'archive' ||
+      contactAction === 'delete' ||
+      contactAction === 'restore'
+    ) {
       if (contactAction === 'archive') {
         await admin
           .from('contacts')
@@ -353,6 +361,22 @@ Deno.serve(async (req) => {
           reasons: [],
           note: note || null,
         })
+      } else if (contactAction === 'restore') {
+        const { data: restored, error: restoreErr } = await admin
+          .from('contacts')
+          .update({ review_status: 'kept' })
+          .eq('id', contactId)
+          .eq('user_id', user.id)
+          .eq('review_status', 'archived')
+          .select('id')
+          .maybeSingle()
+
+        if (restoreErr) {
+          return errorResponse(restoreErr.message, 500)
+        }
+        if (!restored) {
+          return errorResponse('Archived contact not found', 404)
+        }
       } else {
         await admin
           .from('contacts')

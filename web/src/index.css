@@ -1328,11 +1328,79 @@ th {
 .contact-card {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 1.35rem 1.5rem;
+  padding: 1.7rem 1.5rem 1.35rem 2.15rem;
   background: rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
   gap: 0;
+  position: relative;
+}
+
+.contact-card.is-selected {
+  border-color: rgba(196, 240, 76, 0.55);
+  box-shadow: 0 0 0 1px rgba(196, 240, 76, 0.35);
+  background: rgba(196, 240, 76, 0.07);
+}
+
+.contact-select {
+  position: absolute;
+  top: 0.65rem;
+  left: 0.65rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.contact-select.checked {
+  border-color: rgba(196, 240, 76, 0.7);
+  background: rgba(196, 240, 76, 0.18);
+}
+
+.contact-select input {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.contact-card-hit {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.contact-card-hit:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
+
+.selection-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  margin: 0.85rem 0 0.15rem;
+}
+
+.btn.small {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
 }
 
 .contact-card-top {
@@ -1871,7 +1939,6 @@ th {
 }
 
 .contact-card.selectable {
-  cursor: pointer;
   text-align: left;
   font: inherit;
   color: inherit;
@@ -1879,7 +1946,7 @@ th {
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
-.contact-card.selectable:hover:not(:disabled) {
+.contact-card.selectable:hover {
   border-color: rgba(196, 240, 76, 0.45);
   transform: translateY(-1px);
 }
@@ -1890,9 +1957,9 @@ th {
   background: rgba(196, 240, 76, 0.08);
 }
 
-.contact-card.selectable:disabled {
-  opacity: 0.7;
-  cursor: wait;
+.contact-card.selectable .contact-detail,
+.contact-card .contact-detail {
+  padding-top: 0;
 }
 
 .swipe-card {
