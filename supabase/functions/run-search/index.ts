@@ -21,6 +21,7 @@ import {
 } from '../_shared/email_discovery.ts'
 import {
   parseLocationFromLinkedInSnippet,
+  parseLocationFromLinkedInTitle,
   pickBetterLocation,
   looksLikeLocationString,
 } from '../_shared/linkedin_location.ts'
@@ -834,7 +835,6 @@ function parseLinkedInTitle(title: string, companyName: string): {
 
   const full_name = parts[0] || null
   let person_title: string | null = null
-  let location: string | null = null
   const companyLower = companyName.toLowerCase()
 
   for (let i = 1; i < parts.length; i++) {
@@ -842,13 +842,11 @@ function parseLinkedInTitle(title: string, companyName: string): {
     if (segment.toLowerCase() === companyLower) continue
     if (!person_title) {
       person_title = segment
-      continue
-    }
-    if (looksLikeLocationString(segment)) {
-      location = segment
       break
     }
   }
+
+  const location = parseLocationFromLinkedInTitle(title, companyName)
   return { full_name, person_title, location }
 }
 
@@ -2512,7 +2510,7 @@ Deno.serve(async (req) => {
           if (source_stats[s]) source_stats[s].after_title_filter += 1
         }
 
-        if (!cand.email && cand.first_name && cand.last_name) {
+        if (cand.first_name && cand.last_name) {
           if (apolloKey && apolloEnabled) {
             const apollo = await apolloEmailLookup(
               domain,
@@ -2529,7 +2527,16 @@ Deno.serve(async (req) => {
               if (apollo.linkedin_url && !cand.linkedin_url) {
                 cand.linkedin_url = apollo.linkedin_url
               }
-              if (apollo.location && !cand.location) cand.location = apollo.location
+              if (apollo.location) {
+                cand.location = apollo.location
+              }
+              const apolloDetails = {
+                via: 'people/match',
+                domain,
+                apollo_id: apollo.apollo_id,
+                headline: apollo.headline,
+                ...(apollo.location ? { location: apollo.location } : {}),
+              }
               if (apollo.email) {
                 const em = sanitizeOutreachEmail(apollo.email)
                 if (em) {
@@ -2539,13 +2546,13 @@ Deno.serve(async (req) => {
                   if (!cand.sources.includes('apollo')) {
                     cand.sources.push('apollo')
                   }
-                  cand.source_details.apollo = {
-                    via: 'people/match',
-                    domain,
-                    apollo_id: apollo.apollo_id,
-                    headline: apollo.headline,
-                  }
+                  cand.source_details.apollo = apolloDetails
                 }
+              } else if (apollo.location || apollo.title || apollo.linkedin_url) {
+                if (!cand.sources.includes('apollo')) {
+                  cand.sources.push('apollo')
+                }
+                cand.source_details.apollo = apolloDetails
               }
             }
           }
