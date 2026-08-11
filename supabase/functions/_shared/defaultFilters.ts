@@ -24,4 +24,5 @@ export const DEFAULT_SEARCH_FILTERS = {
   accept_accept_all: true,
   enable_hunter: false,
   enable_apollo: false,
+  enable_smtp_verify: false,
 }

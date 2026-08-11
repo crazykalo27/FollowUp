@@ -7,6 +7,7 @@ import { useOrientation } from '../lib/orientationContext'
 import { prefillSpecificCompanySearch } from '../lib/searchDepth'
 import { formatPendingTimer } from '../lib/outreachDelivery'
 import type { DraftStatus } from '../types/database'
+import { EmailVerifyButton } from '../components/EmailVerifyButton'
 import {
   applyTemplate,
   DEFAULT_EMAIL_BODY_TEMPLATE,
@@ -893,6 +894,13 @@ export function DraftsPage() {
                   ? ` Attaches ${resumeFileName}.`
                   : ' Upload a resume on Profile before sending.'}
               </p>
+
+              {active.contacts?.email && (
+                <EmailVerifyButton
+                  email={active.contacts.email}
+                  contactId={active.contact_id}
+                />
+              )}
 
               <div className="drafts-editor-toolbar actions">
                 <button

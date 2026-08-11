@@ -49,6 +49,8 @@ export interface SearchFiltersData {
   enable_hunter?: boolean
   /** Use Apollo people/match for email enrichment before Hunter/OSINT. */
   enable_apollo?: boolean
+  /** SMTP RCPT probe via OSINT worker for live deliverability checks (no email sent). */
+  enable_smtp_verify?: boolean
 }
 
 export const DEFAULT_FILTERS: SearchFiltersData = {
@@ -76,6 +78,7 @@ export const DEFAULT_FILTERS: SearchFiltersData = {
   accept_accept_all: true,
   enable_hunter: false,
   enable_apollo: false,
+  enable_smtp_verify: false,
 }
 
 export interface Database {

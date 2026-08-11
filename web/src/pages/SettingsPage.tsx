@@ -9,6 +9,7 @@ import {
   saveSearchEmailSettings,
   type SearchEmailSettings,
 } from '../lib/searchEmailSettings'
+import { EmailVerifyButton } from '../components/EmailVerifyButton'
 import type { SearchProfileData } from '../types/database'
 import './settings.css'
 
@@ -58,6 +59,7 @@ export function SettingsPage() {
     DEFAULT_SEARCH_EMAIL_SETTINGS,
   )
   const [savingEmailSettings, setSavingEmailSettings] = useState(false)
+  const [testVerifyEmail, setTestVerifyEmail] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -402,6 +404,24 @@ export function SettingsPage() {
         <label className="check">
           <input
             type="checkbox"
+            checked={emailSettings.enable_smtp_verify === true}
+            onChange={(e) =>
+              setEmailSettings((s) => ({
+                ...s,
+                enable_smtp_verify: e.target.checked,
+              }))
+            }
+          />
+          SMTP mailbox probe for deliverability checks (requires OSINT worker)
+        </label>
+        <p className="muted small" style={{ marginTop: '0.5rem' }}>
+          When enabled, &quot;Check deliverability&quot; runs an SMTP RCPT handshake
+          (no message body is sent). Connect Gmail below to use your address as the
+          probe sender — still no email to the recipient.
+        </p>
+        <label className="check">
+          <input
+            type="checkbox"
             checked={emailSettings.require_verified_email === true}
             onChange={(e) =>
               setEmailSettings((s) => ({
@@ -436,12 +456,33 @@ export function SettingsPage() {
       </section>
 
       <section className="settings-card">
+        <h2>Test deliverability</h2>
+        <p className="settings-card-kicker">
+          Check any address with MX (always) and optional SMTP RCPT when the worker
+          is configured. No message is sent. With Gmail connected, the probe uses
+          your address as the sender — post-send bounce detection still requires an
+          actual outreach send.
+        </p>
+        <label>
+          Email to check
+          <input
+            type="email"
+            value={testVerifyEmail}
+            placeholder="name@company.com"
+            onChange={(e) => setTestVerifyEmail(e.target.value.trim())}
+          />
+        </label>
+        {testVerifyEmail.includes('@') && (
+          <EmailVerifyButton email={testVerifyEmail} />
+        )}
+      </section>
+
+      <section className="settings-card">
         <h2>Gmail</h2>
         <p className="settings-card-kicker">
-          Connect the account you send outreach from. Resume is attached from your
-          stored file when you send. Reconnect once if you connected before we
-          added delivery-failure detection — we need read access to your Gmail
-          threads (send + read only, not full account control).
+          Connect the account you send outreach from. Deliverability checks use
+          your Gmail address as the SMTP probe sender when connected (no email
+          sent to the recipient). After a real send, we scan the thread for bounces.
         </p>
         <p
           className={`settings-gmail-status ${gmailEmail ? 'connected' : ''}`}

@@ -74,6 +74,12 @@ export function buildEmailProvenance(opts: {
     typeof stored.detail === 'string' &&
     stored.detail.trim()
   ) {
+    const live = opts.source_details?.live_verify as
+      | { label?: string }
+      | undefined
+    const detail = live?.label
+      ? `${stored.detail} · Live check: ${live.label}`
+      : stored.detail
     return {
       method: stored.method,
       origin: stored.origin || 'unknown',
@@ -82,7 +88,7 @@ export function buildEmailProvenance(opts: {
       verification_status:
         stored.verification_status ?? opts.verification_status ?? null,
       label: stored.label || (stored.method === 'guessed' ? 'Guessed' : 'Found'),
-      detail: stored.detail,
+      detail,
     }
   }
 

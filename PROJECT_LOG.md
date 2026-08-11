@@ -1,3 +1,9 @@
+## 2026-08-11 — Live email deliverability check (no send)
+
+- New `verify-email` Edge Function: MX check + optional SMTP RCPT via OSINT worker; Hunter verifier when enabled.
+- Settings toggle `enable_smtp_verify`; test any address on Settings; "Check deliverability" on Contacts and Drafts.
+- Connected Gmail address used as SMTP MAIL FROM for probes (no message to recipient). Post-send bounce scan unchanged.
+
 ## 2026-08-11 — Apollo email enrichment; Proxycurl removed
 
 - Apollo.io `people/match` integrated for optional email lookup (`enable_apollo` in Settings, `APOLLO_API_KEY` secret).
