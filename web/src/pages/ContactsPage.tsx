@@ -10,6 +10,11 @@ import {
   newestContactCreatedAt,
   saveContactsReviewPosition,
 } from '../lib/contactsReviewPosition'
+import {
+  looksLikeLocationString,
+  parseLocationFromLinkedInSnippet,
+} from '../lib/linkedin_location'
+import { buildEmailProvenance } from '../lib/emailProvenance'
 
 type ContactRow = {
   id: string
@@ -31,6 +36,17 @@ type ContactRow = {
     job_source?: string
     location?: string
     job_description?: string
+    email_provenance?: {
+      method?: 'found' | 'guessed'
+      origin?: string
+      pattern?: string | null
+      verification?: 'verified' | 'likely' | 'unverified' | 'unknown'
+      verification_status?: string | null
+      label?: string
+      detail?: string
+    }
+    hunter_email?: { via?: string; domain?: string }
+    pattern?: { inferred?: string | null; candidates?: string[] }
     application?: {
       company?: string
       job_title?: string
@@ -84,6 +100,19 @@ function contactSources(r: ContactRow) {
       : []
 }
 
+/** Person-discovery pills — hide email-pipeline tags (shown under Email). */
+function personDiscoverySources(r: ContactRow): string[] {
+  const emailOnly = new Set([
+    'pattern',
+    'verify_mx',
+    'site_crawl',
+    'web_snippet',
+    'osint_worker',
+    'osint',
+  ])
+  return contactSources(r).filter((s) => !emailOnly.has(s))
+}
+
 function formatSourceLabel(source: string) {
   const labels: Record<string, string> = {
     hunter: 'Hunter.io',
@@ -94,14 +123,10 @@ function formatSourceLabel(source: string) {
     verify_mx: 'MX verified',
     osint: 'OSINT',
     osint_worker: 'OSINT',
+    web_snippet: 'Web email',
   }
   return labels[source] || source.replace(/_/g, ' ')
 }
-
-import {
-  looksLikeLocationString,
-  parseLocationFromLinkedInSnippet,
-} from '../lib/linkedin_location'
 
 function contactLocation(contact: ContactRow): string | null {
   const stored = contact.location?.trim()
@@ -146,10 +171,17 @@ function ContactDetail({
     contact.source_details?.job_description ||
     appCtx?.job_title ||
     null
-  const sources = contactSources(contact)
+  const sources = personDiscoverySources(contact)
   const companyName = contact.companies?.name || '—'
   const companyDomain = contact.companies?.domain
   const location = contactLocation(contact)
+  const emailProvenance = contact.email
+    ? buildEmailProvenance({
+        sources: contact.sources,
+        verification_status: contact.verification_status,
+        source_details: contact.source_details as Record<string, unknown> | null,
+      })
+    : null
 
   return (
     <div
@@ -162,7 +194,7 @@ function ContactDetail({
         {sources.length > 0 && (
           <div className="source-pills contact-detail-sources">
             {sources.map((s) => (
-              <span key={s} className={`pill source-${s}`} title="Found via">
+              <span key={s} className={`pill source-${s}`} title="Person found via">
                 {formatSourceLabel(s)}
               </span>
             ))}
@@ -209,10 +241,20 @@ function ContactDetail({
               '—'
             )}
           </div>
-          {contact.verification_status && (
-            <span className="muted small contact-detail-verify">
-              {contact.verification_status}
-            </span>
+          {emailProvenance && (
+            <div
+              className={`contact-email-provenance method-${emailProvenance.method} verify-${emailProvenance.verification}`}
+            >
+              <span
+                className={`pill email-method email-method-${emailProvenance.method}`}
+                title={emailProvenance.detail}
+              >
+                {emailProvenance.method === 'guessed' ? 'Guessed' : 'Found'}
+              </span>
+              <span className="muted small contact-detail-verify">
+                {emailProvenance.detail}
+              </span>
+            </div>
           )}
         </dd>
 

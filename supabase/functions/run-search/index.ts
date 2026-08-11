@@ -16,6 +16,7 @@ import {
   isHunterQuotaResponse,
   passesEmailVerification,
   sanitizeOutreachEmail,
+  buildEmailProvenance,
 } from '../_shared/email_discovery.ts'
 import {
   formatProfileLocation,
@@ -2747,6 +2748,14 @@ Deno.serve(async (req) => {
             : ''
         }`
 
+        const emailProvenance = cand.email
+          ? buildEmailProvenance({
+              sources: cand.sources,
+              verification_status: cand.verification_status,
+              source_details: cand.source_details,
+            })
+          : null
+
         const { error: contactErr } = await admin.from('contacts').insert({
           user_id: user.id,
           company_id: companyId,
@@ -2779,6 +2788,7 @@ Deno.serve(async (req) => {
             hiring_signal_url: company.url,
             job_source: company.source,
             outreach_score: score,
+            ...(emailProvenance ? { email_provenance: emailProvenance } : {}),
             ...(appCtx
               ? {
                   application: {

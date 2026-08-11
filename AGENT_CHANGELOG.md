@@ -1,5 +1,6 @@
 # Agent change log
 
+- Contact cards: email Found vs Guessed + verification; persist email_provenance on new contacts
 - Contacts review: ~20% narrower active card; peeks anchored to left/right edges so previous/next stay visible
 - Search tab redesign: flow icon cards + numbered steps + footer Run button; trimmed copy, no feature changes
 - Contacts review: slightly taller/narrower active card; full-width stage so left/right peek cards stay visible for switching

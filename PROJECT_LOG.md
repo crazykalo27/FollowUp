@@ -1,3 +1,8 @@
+## 2026-08-11 — Email provenance on contact cards
+
+- Contact cards show whether the email was **Found** (Hunter / company site / web) or **Guessed** (name pattern), plus verification (verified / likely / MX-only).
+- New contacts store `source_details.email_provenance`; older contacts derive the same labels from sources + verification status.
+
 ## 2026-08-10 — Minimalist Search tab redesign
 
 - Search flows (General / Specific / Application) are icon cards with one-line purposes; picking one reveals numbered steps (target → size → run), so the flow reads visually instead of via paragraphs.
