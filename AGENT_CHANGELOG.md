@@ -1,5 +1,6 @@
 # Agent change log
 
+- Kept contacts: once Draft email is used, button stays "Go to drafts" (include status=draft outreach rows)
 - Contacts: multi-select checkboxes with Select all; Kept draft/archive/delete selected; Review delete selected; Archived restore/delete selected
 - Contact cards: email Found vs Guessed + verification; persist email_provenance on new contacts
 - Application search: use JD role/titles only (not profile); sanitize title fluff; score RTL/design engineers; clearer empty diagnosis

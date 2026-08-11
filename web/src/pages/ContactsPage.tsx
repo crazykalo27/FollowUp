@@ -407,10 +407,9 @@ export function ContactsPage() {
     const sent = new Set<string>()
     for (const row of draftRows || []) {
       const cid = row.contact_id as string
-      if (row.status === 'sent' || row.status === 'pending') {
-        drafted.add(cid)
-        if (row.status === 'sent') sent.add(cid)
-      }
+      // Any outreach row means Draft email has been used — keep "Go to drafts"
+      drafted.add(cid)
+      if (row.status === 'sent') sent.add(cid)
     }
     setDraftedContactIds(drafted)
     setSentOutreachIds(sent)
