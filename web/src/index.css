@@ -1524,6 +1524,43 @@ th {
   line-height: 1.35;
 }
 
+.contact-live-verify {
+  margin-top: 0.35rem;
+}
+
+.email-verify {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.email-verify-compact {
+  margin-top: 0.35rem;
+}
+
+.email-verify-result {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.email-verify-result.tone-good {
+  color: #b8e0c8;
+}
+
+.email-verify-result.tone-warn {
+  color: #e6d4a8;
+}
+
+.email-verify-result.tone-bad {
+  color: #f0a8a8;
+}
+
+.email-verify-result.tone-muted {
+  color: var(--muted);
+}
+
 .pill.email-method {
   font-size: 0.68rem;
   font-weight: 600;

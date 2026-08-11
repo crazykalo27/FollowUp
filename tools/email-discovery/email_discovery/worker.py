@@ -24,6 +24,12 @@ class EnrichIn(BaseModel):
     smtp: bool = False
 
 
+class VerifyIn(BaseModel):
+    email: str
+    smtp: bool = True
+    mail_from: str | None = None
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="FollowUp Email Discovery", version="0.1.0")
     secret = os.environ.get("OSINT_WORKER_SECRET")
@@ -56,5 +62,23 @@ def create_app() -> FastAPI:
             "people": result.people,
             "errors": result.errors,
         }
+
+    @app.post("/v1/verify")
+    def verify_email(
+        body: VerifyIn,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        if secret:
+            if not authorization or authorization != f"Bearer {secret}":
+                raise HTTPException(status_code=401, detail="Unauthorized")
+        from .verify import verify_mx, verify_smtp
+
+        email = body.email.strip().lower()
+        if body.smtp:
+            from_addr = (body.mail_from or "").strip() or "verify@followup.local"
+            result = verify_smtp(email, timeout=10.0, from_addr=from_addr)
+        else:
+            result = verify_mx(email)
+        return {"status": result.status, "detail": result.detail}
 
     return app

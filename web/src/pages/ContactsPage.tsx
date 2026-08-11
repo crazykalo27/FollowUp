@@ -15,6 +15,7 @@ import {
   parseLocationFromLinkedInSnippet,
 } from '../lib/linkedin_location'
 import { buildEmailProvenance } from '../lib/emailProvenance'
+import { EmailVerifyButton } from '../components/EmailVerifyButton'
 
 type ContactRow = {
   id: string
@@ -57,6 +58,14 @@ type ContactRow = {
     }
     websearch?: { location?: string; snippet?: string }
     apollo?: { location?: string; via?: string; domain?: string; apollo_id?: string | null; headline?: string | null }
+    live_verify?: {
+      at?: string
+      method?: string
+      deliverable?: boolean | null
+      label?: string
+      probe_from?: string | null
+      no_message_sent?: boolean
+    }
   } | null
   application_context?: {
     company?: string
@@ -158,9 +167,13 @@ function contactLocation(contact: ContactRow): string | null {
 function ContactDetail({
   contact,
   compact = false,
+  showVerify = false,
+  onVerified,
 }: {
   contact: ContactRow
   compact?: boolean
+  showVerify?: boolean
+  onVerified?: () => void
 }) {
   const hiring =
     contact.source_details?.hiring_signal ||
@@ -261,6 +274,19 @@ function ContactDetail({
                 {emailProvenance.detail}
               </span>
             </div>
+          )}
+          {contact.source_details?.live_verify?.label && (
+            <p className="muted small contact-live-verify">
+              Last check: {contact.source_details.live_verify.label}
+            </p>
+          )}
+          {showVerify && contact.email && (
+            <EmailVerifyButton
+              email={contact.email}
+              contactId={contact.id}
+              compact
+              onVerified={onVerified}
+            />
           )}
         </dd>
 
@@ -1329,7 +1355,11 @@ export function ContactsPage() {
                         {dragX < -40 && (
                           <span className="swipe-stamp discard">Discard</span>
                         )}
-                        <ContactDetail contact={current} />
+                        <ContactDetail
+                          contact={current}
+                          showVerify
+                          onVerified={() => void load()}
+                        />
                       </article>
                     </div>
                   </div>
