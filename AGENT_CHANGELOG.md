@@ -1,5 +1,6 @@
 # Agent change log
 
+- Drafts: background status/timer/delivery refreshes no longer steal focus from the draft you're viewing
 - Kept contacts: once Draft email is used, button stays "Go to drafts" (include status=draft outreach rows)
 - Contacts: multi-select checkboxes with Select all; Kept draft/archive/delete selected; Review delete selected; Archived restore/delete selected
 - Contact cards: email Found vs Guessed + verification; persist email_provenance on new contacts

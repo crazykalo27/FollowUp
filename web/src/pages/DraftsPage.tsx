@@ -86,6 +86,7 @@ export function DraftsPage() {
   const [renameValue, setRenameValue] = useState('')
   const [savingTemplate, setSavingTemplate] = useState(false)
   const focusedContactRef = useRef<string | null>(null)
+  const activeIdRef = useRef<string | null>(null)
   const [completeOpen, setCompleteOpen] = useState(false)
   const [gmailEmail, setGmailEmail] = useState<string | null>(null)
   const [connectingGmail, setConnectingGmail] = useState(false)
@@ -123,6 +124,10 @@ export function DraftsPage() {
 
   const isBounced = active?.status === 'bounced'
   const isPending = active?.status === 'pending'
+
+  useEffect(() => {
+    activeIdRef.current = active?.id ?? null
+  }, [active])
 
   async function syncDeliveryStatus() {
     if (!user) return
@@ -214,7 +219,6 @@ export function DraftsPage() {
 
   async function load(preferredContactId?: string | null) {
     if (!user) return
-    const focusId = preferredContactId ?? orientContactId
     const { data } = await supabase
       .from('outreach_drafts')
       .select(
@@ -229,16 +233,41 @@ export function DraftsPage() {
     })) as DraftRow[]
     setDrafts(mapped)
 
-    if (focusId) {
-      const forContact = mapped.find((d) => d.contact_id === focusId)
+    // Only switch selection when explicitly asked (deep-link / generate).
+    // Background refreshes (timer, delivery sync, failed send) must keep the
+    // draft the user is currently viewing.
+    if (preferredContactId) {
+      const forContact = mapped.find((d) => d.contact_id === preferredContactId)
       if (forContact) {
         setActive(forContact)
         return mapped
       }
     }
-    if (active) {
-      const refreshed = mapped.find((d) => d.id === active.id) || null
-      setActive(refreshed)
+
+    const keepId = activeIdRef.current
+    if (keepId) {
+      const refreshed = mapped.find((d) => d.id === keepId) ?? null
+      if (!refreshed) {
+        setActive(null)
+        return mapped
+      }
+      setActive((prev) => {
+        if (!prev || prev.id !== refreshed.id) return refreshed
+        const locked =
+          refreshed.status === 'sent' ||
+          refreshed.status === 'pending' ||
+          refreshed.status === 'failed' ||
+          refreshed.status === 'bounced'
+        // Keep in-progress edits when the draft is still editable
+        if (!locked) {
+          return {
+            ...refreshed,
+            subject: prev.subject,
+            body: prev.body,
+          }
+        }
+        return refreshed
+      })
     }
     return mapped
   }
