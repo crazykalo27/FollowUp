@@ -15,6 +15,7 @@ import {
   parseLocationFromLinkedInSnippet,
 } from '../lib/linkedin_location'
 import { buildEmailProvenance } from '../lib/emailProvenance'
+import { prefetchDrafts } from '../lib/draftsCache'
 import { EmailVerifyButton } from '../components/EmailVerifyButton'
 
 type ContactRow = {
@@ -988,6 +989,7 @@ export function ContactsPage() {
       }
       clearSelection()
       void load()
+      if (user) void prefetchDrafts(user.id)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Drafting failed')
     } finally {
@@ -1151,6 +1153,7 @@ export function ContactsPage() {
         return
       }
       setDraftedContactIds((prev) => new Set(prev).add(id))
+      if (user) void prefetchDrafts(user.id)
       if (pickKeptForDraft) {
         setMsg('Draft ready — opening outbox…')
         navigate(`/app/drafts?contact=${id}`)
@@ -1165,6 +1168,7 @@ export function ContactsPage() {
   }
 
   function goToDraft(contactId: string) {
+    if (user) void prefetchDrafts(user.id)
     navigate(`/app/drafts?contact=${contactId}`)
   }
 
@@ -1197,6 +1201,7 @@ export function ContactsPage() {
         setMsg(`Created ${created} draft(s) from kept contacts.`)
       }
       void load()
+      if (user) void prefetchDrafts(user.id)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Drafting failed')
     } finally {

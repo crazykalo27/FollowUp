@@ -1,5 +1,6 @@
 # Agent change log
 
+- Drafts: prefetch outbox in background while on other tabs; open Drafts from cache (no empty flash); don't block on delivery sync
 - Drafts: background status/timer/delivery refreshes no longer steal focus from the draft you're viewing
 - Kept contacts: once Draft email is used, button stays "Go to drafts" (include status=draft outreach rows)
 - Contacts: multi-select checkboxes with Select all; Kept draft/archive/delete selected; Review delete selected; Archived restore/delete selected

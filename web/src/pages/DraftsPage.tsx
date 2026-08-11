@@ -6,40 +6,27 @@ import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
 import { prefillSpecificCompanySearch } from '../lib/searchDepth'
 import { formatPendingTimer } from '../lib/outreachDelivery'
-import type { DraftStatus } from '../types/database'
 import { EmailVerifyButton } from '../components/EmailVerifyButton'
 import {
   applyTemplate,
-  DEFAULT_EMAIL_BODY_TEMPLATE,
-  DEFAULT_EMAIL_SUBJECT_TEMPLATE,
   SAMPLE_PREVIEW_VARS,
   TEMPLATE_PLACEHOLDER_HELP,
 } from '../lib/emailTemplate'
 import { EMAIL_TEMPLATE_PRESETS } from '../lib/emailTemplatePresets'
 import {
   activeTemplate,
-  defaultEmailTemplatesState,
   newTemplateId,
-  normalizeEmailTemplates,
   type EmailTemplatesState,
   type SavedEmailTemplate,
 } from '../lib/emailTemplatesStore'
-
-type DraftRow = {
-  id: string
-  contact_id: string
-  subject: string
-  body: string
-  status: DraftStatus
-  sent_at: string | null
-  error_message: string | null
-  bounce_summary: string | null
-  contacts: {
-    full_name: string | null
-    email: string | null
-    companies: { name: string } | { name: string }[] | null
-  } | null
-}
+import {
+  getDraftsCache,
+  prefetchDrafts,
+  refreshDraftsList,
+  setCachedDrafts,
+  setCachedTemplates,
+  type DraftRow,
+} from '../lib/draftsCache'
 
 function companyNameFromDraft(d: DraftRow): string | null {
   const c = d.contacts?.companies
@@ -61,6 +48,12 @@ function formatSentDate(sentAt: string | null) {
   }
 }
 
+function initialFromCache(userId: string | undefined) {
+  const cache = getDraftsCache()
+  if (!userId || cache.userId !== userId || !cache.ready) return null
+  return cache
+}
+
 export function DraftsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -68,26 +61,41 @@ export function DraftsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const orientContactId = searchParams.get('contact')
   const inOrientation = !orientation.complete
-  const [drafts, setDrafts] = useState<DraftRow[]>([])
-  const [active, setActive] = useState<DraftRow | null>(null)
+  const cached = initialFromCache(user?.id)
+  const [drafts, setDrafts] = useState<DraftRow[]>(() => cached?.drafts ?? [])
+  const [active, setActive] = useState<DraftRow | null>(() => {
+    if (!cached?.drafts.length) return null
+    if (orientContactId) {
+      return (
+        cached.drafts.find((d) => d.contact_id === orientContactId) ??
+        cached.drafts[0] ??
+        null
+      )
+    }
+    return cached.drafts[0] ?? null
+  })
   const [msg, setMsg] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [generating, setGenerating] = useState(false)
-  const [resumeFileName, setResumeFileName] = useState<string | null>(null)
+  const [resumeFileName, setResumeFileName] = useState<string | null>(
+    () => cached?.resumeFileName ?? null,
+  )
   const [contactName, setContactName] = useState<string | null>(null)
   const [subjectTemplate, setSubjectTemplate] = useState(
-    DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+    () => cached?.subjectTemplate ?? getDraftsCache().subjectTemplate,
   )
-  const [bodyTemplate, setBodyTemplate] = useState(DEFAULT_EMAIL_BODY_TEMPLATE)
+  const [bodyTemplate, setBodyTemplate] = useState(
+    () => cached?.bodyTemplate ?? getDraftsCache().bodyTemplate,
+  )
   const [templatesState, setTemplatesState] = useState<EmailTemplatesState>(
-    () => defaultEmailTemplatesState(),
+    () => cached?.templatesState ?? getDraftsCache().templatesState,
   )
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [savingTemplate, setSavingTemplate] = useState(false)
   const focusedContactRef = useRef<string | null>(null)
-  const activeIdRef = useRef<string | null>(null)
+  const activeIdRef = useRef<string | null>(active?.id ?? null)
   const [completeOpen, setCompleteOpen] = useState(false)
   const [gmailEmail, setGmailEmail] = useState<string | null>(null)
   const [connectingGmail, setConnectingGmail] = useState(false)
@@ -218,21 +226,25 @@ export function DraftsPage() {
     setRenaming(false)
   }
 
-  async function load(preferredContactId?: string | null) {
+  async function load(
+    preferredContactId?: string | null,
+    opts?: { hydrateTemplates?: boolean },
+  ) {
     if (!user) return
-    const { data } = await supabase
-      .from('outreach_drafts')
-      .select(
-        'id, contact_id, subject, body, status, sent_at, error_message, bounce_summary, contacts(full_name, email, companies(name))',
-      )
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-
-    const mapped = (data || []).map((d) => ({
-      ...d,
-      contacts: Array.isArray(d.contacts) ? d.contacts[0] : d.contacts,
-    })) as DraftRow[]
+    const hydrateTemplates = opts?.hydrateTemplates === true
+    const mapped = hydrateTemplates
+      ? (await prefetchDrafts(user.id)).drafts
+      : await refreshDraftsList(user.id)
     setDrafts(mapped)
+    setCachedDrafts(mapped)
+
+    if (hydrateTemplates) {
+      const snap = getDraftsCache()
+      setTemplatesState(snap.templatesState)
+      setSubjectTemplate(snap.subjectTemplate)
+      setBodyTemplate(snap.bodyTemplate)
+      setResumeFileName(snap.resumeFileName)
+    }
 
     // Only switch selection when explicitly asked (deep-link / generate).
     // Background refreshes (timer, delivery sync, failed send) must keep the
@@ -269,6 +281,12 @@ export function DraftsPage() {
         }
         return refreshed
       })
+      return mapped
+    }
+
+    // First paint with no prior selection: pick first so the editor isn't empty
+    if (!activeIdRef.current && mapped.length > 0) {
+      setActive(mapped[0])
     }
     return mapped
   }
@@ -366,38 +384,11 @@ export function DraftsPage() {
 
   useEffect(() => {
     if (!user) return
-    void (async () => {
-      const [{ data: prof }, { data: resume }] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select(
-            'email_subject_template, email_body_template, email_templates',
-          )
-          .eq('id', user.id)
-          .maybeSingle(),
-        supabase
-          .from('resumes')
-          .select('file_name')
-          .eq('user_id', user.id)
-          .order('uploaded_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ])
-      const normalized = normalizeEmailTemplates(
-        prof?.email_templates,
-        prof?.email_subject_template,
-        prof?.email_body_template,
-      )
-      setTemplatesState(normalized)
-      const active = activeTemplate(normalized)
-      setSubjectTemplate(active.subject)
-      setBodyTemplate(active.body)
-      setResumeFileName(resume?.file_name || null)
-    })()
-    void (async () => {
-      await syncDeliveryStatus()
-      await load(orientContactId)
-    })()
+    // Instant paint from cache (if warm); one full hydrate, then delivery sync
+    // refreshes the outbox only so template edits aren't wiped.
+    void load(orientContactId, { hydrateTemplates: true }).then(() => {
+      void syncDeliveryStatus().then(() => load())
+    })
   }, [user])
 
   // Deep-link from Contacts "Go to drafts" (or orientation) → select that contact's draft
@@ -454,6 +445,7 @@ export function DraftsPage() {
     if (error) setMsg(error.message)
     else {
       setTemplatesState(synced)
+      setCachedTemplates(synced, resumeFileName)
       setMsg(`Saved “${active.name}” — new drafts use this template.`)
     }
   }

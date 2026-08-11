@@ -1,7 +1,9 @@
 import { Navigate, Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuth } from '../lib/auth'
 import { useOrientation } from '../lib/orientationContext'
 import { pathForStep, type AppPage } from '../lib/orientation'
+import { prefetchDrafts } from '../lib/draftsCache'
 import { FollowUpLogo } from './FollowUpLogo'
 
 export function RequireAuth() {
@@ -25,6 +27,12 @@ export function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const orientation = useOrientation()
+
+  // Warm drafts cache while the user is on other tabs so Drafts isn't empty on switch.
+  useEffect(() => {
+    if (!user) return
+    void prefetchDrafts(user.id)
+  }, [user, location.pathname])
 
   if (orientation.loading) {
     return <div className="page-center muted">Loading…</div>

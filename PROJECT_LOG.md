@@ -1,3 +1,9 @@
+## 2026-08-11 — Drafts tab: instant switch via background prefetch
+
+- Shared drafts cache warms while browsing other app pages; Drafts hydrates from cache on mount.
+- Outbox load no longer waits on Gmail delivery sync (sync runs after, then refreshes list only).
+- Contacts draft/generate actions refresh the cache so the outbox is ready on navigate.
+
 ## 2026-08-11 — Live email deliverability check (no send)
 
 - New `verify-email` Edge Function: MX check + optional SMTP RCPT via OSINT worker; Hunter verifier when enabled.
