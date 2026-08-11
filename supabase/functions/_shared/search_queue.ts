@@ -72,6 +72,7 @@ export type SearchPipelineState = {
     location: string
     webConfigured: boolean
     hunterEnabled: boolean
+    apolloEnabled: boolean
     include: string[]
     exclude: string[]
     maxCompanies: number

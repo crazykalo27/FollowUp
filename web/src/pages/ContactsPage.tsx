@@ -116,8 +116,8 @@ function personDiscoverySources(r: ContactRow): string[] {
 function formatSourceLabel(source: string) {
   const labels: Record<string, string> = {
     hunter: 'Hunter.io',
+    apollo: 'Apollo.io',
     websearch: 'Web search',
-    proxycurl: 'Proxycurl',
     site_crawl: 'Company site',
     pattern: 'Email pattern',
     verify_mx: 'MX verified',

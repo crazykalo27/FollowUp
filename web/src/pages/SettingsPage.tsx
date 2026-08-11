@@ -358,8 +358,25 @@ export function SettingsPage() {
         <h2>Email discovery (search)</h2>
         <p className="settings-card-kicker">
           Controls how FollowUp finds and keeps contact emails during{' '}
-          <Link to="/app/search">Search</Link>. Defaults: Hunter and verified
-          email are off. Saved to your account — reload safe.
+          <Link to="/app/search">Search</Link>. Web search + OSINT is the default.
+          Apollo and Hunter are optional (off by default). Saved to your account.
+        </p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={emailSettings.enable_apollo === true}
+            onChange={(e) =>
+              setEmailSettings((s) => ({
+                ...s,
+                enable_apollo: e.target.checked,
+              }))
+            }
+          />
+          Use Apollo.io for email lookup (uses API credits)
+        </label>
+        <p className="muted small" style={{ marginTop: '0.5rem' }}>
+          When enabled, Apollo runs first per contact; Hunter and OSINT are skipped
+          if Apollo finds an email.
         </p>
         <label className="check">
           <input
@@ -375,8 +392,12 @@ export function SettingsPage() {
           Use Hunter.io for email lookup (uses monthly API credits)
         </label>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          When off or credits are exhausted, FollowUp uses the free OSINT pipeline
-          (site crawl, email patterns, MX checks, optional OSINT worker).
+          When enabled, Hunter runs after Apollo (if Apollo is on) and before OSINT.
+          Domain search also finds up to 10 people per company when enabled.
+        </p>
+        <p className="muted small" style={{ marginTop: '0.5rem' }}>
+          When both are off or credits are exhausted, FollowUp uses the free OSINT
+          pipeline (site crawl, email patterns, MX checks, optional OSINT worker).
         </p>
         <label className="check">
           <input

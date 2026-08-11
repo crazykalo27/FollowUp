@@ -121,7 +121,7 @@ type CompanyReport = {
   domain: string | null
   hiring_signal: string
   source: string
-  by_provider?: { hunter: number; websearch: number; proxycurl: number }
+  by_provider?: { websearch: number; hunter: number }
   kept: number
   outcome: string
 }
@@ -136,10 +136,10 @@ type SearchSummary = {
   errors: string[]
   company_reports: CompanyReport[]
   source_stats: {
+    apollo: SourceStats
     hunter: SourceStats
     osint: SourceStats
     websearch: SourceStats
-    proxycurl: SourceStats
   }
   how: {
     method: string
@@ -172,9 +172,10 @@ type SearchSummary = {
     people_search_titles?: string[]
     exclude_titles: string[]
     require_verified_email: boolean
+    enable_hunter?: boolean
+    enable_apollo?: boolean
     max_companies_per_run: number
     max_contacts_per_company: number
-    note_apollo?: string
   }
 }
 
@@ -1497,6 +1498,20 @@ export function OverviewPage() {
             <div className="source-grid">
               <SourceCard name="Hunter" stats={summary.source_stats.hunter} />
               <SourceCard
+                name="Apollo"
+                stats={
+                  summary.source_stats.apollo ?? {
+                    configured: false,
+                    attempted: 0,
+                    people_found: 0,
+                    after_title_filter: 0,
+                    with_email: 0,
+                    contacts_kept: 0,
+                    errors: [],
+                  }
+                }
+              />
+              <SourceCard
                 name="OSINT email"
                 stats={
                   summary.source_stats.osint ?? {
@@ -1514,14 +1529,7 @@ export function OverviewPage() {
                 name="Web → LinkedIn"
                 stats={summary.source_stats.websearch}
               />
-              <SourceCard
-                name="Proxycurl"
-                stats={summary.source_stats.proxycurl}
-              />
             </div>
-            {summary.how.note_apollo && (
-              <p className="muted small">{summary.how.note_apollo}</p>
-            )}
           </div>
 
           <div className="report-block">
@@ -1617,7 +1625,7 @@ export function OverviewPage() {
                   <tr>
                     <th>Company</th>
                     <th>Domain</th>
-                    <th>H / Web / P</th>
+                    <th>Web / H</th>
                     <th>Kept</th>
                     <th>Outcome</th>
                   </tr>
@@ -1632,7 +1640,7 @@ export function OverviewPage() {
                       <td>{r.domain || '—'}</td>
                       <td className="small">
                         {r.by_provider
-                          ? `${r.by_provider.hunter} / ${r.by_provider.websearch} / ${r.by_provider.proxycurl}`
+                          ? `${r.by_provider.websearch} / ${r.by_provider.hunter}`
                           : '—'}
                       </td>
                       <td>{r.kept}</td>
