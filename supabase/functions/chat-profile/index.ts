@@ -153,6 +153,92 @@ function mergeProfile(base: Profile, patch: Partial<Profile> | null | undefined)
   }
 }
 
+function asStringList(v: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(v)) return fallback
+  return v
+    .filter((x): x is string => typeof x === 'string')
+    .map((x) => x.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Freeform coach rewrite: every field present on the patch is authoritative.
+ * Empty arrays/strings clear that field (unlike mergeProfile, which treats empty as “keep”).
+ */
+function applyProfileRewrite(
+  base: Profile,
+  patch: Partial<Profile> | null | undefined,
+): Profile {
+  if (!patch) return base
+  return {
+    roles: Array.isArray(patch.roles) ? asStringList(patch.roles, []) : base.roles,
+    industries: Array.isArray(patch.industries)
+      ? asStringList(patch.industries, [])
+      : base.industries,
+    company_types: Array.isArray(patch.company_types)
+      ? asStringList(patch.company_types, [])
+      : base.company_types,
+    outreach_targets: Array.isArray(patch.outreach_targets)
+      ? asStringList(patch.outreach_targets, [])
+      : base.outreach_targets,
+    skills: Array.isArray(patch.skills) ? asStringList(patch.skills, []) : base.skills,
+    locations: Array.isArray(patch.locations)
+      ? asStringList(patch.locations, [])
+      : base.locations,
+    seniority:
+      typeof patch.seniority === 'string' ? patch.seniority.trim() : base.seniority,
+    employment_types: Array.isArray(patch.employment_types)
+      ? asStringList(patch.employment_types, [])
+      : base.employment_types,
+    remote_preference:
+      typeof patch.remote_preference === 'string'
+        ? patch.remote_preference.trim()
+        : base.remote_preference,
+    company_size:
+      typeof patch.company_size === 'string'
+        ? patch.company_size.trim()
+        : base.company_size,
+    must_haves: Array.isArray(patch.must_haves)
+      ? asStringList(patch.must_haves, [])
+      : base.must_haves,
+    tone:
+      typeof patch.tone === 'string' && patch.tone.trim()
+        ? patch.tone.trim()
+        : base.tone,
+    notes: typeof patch.notes === 'string' ? patch.notes : (base.notes ?? ''),
+    roles_confirmed:
+      typeof patch.roles_confirmed === 'boolean'
+        ? patch.roles_confirmed
+        : Boolean(base.roles_confirmed),
+    orientation_q:
+      typeof patch.orientation_q === 'number'
+        ? patch.orientation_q
+        : base.orientation_q ?? 0,
+  }
+}
+
+function profileContentScore(p: Profile): number {
+  return (
+    p.roles.length +
+    p.industries.length +
+    p.company_types.length +
+    p.outreach_targets.length +
+    p.skills.length +
+    p.locations.length +
+    p.must_haves.length +
+    (p.seniority.trim() ? 1 : 0) +
+    p.employment_types.length +
+    (p.remote_preference.trim() ? 1 : 0)
+  )
+}
+
+/** If the model forgot to copy fields through, don't wipe a rich profile to empty. */
+function protectAccidentalProfileWipe(base: Profile, next: Profile): Profile {
+  if (profileContentScore(base) < 3) return next
+  if (profileContentScore(next) > 0) return next
+  return base
+}
+
 function stripFences(raw: string) {
   const match = raw.match(/```json\s*([\s\S]*?)```/)
   if (match) {
@@ -342,7 +428,7 @@ App tabs (sidebar):
 
 First-run orientation (locked nav until done): Welcome → Profile interview → Filters → Search → keep a Contact → first Draft. After the first draft, the full app unlocks.
 
-What this chat can do: explain FollowUp, summarize/answer questions about the user's saved search profile and filters, and apply profile changes the user requests. It cannot run searches, swipe contacts, or send email from here — point users to the right tab.
+What this chat can do: explain FollowUp, summarize/answer questions about the user's saved search profile and filters, and apply profile changes the user requests (add or remove targets). It cannot run searches, swipe contacts, or send email from here — point users to the right tab.
 
 Sends use the user's Gmail API (not a bulk mailer). No LinkedIn scraping; public discovery via search APIs + optional Hunter/Apollo/OSINT email paths.`
 
@@ -622,8 +708,16 @@ ${message}
 
 Choose intent:
 - "inform": User is asking about FollowUp, how a tab works, what their profile/filters say, clarifying, or chatting. Answer helpfully. Do NOT change profile fields.
-- "update_profile": User wants to change search targets (roles, industries, locations, remote, seniority, company size, employment type, outreach targets, skills, must-haves, tone, notes). Put ONLY changed fields in profile (use empty arrays/strings for fields you are not changing so the server keeps prior values).
-- "update_filters": User wants filters refreshed or retargeted (who to seek / exclude) with little or no profile rewrite. Optional light profile patch if they also stated target changes.
+- "update_profile": User wants to ADD, REMOVE, REPLACE, or otherwise change search targets (roles, industries, locations, remote, seniority, company size, employment type, outreach targets, skills, must-haves, tone, notes). This includes phrasing like "remove X", "drop X", "I don't want X", "stop searching for X", "add Y", "also include Y", "change Z to …".
+- "update_filters": User wants who-to-seek / exclude retargeted; still rewrite the full profile if their request implies target changes, then filters will be regenerated from that profile.
+
+When intent is "update_profile" or "update_filters":
+- Return a FULL rewritten profile JSON (every field), not a sparse patch.
+- Start from the current profile, apply the user's add/remove/change, then refigure related fields so the profile stays coherent (e.g. removing an industry may drop mismatched roles/outreach_targets/must_haves; adding a role may adjust outreach_targets).
+- Removals / negatives: DELETE matching items (and close synonyms) from the relevant lists. Never add the rejected topic as a positive target, skill, must-have, note-as-goal, or outreach title.
+- Additions / positives: integrate into the right fields; dedupe; keep specificity.
+- Copy unchanged fields through from the current profile so nothing is dropped accidentally.
+- Empty arrays/strings are allowed when the user cleared that field.
 
 Set refresh_filters=true when:
 - intent is "update_filters", OR
@@ -633,6 +727,7 @@ Set refresh_filters=false for pure Q&A, or for tone/notes-only tweaks.
 
 Reply rules:
 - Be concise, accurate, and specific to THIS user's data when answering profile/filter questions.
+- On updates, briefly confirm what you added and/or removed.
 - You may ask a short clarifying question if an update is ambiguous.
 - Never claim you ran a search, reviewed contacts, or sent email — direct them to Search / Contacts / Drafts.
 - If they should save/lock orientation profile and continue, mention Filters / Save profile only when relevant.
@@ -645,7 +740,7 @@ Return JSON only:
         {
           role: 'system',
           content:
-            'You are FollowUp AI. Return valid JSON only. Prefer answering questions over rewriting the profile. Only update when the user clearly wants a change.',
+            'You are FollowUp AI. Return valid JSON only. Prefer answering questions over rewriting the profile. When the user asks to add OR remove something, treat that as an update: rewrite the full profile around that change (removals delete; additions integrate). Never turn a removal request into an addition.',
         },
         ...state.history.slice(-20).map((m) => ({
           role: m.role === 'assistant' ? 'assistant' : 'user',
@@ -668,11 +763,14 @@ Return JSON only:
       let profile = state.profile
       if (intent === 'update_profile' || intent === 'update_filters') {
         profile = applyCompanySizeToTypes(
-          mergeProfile(state.profile, {
-            ...(parsed.profile || {}),
-            orientation_q: SERIES_DONE,
-            roles_confirmed: true,
-          }),
+          protectAccidentalProfileWipe(
+            state.profile,
+            applyProfileRewrite(state.profile, {
+              ...(parsed.profile || {}),
+              orientation_q: SERIES_DONE,
+              roles_confirmed: true,
+            }),
+          ),
         )
       }
 

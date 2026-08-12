@@ -314,7 +314,7 @@ export function OnboardingPage() {
           <p className="profile-upload-lede">
             Upload your resume and chat with FollowUp AI — it knows the app, can
             explain your search profile, and updates targets (and filters) when you
-            ask.
+            ask to add or remove something.
           </p>
           <label className="upload upload-hero">
             <input
