@@ -97,6 +97,7 @@ type CompanyHit = {
   url: string
   source: string
   domain_source?: string
+  domain_error?: string | null
   hiring_signal?: string | null
   relevance?: number
 }
@@ -621,7 +622,7 @@ function companyNameMatchesTarget(companyName: string, target: string): boolean 
 async function resolveUserTargetCompany(rawName: string): Promise<CompanyHit> {
   const company_name = rawName.trim()
 
-  // Only method: ask OpenAI for the official domain / common @email
+      // Only method: ask OpenAI for the official domain / common @email
   const picked = await pickCompanyDomain({ companyName: company_name })
   const domain = picked.domain
   const url = picked.url || (domain ? `https://${domain}` : 'https://example.com')
@@ -634,6 +635,7 @@ async function resolveUserTargetCompany(rawName: string): Promise<CompanyHit> {
     domain_source: picked.source === 'openai' ? 'openai' : 'none',
     hiring_signal: 'You chose this employer to follow up after applying.',
     relevance: 12,
+    domain_error: picked.error || null,
   }
 }
 
@@ -1608,7 +1610,9 @@ Deno.serve(async (req) => {
         `Resolved target employer ${targetHit.company_name}${
           targetHit.domain
             ? ` (${targetHit.domain} · AI)`
-            : ' (AI could not resolve domain)'
+            : ` (AI could not resolve domain${
+                targetHit.domain_error ? `: ${targetHit.domain_error}` : ''
+              })`
         }`,
       )
       await saveProgressMeta(admin, runId!, progressMeta)
@@ -2188,11 +2192,15 @@ Deno.serve(async (req) => {
 
       pushProgressLog(
         progressMeta,
-        `${company.company_name}: domain ${domain || 'none'} · AI`,
+        `${company.company_name}: domain ${domain || 'none'} · AI${
+          !domain && picked.error ? ` (${picked.error})` : ''
+        }`,
       )
 
       if (!domain) {
-        report.outcome = 'Skipped — could not resolve domain'
+        report.outcome = `Skipped — could not resolve domain${
+          picked.error ? ` (${picked.error})` : ''
+        }`
         markCompanySkipped(progressMeta, company.company_name, report.outcome)
         await syncProgress(admin, runId, progressMeta, {
           companies_done: i + 1,

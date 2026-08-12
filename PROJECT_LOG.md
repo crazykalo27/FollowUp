@@ -1,3 +1,9 @@
+## 2026-08-12 — Fix domain skip-list blocking SpaceX
+
+- Root cause of “Skipped — could not resolve domain”: publisher skip used raw `.includes('x.com')`, which also matched **spacex.com**, **box.com**, **netflix.com**.
+- Host matching is now domain-boundary aware; AI still resolves domains, with clearer error logs when it fails.
+- Regression script: `node scripts/test-company-domain.mjs` (optional `--live` with `OPENAI_API_KEY`).
+
 ## 2026-08-12 — Domain resolve via AI only
 
 - Company domains come **only** from OpenAI (no slug guesses, web-search lookalikes, or per-company hardcodes).

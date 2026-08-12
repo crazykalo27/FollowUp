@@ -12,6 +12,7 @@ export type CompanyDomainResolution = {
   url: string | null
   confidence: 'high' | 'medium' | 'low'
   source: 'openai' | 'none'
+  error?: string | null
 }
 
 const cache = new Map<string, CompanyDomainResolution>()
@@ -22,6 +23,8 @@ function normalizeHost(raw: string | null | undefined): string | null {
   d = d.replace(/^mailto:/, '').replace(/^@/, '')
   d = d.replace(/^https?:\/\//, '').replace(/^www\./, '')
   d = d.split('/')[0]?.split('?')[0]?.split('#')[0] || ''
+  // Common junk: trailing dots, @ leftover
+  d = d.replace(/^\.+|\.+$/g, '')
   if (!d || !d.includes('.')) return null
   if (!isEmployerCorporateHost(d)) return null
   return d
@@ -38,15 +41,20 @@ function parseResolution(raw: string): CompanyDomainResolution {
         url: null,
         confidence: 'low',
         source: 'none',
+        error: 'AI returned non-JSON domain response',
       }
     }
     const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<
       string,
       unknown
     >
-    const domain = normalizeHost(
-      typeof parsed.domain === 'string' ? parsed.domain : null,
-    )
+    const domainRaw =
+      (typeof parsed.domain === 'string' && parsed.domain) ||
+      (typeof parsed.website === 'string' && parsed.website) ||
+      (typeof parsed.official_domain === 'string' && parsed.official_domain) ||
+      (typeof parsed.url === 'string' && parsed.url) ||
+      null
+    const domain = normalizeHost(domainRaw)
     const emailDomain = normalizeHost(
       typeof parsed.email_domain === 'string'
         ? parsed.email_domain
@@ -77,14 +85,18 @@ function parseResolution(raw: string): CompanyDomainResolution {
       url,
       confidence: domain ? confidence : 'low',
       source: domain ? 'openai' : 'none',
+      error: domain
+        ? null
+        : `AI domain rejected or missing (raw=${String(domainRaw || '').slice(0, 80)})`,
     }
-  } catch {
+  } catch (e) {
     return {
       domain: null,
       email_domain: null,
       url: null,
       confidence: 'low',
       source: 'none',
+      error: e instanceof Error ? e.message : 'Failed to parse AI domain JSON',
     }
   }
 }
@@ -104,23 +116,23 @@ export async function resolveCompanyDomainWithAi(
       url: null,
       confidence: 'low',
       source: 'none',
+      error: 'Empty company name',
     }
   }
 
   const cacheKey = name.toLowerCase()
   const cached = cache.get(cacheKey)
-  if (cached) return cached
+  if (cached?.domain) return cached
 
   if (!Deno.env.get('OPENAI_API_KEY')) {
-    const empty: CompanyDomainResolution = {
+    return {
       domain: null,
       email_domain: null,
       url: null,
       confidence: 'low',
       source: 'none',
+      error: 'OPENAI_API_KEY missing',
     }
-    cache.set(cacheKey, empty)
-    return empty
   }
 
   const prompt = `What is the official primary website domain and the most common employee email @domain for this company?
@@ -149,19 +161,20 @@ Rules:
       ],
       { temperature: 0, response_format: { type: 'json_object' } },
     )
-    const resolved = parseResolution(raw)
-    cache.set(cacheKey, resolved)
+    const resolved = parseResolution(typeof raw === 'string' ? raw : '')
+    if (resolved.domain) cache.set(cacheKey, resolved)
     return resolved
-  } catch {
-    const empty: CompanyDomainResolution = {
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'OpenAI domain call failed'
+    console.error('resolveCompanyDomainWithAi', name, message)
+    return {
       domain: null,
       email_domain: null,
       url: null,
       confidence: 'low',
       source: 'none',
+      error: message,
     }
-    cache.set(cacheKey, empty)
-    return empty
   }
 }
 
@@ -176,6 +189,7 @@ export async function pickCompanyDomain(opts: {
   url: string | null
   source: string
   confidence: 'high' | 'medium' | 'low'
+  error?: string | null
 }> {
   const ai = await resolveCompanyDomainWithAi(opts.companyName)
   if (ai.domain && isEmployerCorporateHost(ai.domain)) {
@@ -185,6 +199,7 @@ export async function pickCompanyDomain(opts: {
       url: ai.url || `https://${ai.domain}`,
       source: 'openai',
       confidence: ai.confidence,
+      error: null,
     }
   }
   return {
@@ -193,5 +208,10 @@ export async function pickCompanyDomain(opts: {
     url: null,
     source: 'none',
     confidence: 'low',
+    error:
+      ai.error ||
+      (ai.domain
+        ? `Rejected host ${ai.domain}`
+        : 'AI could not resolve domain'),
   }
 }

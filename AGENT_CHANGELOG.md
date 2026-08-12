@@ -1,5 +1,6 @@
 # Agent change log
 
+- Domain resolve bugfix: skip-list `x.com` substring blocked spacex.com/box.com/netflix.com — use domain-boundary matching
 - Domain resolve: OpenAI only — no slug/web/existing fallbacks or per-company defaults; log "resolving domain through AI"
 - Company domain: ask OpenAI for official website / @email domain (e.g. SpaceX → spacex.com, not lookalikes)
 - Application role fill: force one short “I applied…because I’m interested in…” sentence; ban “I will be working/developing” certainty language

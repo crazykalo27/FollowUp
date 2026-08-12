@@ -129,9 +129,31 @@ export const SKIP_COMPANY_HOST_PARTS = [
 const LISTICLE_TITLE_RE =
   /\b(top\s*\d+|best\s*\d+|\d+\s+(best|top|leading|largest)|list of|largest\b|market\s*cap|ranking|ranked|fortune\s*500|stock\b|etf\b|newsletter|podcast|webinar|interview with|how to|guide to|what is|ultimate guide|roundup|magazine|weekly|daily digest|blog\b|vs\.|review\b|careers page|job board|companies to watch|to know in)\b/i
 
+/**
+ * Match skip patterns on domain boundaries — never raw substring includes.
+ * Otherwise `x.com` blocks spacex.com / box.com / netflix.com.
+ */
 export function isSkippableCompanyHost(host: string): boolean {
-  const h = host.toLowerCase()
-  return SKIP_COMPANY_HOST_PARTS.some((p) => h.includes(p))
+  const raw = host.toLowerCase().trim()
+  if (!raw) return true
+  const hostOnly = raw.replace(/^www\./, '').split('/')[0] || ''
+  const withPath = raw.replace(/^www\./, '')
+
+  return SKIP_COMPANY_HOST_PARTS.some((p) => {
+    const pat = p.toLowerCase()
+    // Path patterns (e.g. linkedin.com/jobs, yahoo.com/finance)
+    if (pat.includes('/')) {
+      return withPath.includes(pat)
+    }
+    // Trailing-dot label patterns (e.g. indeed. → DNS label "indeed")
+    if (pat.endsWith('.')) {
+      const label = pat.slice(0, -1)
+      if (!label) return false
+      return hostOnly.split('.').includes(label)
+    }
+    // Full host (e.g. x.com, medium.com) — exact or subdomain only
+    return hostOnly === pat || hostOnly.endsWith('.' + pat)
+  })
 }
 
 export function isEmployerCorporateHost(host: string): boolean {
