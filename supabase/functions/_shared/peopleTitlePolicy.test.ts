@@ -1,75 +1,105 @@
 import {
-  filterIncludeTitlesAgainstProfile,
-  isFounderCeoEntrepreneurTitle,
-  messageRequestsDropFounderCeo,
-  scrubFounderCeoFromProfileFields,
-  withoutFounderCeoEntrepreneur,
+  applyTitleTuningToIncludes,
+  asTermList,
+  ensureProfileAdditions,
+  itemMatchesTerm,
+  preferProfileAlignedIncludes,
+  scrubProfileByRemoveTerms,
+  withoutMatchingTerms,
 } from './peopleTitlePolicy.ts'
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-describe('peopleTitlePolicy', () => {
-  it('detects founder/ceo/entrepreneur titles', () => {
-    assert.equal(isFounderCeoEntrepreneurTitle('Founder'), true)
-    assert.equal(isFounderCeoEntrepreneurTitle('CEO'), true)
-    assert.equal(isFounderCeoEntrepreneurTitle('Co-Founder'), true)
-    assert.equal(isFounderCeoEntrepreneurTitle('Entrepreneur'), true)
-    assert.equal(isFounderCeoEntrepreneurTitle('ASIC Design Engineer'), false)
-    assert.equal(isFounderCeoEntrepreneurTitle('Engineering Manager'), false)
+describe('peopleTitlePolicy (general tuning)', () => {
+  it('matches and strips arbitrary remove terms', () => {
+    assert.equal(itemMatchesTerm('ASIC Design Engineer', 'ASIC'), true)
+    assert.equal(itemMatchesTerm('Gallery Curator', 'painting'), false)
+    assert.deepEqual(
+      withoutMatchingTerms(
+        ['ASIC Design Engineer', 'CPU Architect', 'Gallery Curator'],
+        ['ASIC', 'CPU'],
+      ),
+      ['Gallery Curator'],
+    )
   })
 
-  it('detects remove prompts like the user message', () => {
-    const msg =
-      'can you please update my profile so that founders and ceo and entrepreneur type stuff is gone but focus on asic and cpu design and computer engineering and quantum computing like my resume'
-    assert.equal(messageRequestsDropFounderCeo(msg), true)
-    assert.equal(messageRequestsDropFounderCeo('add founder titles please'), false)
-  })
-
-  it('scrubs People to find (outreach_targets) on drop', () => {
-    const scrubbed = scrubFounderCeoFromProfileFields({
-      roles: ['ASIC Design Engineer', 'CEO'],
-      outreach_targets: [
-        'Founder',
-        'CEO',
-        'Entrepreneur',
-        'ASIC Design Engineer',
-        'CPU Architect',
-      ],
-      must_haves: ['Entrepreneur mindset'],
-      skills: ['Verilog'],
-    })
-    assert.deepEqual(scrubbed.outreach_targets, [
-      'ASIC Design Engineer',
-      'CPU Architect',
-    ])
+  it('scrubs founder/ceo when those are the remove_terms (synonym expand)', () => {
+    const scrubbed = scrubProfileByRemoveTerms(
+      {
+        roles: ['ASIC Design Engineer', 'CEO'],
+        outreach_targets: [
+          'Founder',
+          'CEO',
+          'Entrepreneur',
+          'ASIC Design Engineer',
+        ],
+        must_haves: ['Entrepreneurship'],
+        skills: ['Verilog'],
+      },
+      ['founder', 'CEO', 'entrepreneur'],
+    )
+    assert.deepEqual(scrubbed.outreach_targets, ['ASIC Design Engineer'])
     assert.deepEqual(scrubbed.roles, ['ASIC Design Engineer'])
     assert.deepEqual(scrubbed.must_haves, [])
-    assert.deepEqual(scrubbed.skills, ['Verilog'])
   })
 
-  it('strips invented Founder/CEO from include_titles unless profile allows', () => {
-    const cleaned = filterIncludeTitlesAgainstProfile(
-      [
-        'Founder',
-        'CEO',
-        'ASIC Design Engineer',
-        'CPU Design Engineer',
-        'Quantum Engineer',
-      ],
+  it('can remove technical and add painting-style targets', () => {
+    const removed = scrubProfileByRemoveTerms(
       {
-        outreach_targets: ['ASIC Design Engineer', 'CPU Design Engineer'],
-        roles: ['Quantum Computing Engineer'],
+        roles: ['ASIC Design Engineer', 'CPU Design Engineer'],
+        industries: ['Quantum Computing', 'Semiconductors'],
+        outreach_targets: [
+          'ASIC Design Engineer',
+          'Engineering Manager',
+          'CPU Architect',
+        ],
+      },
+      ['ASIC', 'CPU', 'quantum', 'semiconductor', 'technical', 'engineering'],
+    )
+    const added = ensureProfileAdditions(removed, [
+      'Painting',
+      'Gallery Curator',
+      'Studio Artist',
+    ])
+    assert.ok(added.industries?.includes('Painting'))
+    assert.ok(added.roles?.includes('Gallery Curator'))
+    assert.ok(added.outreach_targets?.includes('Gallery Curator'))
+    assert.ok(added.outreach_targets?.includes('Studio Artist'))
+    assert.equal(
+      (added.outreach_targets || []).some((t) => /ASIC|CPU/i.test(t)),
+      false,
+    )
+  })
+
+  it('tunes include_titles with ban + prefer terms', () => {
+    const tuned = applyTitleTuningToIncludes(
+      ['Founder', 'CEO', 'ASIC Design Engineer', 'Engineering Manager'],
+      {
+        banTerms: asTermList(['Founder', 'CEO']),
+        preferTerms: asTermList(['Gallery Curator', 'Painter']),
       },
     )
-    assert.deepEqual(cleaned, [
+    assert.deepEqual(tuned, [
       'ASIC Design Engineer',
-      'CPU Design Engineer',
-      'Quantum Engineer',
+      'Engineering Manager',
+      'Gallery Curator',
+      'Painter',
     ])
-    assert.deepEqual(
-      withoutFounderCeoEntrepreneur(['Founder', 'Director', 'CEO']),
-      ['Director'],
+  })
+
+  it('aligns includes to scrubbed outreach/roles', () => {
+    const includes = preferProfileAlignedIncludes(
+      ['Founder', 'CEO', 'Random VP'],
+      {
+        outreach_targets: ['Gallery Curator', 'Studio Artist'],
+        roles: ['Painter'],
+      },
+      ['Founder', 'CEO'],
     )
+    assert.equal(includes.includes('Founder'), false)
+    assert.equal(includes.includes('CEO'), false)
+    assert.ok(includes.includes('Gallery Curator'))
+    assert.ok(includes.includes('Studio Artist'))
   })
 })
