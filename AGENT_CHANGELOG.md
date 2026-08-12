@@ -1,5 +1,6 @@
 # Agent change log
 
+- Company domain: ask OpenAI for official website / @email domain (e.g. SpaceX → spacex.com, not lookalikes)
 - Application role fill: force one short “I applied…because I’m interested in…” sentence; ban “I will be working/developing” certainty language
 - Application drafts: [job description] is one sentence — "I applied for [role] because I am interested in [detail related to the person]"
 - Bounce retry: guessed emails auto-try up to 5 alternate name patterns and stay pending; give up → bounced

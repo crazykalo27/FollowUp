@@ -49,6 +49,7 @@ import {
   isEmployerCorporateHost,
   looksLikeEmployerName,
 } from '../_shared/company_discovery.ts'
+import { pickCompanyDomain } from '../_shared/companyDomain.ts'
 import {
   extractCoreJobTitle,
   formatApplicationJobDescription,
@@ -621,10 +622,16 @@ async function resolveUserTargetCompany(
   webConfigured: boolean,
 ): Promise<CompanyHit> {
   const company_name = rawName.trim()
-  let domain: string | null = slugDomainGuess(company_name)
-  let url = domain ? `https://${domain}` : ''
 
-  if (webConfigured) {
+  // Primary: ask OpenAI for the official domain / common @email (avoids lookalikes)
+  const picked = await pickCompanyDomain({ companyName: company_name })
+  let domain: string | null = picked.domain
+  let url = picked.url || (domain ? `https://${domain}` : '')
+
+  // Fallback: web search only if OpenAI did not resolve a corporate domain
+  if (!domain && webConfigured) {
+    domain = slugDomainGuess(company_name)
+    url = domain ? `https://${domain}` : ''
     try {
       const hits = await runWebSearch(
         `"${company_name}" company official site OR careers`,
@@ -2189,12 +2196,33 @@ Deno.serve(async (req) => {
         report.domain = domain
         report.name = canonicalName
       } else {
-      domain =
+      const hinted =
         company.domain ||
         extractDomain(company.url) ||
+        null
+
+      const picked = await pickCompanyDomain({
+        companyName: company.company_name,
+        currentDomain: hinted,
+        currentUrl: company.url || null,
+      })
+
+      domain =
+        picked.domain ||
+        hinted ||
         slugDomainGuess(company.company_name)
 
+      if (picked.url) {
+        company.url = picked.url
+      } else if (domain && !company.url) {
+        company.url = `https://${domain}`
+      }
+
       report.domain = domain
+      if (picked.source === 'openai') {
+        report.domain_source = 'openai'
+        if (picked.email_domain) report.email_domain = picked.email_domain
+      }
 
       if (!domain) {
         report.outcome = 'Skipped — could not resolve domain'

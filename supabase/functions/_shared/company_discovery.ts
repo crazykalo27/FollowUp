@@ -302,6 +302,22 @@ function sanitizeAiCompanies(
       domain = extractDomainFromUrl(urlRaw)
     }
 
+    // Drop lookalike domains (e.g. spacecrew for SpaceX) — later OpenAI resolve fixes
+    if (domain) {
+      const label =
+        domain.split('.')[0]?.replace(/[^a-z0-9]+/g, '') || ''
+      const n = name.toLowerCase().replace(/[^a-z0-9]+/g, '')
+      const matches =
+        !!label &&
+        !!n &&
+        (n === label ||
+          (n.includes(label) && label.length >= 4) ||
+          (label.includes(n) && n.length >= 4) ||
+          (Math.min(n.length, label.length) >= 5 &&
+            (n.startsWith(label) || label.startsWith(n))))
+      if (!matches) domain = null
+    }
+
     // LinkedIn company pages are allowed without a corporate domain
     let url = urlRaw
     if (!url && domain) url = `https://${domain}/`
@@ -380,7 +396,7 @@ function buildDiscoveryBrief(
         'generic publishers (TechCrunch, Forbes, etc.) as the employer',
       ],
       output_when_done:
-        'Return ONLY JSON: {"companies":[{"company_name":"...","domain":"example.com","url":"https://...","why":"one sentence fit","hiring_signal":"optional role/team"}]}',
+        'Return ONLY JSON: {"companies":[{"company_name":"...","domain":"example.com","url":"https://...","why":"one sentence fit","hiring_signal":"optional role/team"}]}. domain must be the official corporate website (e.g. SpaceX → spacex.com), never a lookalike, job board, or news host.',
     },
     null,
     2,

@@ -1,3 +1,8 @@
+## 2026-08-12 — OpenAI company domain resolution
+
+- Resolve employer domains via OpenAI (“official website + common @email”) instead of trusting web-search lookalikes (e.g. SpaceX → spacex.com, not spacecrew).
+- Used for specific/application company targets and before people search; drops mismatched domains from AI company discovery.
+
 ## 2026-08-12 — Stronger one-sentence application fill
 
 - Always rewrite application `job_description` (never keep multi-sentence AI dumps).
