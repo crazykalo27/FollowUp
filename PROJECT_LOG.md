@@ -1,3 +1,9 @@
+## 2026-08-12 — Profile chat: FollowUp-aware coach
+
+- After the orientation interview, chat answers FollowUp product questions and profile/filter questions without rewriting targets by default.
+- Detects update intent and writes profile / refreshes search filters only when the user asks for a change.
+- Mid-interview off-topic questions (about the app or profile) get answers without advancing the questionnaire.
+
 ## 2026-08-12 — Profile chat: padding above compose bar
 
 - Last coach message no longer sits flush on the input bar; spacer under the message log plus a bit more compose top padding.

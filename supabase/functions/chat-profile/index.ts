@@ -326,6 +326,77 @@ async function saveProfile(
   }
 }
 
+/** Product knowledge for Profile chat — keep factual and brief. */
+const FOLLOWUP_APP_KNOWLEDGE = `FollowUp is an AI-guided outreach co-pilot for job seekers.
+Tagline: Skip the application black hole. Reach the people who actually hire.
+
+Goal: help users find real employers and the right people inside them, then send thoughtful outreach from the user's own Gmail (resume attached) — favoring hiring managers and peers, not generic recruiter spam.
+
+App tabs (sidebar):
+1. Profile — upload resume; chat with FollowUp AI to shape search targets (roles, industries, locations, remote, seniority, etc.).
+2. Filters — company/contact targeting (include/exclude titles, locations, seniority, company size bounds). AI recommends these from the profile and keep/discard feedback; users can edit them.
+3. Search — discover companies and people (General / Specific company / Application-from-JD modes). Live progress; depth choices affect breadth.
+4. Contacts — review found people (keep/discard). Feedback trains future picks. Kept contacts can be drafted.
+5. Drafts — template-filled outreach emails; edit, regenerate, copy, or send via connected Gmail (one send per contact).
+6. Settings — sender name/signature/links, optional Hunter/Apollo/email-verify toggles, Gmail OAuth, account delete.
+
+First-run orientation (locked nav until done): Welcome → Profile interview → Filters → Search → keep a Contact → first Draft. After the first draft, the full app unlocks.
+
+What this chat can do: explain FollowUp, summarize/answer questions about the user's saved search profile and filters, and apply profile changes the user requests. It cannot run searches, swipe contacts, or send email from here — point users to the right tab.
+
+Sends use the user's Gmail API (not a bulk mailer). No LinkedIn scraping; public discovery via search APIs + optional Hunter/Apollo/OSINT email paths.`
+
+type CoachIntent = 'inform' | 'update_profile' | 'update_filters'
+
+function searchSignature(p: Profile): string {
+  return JSON.stringify({
+    roles: p.roles,
+    industries: p.industries,
+    company_types: p.company_types,
+    outreach_targets: p.outreach_targets,
+    locations: p.locations,
+    seniority: p.seniority,
+    employment_types: p.employment_types,
+    remote_preference: p.remote_preference,
+    company_size: p.company_size,
+    must_haves: p.must_haves,
+  })
+}
+
+function profileSearchChanged(before: Profile, after: Profile): boolean {
+  return searchSignature(before) !== searchSignature(after)
+}
+
+async function loadFilters(
+  admin: ReturnType<typeof adminClient>,
+  userId: string,
+): Promise<Record<string, unknown> | null> {
+  const { data } = await admin
+    .from('search_filters')
+    .select('filters')
+    .eq('user_id', userId)
+    .maybeSingle()
+  return (data?.filters as Record<string, unknown> | null) || null
+}
+
+function emptyProfilePatch(): Partial<Profile> {
+  return {
+    roles: [],
+    industries: [],
+    company_types: [],
+    outreach_targets: [],
+    skills: [],
+    locations: [],
+    employment_types: [],
+    remote_preference: '',
+    company_size: '',
+    seniority: '',
+    must_haves: [],
+    tone: '',
+    notes: '',
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -523,28 +594,154 @@ Rules:
       })
     }
 
-    // Normal reply: update current question field, advance to next
+    // Persist the user turn once for both freeform and interview paths
     await admin.from('profile_chat_messages').insert({
       user_id: user.id,
       role: 'user',
       content: message,
     })
 
-    const currentKey = qIndex < SERIES_DONE ? QUESTIONS[qIndex].key : 'done'
+    // ── Freeform coach (interview finished): app Q&A, profile Q&A, selective updates
+    if (qIndex >= SERIES_DONE) {
+      const currentFilters = await loadFilters(admin, user.id)
+      const freeformPrompt = `You are FollowUp AI on the Profile page — a helpful product coach and search-profile editor.
 
-    const turnPrompt = `You are FollowUp's orientation interviewer. The user is answering question ${qIndex + 1} of 7 about: ${currentKey}.
+${FOLLOWUP_APP_KNOWLEDGE}
+
+Current search profile JSON (source of truth for "my profile" questions):
+${JSON.stringify(state.profile)}
+
+Current search filters JSON (may be null if not generated yet):
+${JSON.stringify(currentFilters)}
+
+Resume excerpt (background only — do not invent credentials):
+${resumeSnippet || '(none)'}
+
+User message:
+${message}
+
+Choose intent:
+- "inform": User is asking about FollowUp, how a tab works, what their profile/filters say, clarifying, or chatting. Answer helpfully. Do NOT change profile fields.
+- "update_profile": User wants to change search targets (roles, industries, locations, remote, seniority, company size, employment type, outreach targets, skills, must-haves, tone, notes). Put ONLY changed fields in profile (use empty arrays/strings for fields you are not changing so the server keeps prior values).
+- "update_filters": User wants filters refreshed or retargeted (who to seek / exclude) with little or no profile rewrite. Optional light profile patch if they also stated target changes.
+
+Set refresh_filters=true when:
+- intent is "update_filters", OR
+- intent is "update_profile" AND the change affects who/where we search (roles, industries, company_types, outreach_targets, locations, seniority, employment_types, remote_preference, company_size, must_haves).
+
+Set refresh_filters=false for pure Q&A, or for tone/notes-only tweaks.
+
+Reply rules:
+- Be concise, accurate, and specific to THIS user's data when answering profile/filter questions.
+- You may ask a short clarifying question if an update is ambiguous.
+- Never claim you ran a search, reviewed contacts, or sent email — direct them to Search / Contacts / Drafts.
+- If they should save/lock orientation profile and continue, mention Filters / Save profile only when relevant.
+- Keep orientation_q at ${SERIES_DONE} and roles_confirmed true unless they clearly restart (do not restart on normal chat).
+
+Return JSON only:
+{"intent":"inform"|"update_profile"|"update_filters","refresh_filters":false,"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","company_size":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":true,"orientation_q":${SERIES_DONE}}}`
+
+      const freeformMsgs = [
+        {
+          role: 'system',
+          content:
+            'You are FollowUp AI. Return valid JSON only. Prefer answering questions over rewriting the profile. Only update when the user clearly wants a change.',
+        },
+        ...state.history.slice(-20).map((m) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content,
+        })),
+        { role: 'user', content: freeformPrompt },
+      ]
+
+      const raw = await openaiChat(freeformMsgs, {
+        temperature: 0.35,
+        response_format: { type: 'json_object' },
+      })
+      const parsed = stripFences(raw) || {}
+      const intent = (
+        ['inform', 'update_profile', 'update_filters'].includes(parsed.intent)
+          ? parsed.intent
+          : 'inform'
+      ) as CoachIntent
+
+      let profile = state.profile
+      if (intent === 'update_profile' || intent === 'update_filters') {
+        profile = applyCompanySizeToTypes(
+          mergeProfile(state.profile, {
+            ...(parsed.profile || {}),
+            orientation_q: SERIES_DONE,
+            roles_confirmed: true,
+          }),
+        )
+      }
+
+      const modelWantsFilters = parsed.refresh_filters === true
+      const refreshFilters =
+        intent === 'update_filters' ||
+        modelWantsFilters ||
+        (intent === 'update_profile' &&
+          profileSearchChanged(state.profile, profile))
+
+      let reply =
+        typeof parsed.reply === 'string' && parsed.reply.trim()
+          ? parsed.reply.trim()
+          : intent === 'inform'
+            ? 'Happy to help — ask about FollowUp, your profile, or what you want to change.'
+            : 'Updated.'
+
+      if (refreshFilters && !/filter/i.test(reply)) {
+        reply += ' I also refreshed your search filters to match.'
+      }
+
+      await admin.from('profile_chat_messages').insert({
+        user_id: user.id,
+        role: 'assistant',
+        content: reply,
+      })
+
+      if (intent !== 'inform' || profileSearchChanged(state.profile, profile)) {
+        await saveProfile(admin, user.id, profile, reply, false)
+      }
+
+      const filters = refreshFilters
+        ? await recommendFiltersForUser(admin, user.id)
+        : null
+
+      return jsonResponse({
+        reply,
+        profile,
+        next_topic: null,
+        ready: false,
+        series_complete: true,
+        filters,
+        intent,
+        filters_updated: Boolean(filters),
+      })
+    }
+
+    // ── Orientation interview: advance on answers; answer off-topic without advancing
+    const currentKey = QUESTIONS[qIndex].key
+
+    const turnPrompt = `You are FollowUp AI during orientation (question ${qIndex + 1} of 7 about: ${currentKey}).
+
+${FOLLOWUP_APP_KNOWLEDGE}
 
 Current profile JSON:
 ${JSON.stringify(state.profile)}
 
-User reply:
+User message:
 ${message}
 
 Resume excerpt (background only):
 ${resumeSnippet || '(none)'}
 
-Rules:
-- Update ONLY the fields relevant to "${currentKey}" from the user's reply (you may lightly refine related fields).
+Decide advance:
+- advance=true ONLY if the user is answering (or confirming/editing) the current topic "${currentKey}".
+- advance=false if they ask about FollowUp, another tab, their profile so far, or anything that is not answering this question — answer helpfully and do not change orientation_q.
+
+When advance=true:
+- Update ONLY fields relevant to "${currentKey}" from the user's reply (you may lightly refine related fields).
 - For locations: set locations[] (use ["no preference"] if they have none).
 - For employment_types: full-time / part-time / contract / internship (array; one or more).
 - For remote_preference: remote | in-person | hybrid | no preference.
@@ -555,16 +752,20 @@ Rules:
 - Do NOT set or keep roles[] until the roles step — when updating industries, roles must be [].
 - Set orientation_q to ${Math.min(SERIES_DONE, qIndex + 1)}.
 - reply: ONE short acknowledgment sentence only. Do NOT ask any question. Do NOT mention the next topic. No question marks.
-- NEVER ask a question in reply.
+
+When advance=false:
+- Keep orientation_q at ${qIndex}.
+- Put an empty/no-op profile patch (empty arrays and blank strings).
+- reply: helpful answer; you may briefly remind them of the current question at the end.
 
 Return JSON only:
-{"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","company_size":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":false,"orientation_q":0}}`
+{"advance":true,"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","company_size":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":false,"orientation_q":0}}`
 
     const historyMsgs = [
       {
         role: 'system',
         content:
-          'Return valid JSON only. Your reply field must be a short acknowledgment with ZERO questions.',
+          'Return valid JSON only. Prefer advance=false for questions about the product or profile; advance=true only for answers to the current orientation question.',
       },
       ...state.history.slice(-20).map((m) => ({
         role: m.role === 'assistant' ? 'assistant' : 'user',
@@ -579,10 +780,48 @@ Return JSON only:
     })
 
     const parsed = stripFences(raw) || {}
+    const looksLikeQuestion =
+      /\?\s*$/.test(message.trim()) ||
+      /^(what|how|why|where|who|when|can you|could you|tell me|explain|does |is followup|what('s| is) my)\b/i.test(
+        message.trim(),
+      )
+    const advance =
+      typeof parsed.advance === 'boolean'
+        ? parsed.advance
+        : !looksLikeQuestion
+
+    if (!advance) {
+      let reply =
+        typeof parsed.reply === 'string' && parsed.reply.trim()
+          ? parsed.reply.trim()
+          : `Happy to help. When you're ready, answer the current question about ${currentKey.replace(/_/g, ' ')}.`
+      const topicHint = QUESTIONS[qIndex].ask(state.profile).split('\n')[0]
+      if (!/when you'?re ready/i.test(reply) && !reply.includes(topicHint.slice(0, 24))) {
+        reply = `${reply}\n\nWhen you're ready: ${topicHint}`
+      }
+
+      await admin.from('profile_chat_messages').insert({
+        user_id: user.id,
+        role: 'assistant',
+        content: reply,
+      })
+
+      return jsonResponse({
+        reply,
+        profile: state.profile,
+        next_topic: currentKey,
+        ready: false,
+        series_complete: false,
+        filters: null,
+        intent: 'inform',
+        filters_updated: false,
+      })
+    }
+
     // Always advance exactly one step — never trust the model to jump or ask ahead
     const nextQ = Math.min(SERIES_DONE, qIndex + 1)
     let profile = mergeProfile(state.profile, {
-      ...(parsed.profile || {}),
+      ...(parsed.profile || emptyProfilePatch()),
       orientation_q: nextQ,
     })
     profile = {
@@ -665,6 +904,8 @@ Return JSON only:
       ready: false,
       series_complete: seriesComplete,
       filters,
+      intent: 'update_profile',
+      filters_updated: Boolean(filters),
     })
   } catch (e) {
     return errorResponse(e instanceof Error ? e.message : 'Unexpected error', 500)

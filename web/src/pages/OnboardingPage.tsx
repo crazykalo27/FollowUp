@@ -254,6 +254,7 @@ export function OnboardingPage() {
       ])
     }
     setBusy(true)
+    setStatus(null)
     try {
       const res = await invokeFunction<{
         reply: string
@@ -261,6 +262,8 @@ export function OnboardingPage() {
         ready?: boolean
         series_complete?: boolean
         filters?: unknown
+        filters_updated?: boolean
+        intent?: string
       }>('chat-profile', {
         action: finalize ? 'finalize' : 'reply',
         message: message || undefined,
@@ -274,6 +277,10 @@ export function OnboardingPage() {
         await orientation.advanceTo('filters')
         setStatus('Profile saved — review your filters next.')
         navigate('/app/filters')
+      } else if (res.filters_updated) {
+        setStatus('Search filters updated to match your profile.')
+      } else if (res.intent === 'update_profile') {
+        setStatus('Profile updated.')
       }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Chat failed')
@@ -305,9 +312,9 @@ export function OnboardingPage() {
           <ProfileCoachAvatar size={52} />
           <h1>Start with your resume</h1>
           <p className="profile-upload-lede">
-            Upload your resume and chat with your FollowUp guide to shape who we
-            search for. You can return anytime to change roles, industries,
-            locations, and outreach targets.
+            Upload your resume and chat with FollowUp AI — it knows the app, can
+            explain your search profile, and updates targets (and filters) when you
+            ask.
           </p>
           <label className="upload upload-hero">
             <input
@@ -422,9 +429,9 @@ export function OnboardingPage() {
               value={input}
               placeholder={
                 orientation.complete
-                  ? 'Tell me what to change about your search…'
+                  ? 'Ask about FollowUp, your profile, or what to change…'
                   : seriesComplete
-                    ? 'Optional: clarify anything else…'
+                    ? 'Ask a question, or clarify anything else…'
                     : quickOptions
                       ? 'Or type your own answer…'
                       : 'Type your answer…'
