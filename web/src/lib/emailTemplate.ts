@@ -86,9 +86,9 @@ export const SAMPLE_PREVIEW_VARS: TemplateVars = {
   industry: 'quantum computing',
   hiring_signal: 'open quantum compiler roles',
   job_description:
-    'Senior Quantum Software Engineer on the compiler team — optimizing IR lowering for superconducting QPUs',
+    'I applied for the Senior Quantum Software Engineer role because I am interested in compiler IR lowering.',
   'job description':
-    'Senior Quantum Software Engineer on the compiler team — optimizing IR lowering for superconducting QPUs',
+    'I applied for the Senior Quantum Software Engineer role because I am interested in compiler IR lowering.',
   employment_type: 'full-time',
   remote: 'remote-friendly',
   linkedin: 'https://linkedin.com/in/you',
