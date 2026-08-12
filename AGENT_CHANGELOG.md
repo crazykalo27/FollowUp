@@ -1,5 +1,6 @@
 # Agent change log
 
+- Discard reason: “Doesn't match job filters” (downranks that title in people-to-find)
 - Search stats: Contacts kept is all-time keep decisions (not current Kept tab; survives archive/delete)
 - Profile/filters tuning: general remove_terms/add_terms (any niche) — not Founder/CEO-only hardcode
 - Filters "People to find": drop Founder/CEO/Entrepreneur on remove prompts; don't re-invent into include titles

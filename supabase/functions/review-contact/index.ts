@@ -17,6 +17,7 @@ export const DISCARD_REASONS = [
   { id: 'wrong_company', label: 'Wrong company' },
   { id: 'wrong_industry', label: 'Wrong industry' },
   { id: 'not_hiring_connected', label: 'Not someone connected to hiring' },
+  { id: 'not_job_connected', label: 'Not connected to this job' },
   { id: 'wrong_location', label: 'Wrong location' },
   { id: 'wrong_job_type', label: 'Wrong job type' },
   { id: 'not_interested_anymore', label: 'Not interested anymore' },
