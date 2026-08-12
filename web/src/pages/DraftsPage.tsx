@@ -818,7 +818,20 @@ export function DraftsPage() {
                     <strong>Delivery pending.</strong> We&apos;re watching this
                     thread for bounces. If nothing fails, it turns green after 5
                     minutes.
+                    {active.contacts?.email
+                      ? ' If a guessed address bounces, we try another pattern (up to 5) automatically.'
+                      : ''}
                   </p>
+                  {active.error_message &&
+                    /trying|guessed address bounced/i.test(
+                      active.error_message,
+                    ) && (
+                      <p className="muted small">{active.error_message}</p>
+                    )}
+                  {active.bounce_summary &&
+                    /now trying|prior/i.test(active.bounce_summary) && (
+                      <p className="muted small">{active.bounce_summary}</p>
+                    )}
                   <p className="draft-pending-timer">
                     {formatPendingTimer(active.sent_at, clock)}
                   </p>
@@ -828,12 +841,18 @@ export function DraftsPage() {
               {isBounced && (
                 <div className="draft-bounced-banner">
                   <p>
-                    Gmail reported a delivery failure for this address (wrong
-                    email or mailbox not found). This does{' '}
+                    Gmail reported a delivery failure
+                    {/tried \d+ guessed/i.test(active.error_message || '')
+                      ? ' after trying alternate guessed addresses'
+                      : ' for this address'}{' '}
+                    (wrong email or mailbox not found). This does{' '}
                     <strong>not</strong> count as a successful send.
                   </p>
                   {active.bounce_summary && (
                     <p className="muted small">Detected: {active.bounce_summary}</p>
+                  )}
+                  {active.error_message && (
+                    <p className="muted small">{active.error_message}</p>
                   )}
                   {companyNameFromDraft(active) ? (
                     <div className="actions" style={{ marginTop: '0.65rem' }}>

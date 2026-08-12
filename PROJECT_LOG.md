@@ -1,3 +1,9 @@
+## 2026-08-12 — Auto-retry guessed emails on bounce
+
+- When a **guessed** outreach address bounces, keep the draft pending and resend with the next name pattern (first.last → flast → firstlast → …), up to 5 attempts.
+- Found/public emails still mark bounced immediately. Exhausted guesses mark bounced with a clear note.
+- Shared Gmail send helper used by initial send and bounce retries.
+
 ## 2026-08-12 — Looking for prefs on Filters
 
 - Moved employment / remote prefs from Settings into a compact “Looking for” chip section at the bottom of Filters.

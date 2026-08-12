@@ -12,6 +12,7 @@ import {
   looksLikeDeliveryFailure,
   messagePlainText,
 } from '../_shared/gmail_client.ts'
+import { maybeRetryGuessedEmailAfterBounce } from '../_shared/bounce_retry.ts'
 
 const PENDING_CONFIRM_MS = 5 * 60 * 1000
 
@@ -32,7 +33,9 @@ Deno.serve(async (req) => {
 
     let query = admin
       .from('outreach_drafts')
-      .select('id, gmail_thread_id, gmail_message_id, status, sent_at')
+      .select(
+        'id, contact_id, subject, body, gmail_thread_id, gmail_message_id, status, sent_at',
+      )
       .eq('user_id', user.id)
       .eq('status', 'pending')
       .not('sent_at', 'is', null)
@@ -46,6 +49,7 @@ Deno.serve(async (req) => {
         ok: true,
         checked: 0,
         bounced: 0,
+        retried: 0,
         confirmed: 0,
         still_pending: 0,
       })
@@ -63,6 +67,7 @@ Deno.serve(async (req) => {
 
     const userEmailLower = (userEmail || '').toLowerCase()
     let bouncedCount = 0
+    let retriedCount = 0
     let confirmedCount = 0
     let stillPending = 0
     const now = Date.now()
@@ -75,6 +80,7 @@ Deno.serve(async (req) => {
       const threadId = draft.gmail_thread_id as string | null
 
       let bounced = false
+      let bounceSummary: string | null = null
 
       if (accessToken && threadId) {
         let messages
@@ -101,27 +107,60 @@ Deno.serve(async (req) => {
             const check = looksLikeDeliveryFailure(from, subject, text)
             if (!check.bounced) continue
 
-            const { error: updErr } = await admin
-              .from('outreach_drafts')
-              .update({
-                status: 'bounced',
-                bounce_detected_at: new Date().toISOString(),
-                bounce_summary: check.summary,
-                error_message:
-                  'Delivery failed — this address may be wrong or the mailbox was not found.',
-              })
-              .eq('id', draft.id)
-              .eq('user_id', user.id)
-              .eq('status', 'pending')
-
-            if (!updErr) bouncedCount += 1
+            bounceSummary = check.summary
             bounced = true
             break
           }
         }
       }
 
-      if (bounced) continue
+      if (bounced) {
+        const retry = await maybeRetryGuessedEmailAfterBounce({
+          admin,
+          userId: user.id,
+          draft: {
+            id: draft.id as string,
+            subject: draft.subject as string,
+            body: draft.body as string,
+            contact_id: draft.contact_id as string,
+          },
+          bounceSummary,
+          bouncedThreadId: threadId,
+        })
+
+        if (retry.action === 'retried') {
+          retriedCount += 1
+          stillPending += 1
+          continue
+        }
+
+        if (retry.action === 'skipped' && retry.reason === 'already_retried') {
+          stillPending += 1
+          continue
+        }
+
+        const exhaustedNote =
+          retry.action === 'exhausted'
+            ? ` Tried ${retry.tried.length} guessed address(es) — giving up.`
+            : ''
+
+        const { error: updErr } = await admin
+          .from('outreach_drafts')
+          .update({
+            status: 'bounced',
+            bounce_detected_at: new Date().toISOString(),
+            bounce_summary: bounceSummary,
+            error_message:
+              'Delivery failed — this address may be wrong or the mailbox was not found.' +
+              exhaustedNote,
+          })
+          .eq('id', draft.id)
+          .eq('user_id', user.id)
+          .eq('status', 'pending')
+
+        if (!updErr) bouncedCount += 1
+        continue
+      }
 
       if (ageMs >= PENDING_CONFIRM_MS) {
         const { error: updErr } = await admin
@@ -129,6 +168,7 @@ Deno.serve(async (req) => {
           .update({
             status: 'sent',
             error_message: null,
+            bounce_summary: null,
           })
           .eq('id', draft.id)
           .eq('user_id', user.id)
@@ -144,6 +184,7 @@ Deno.serve(async (req) => {
       ok: true,
       checked: drafts.length,
       bounced: bouncedCount,
+      retried: retriedCount,
       confirmed: confirmedCount,
       still_pending: stillPending,
     })
