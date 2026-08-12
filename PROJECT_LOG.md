@@ -1,3 +1,8 @@
+## 2026-08-12 — Drop publisher domain skip-list
+
+- Removed the denylist that blocked YouTube, Facebook, LinkedIn, news sites, etc. as employer domains.
+- Domain resolve trusts OpenAI; only basic hostname shape is checked (must look like `example.com`).
+
 ## 2026-08-12 — Fix domain skip-list blocking SpaceX
 
 - Root cause of “Skipped — could not resolve domain”: publisher skip used raw `.includes('x.com')`, which also matched **spacex.com**, **box.com**, **netflix.com**.

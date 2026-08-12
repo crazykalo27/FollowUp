@@ -54,115 +54,19 @@ export type DiscoveryStats = {
   queries: string[]
 }
 
-export const SKIP_COMPANY_HOST_PARTS = [
-  'indeed.',
-  'glassdoor.',
-  'ziprecruiter.',
-  'monster.',
-  'wikipedia.',
-  'youtube.',
-  'twitter.',
-  'x.com',
-  'facebook.',
-  'reddit.',
-  'remotive.',
-  'adzuna.',
-  'linkedin.com/jobs',
-  'linkedin.com/pulse',
-  'medium.com',
-  'arxiv.org',
-  'substack.com',
-  'ghost.io',
-  'blogspot.',
-  'wordpress.com',
-  'wixsite.com',
-  'squarespace.com',
-  'notion.site',
-  'github.io',
-  'beehiiv.com',
-  'mailchimp.',
-  'feedburner.',
-  'techcrunch.com',
-  'forbes.com',
-  'businessinsider.com',
-  'builtin.com',
-  'crunchbase.com',
-  'pitchbook.com',
-  'cbinsights.com',
-  'statista.com',
-  'g2.com',
-  'ycombinator.com',
-  'news.ycombinator',
-  'quantamagazine.org',
-  'thequantuminsider.com',
-  'nature.com/articles',
-  'science.org',
-  'ieee.org',
-  'springer.com',
-  'researchgate.net',
-  'semiconductor-digest.com',
-  'venturebeat.com',
-  'prnewswire.com',
-  'businesswire.com',
-  'companiesmarketcap.',
-  'companiesmarketcap.com',
-  'finance.yahoo.',
-  'yahoo.com/finance',
-  'stockanalysis.com',
-  'macrotrends.net',
-  'investing.com',
-  'marketwatch.com',
-  'nasdaq.com/market-activity',
-  'fool.com',
-  'seekingalpha.com',
-  'etf.com',
-  'etfdb.com',
-  'listful.com',
-  'ranking.',
-  'top10.',
-  'top100.',
-  'wellfound.com/jobs',
-  'angel.co/jobs',
-  'linkedin.com',
-]
-
 const LISTICLE_TITLE_RE =
   /\b(top\s*\d+|best\s*\d+|\d+\s+(best|top|leading|largest)|list of|largest\b|market\s*cap|ranking|ranked|fortune\s*500|stock\b|etf\b|newsletter|podcast|webinar|interview with|how to|guide to|what is|ultimate guide|roundup|magazine|weekly|daily digest|blog\b|vs\.|review\b|careers page|job board|companies to watch|to know in)\b/i
 
 /**
- * Match skip patterns on domain boundaries — never raw substring includes.
- * Otherwise `x.com` blocks spacex.com / box.com / netflix.com.
+ * True when the string looks like a usable website host.
+ * No publisher denylist — AI chooses the domain (YouTube, Meta, etc. are valid employers).
  */
-export function isSkippableCompanyHost(host: string): boolean {
-  const raw = host.toLowerCase().trim()
-  if (!raw) return true
-  const hostOnly = raw.replace(/^www\./, '').split('/')[0] || ''
-  const withPath = raw.replace(/^www\./, '')
-
-  return SKIP_COMPANY_HOST_PARTS.some((p) => {
-    const pat = p.toLowerCase()
-    // Path patterns (e.g. linkedin.com/jobs, yahoo.com/finance)
-    if (pat.includes('/')) {
-      return withPath.includes(pat)
-    }
-    // Trailing-dot label patterns (e.g. indeed. → DNS label "indeed")
-    if (pat.endsWith('.')) {
-      const label = pat.slice(0, -1)
-      if (!label) return false
-      return hostOnly.split('.').includes(label)
-    }
-    // Full host (e.g. x.com, medium.com) — exact or subdomain only
-    return hostOnly === pat || hostOnly.endsWith('.' + pat)
-  })
-}
-
 export function isEmployerCorporateHost(host: string): boolean {
-  const h = host.toLowerCase().replace(/^www\./, '')
-  if (!h || isSkippableCompanyHost(h)) return false
-  if (h.endsWith('.substack.com') || h === 'substack.com') return false
-  if (h.endsWith('.github.io') || h.endsWith('.wordpress.com')) return false
+  const h = host.toLowerCase().replace(/^www\./, '').split('/')[0] || ''
+  if (!h || !h.includes('.')) return false
   const parts = h.split('.')
   if (parts.length < 2) return false
+  if (parts.some((p) => !p || !/^[a-z0-9-]+$/i.test(p))) return false
   const tld = parts[parts.length - 1]
   if (!/^[a-z]{2,}$/i.test(tld)) return false
   return true
@@ -226,8 +130,7 @@ const WEB_SEARCH_TOOL: OpenAiToolDef = {
 function extractDomainFromUrl(url: string): string | null {
   try {
     const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
-    if (!host || isSkippableCompanyHost(host)) return null
-    if (!isEmployerCorporateHost(host)) return null
+    if (!host || !isEmployerCorporateHost(host)) return null
     return host
   } catch {
     return null
@@ -238,8 +141,7 @@ function normalizeDomain(raw: string | null | undefined): string | null {
   if (!raw) return null
   let d = raw.trim().toLowerCase()
   d = d.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0] || ''
-  if (!d || isSkippableCompanyHost(d)) return null
-  if (!isEmployerCorporateHost(d)) return null
+  if (!d || !isEmployerCorporateHost(d)) return null
   return d
 }
 
@@ -352,7 +254,7 @@ function sanitizeAiCompanies(
     if (url && !isLinkedInCompany) {
       try {
         const host = new URL(url).hostname.toLowerCase()
-        if (isSkippableCompanyHost(host) && !domain) continue
+        if (!isEmployerCorporateHost(host) && !domain) continue
       } catch {
         if (!domain) continue
       }

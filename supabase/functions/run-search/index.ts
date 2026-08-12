@@ -2211,18 +2211,6 @@ Deno.serve(async (req) => {
         continue
       }
 
-      if (!isEmployerCorporateHost(domain)) {
-        report.outcome = 'Skipped — domain is a publisher/aggregator, not an employer'
-        markCompanySkipped(progressMeta, company.company_name, report.outcome)
-        await syncProgress(admin, runId, progressMeta, {
-          companies_done: i + 1,
-          progress: computeRunProgress(progressMeta, i + 1, 25),
-          logLine: `${company.company_name}: ${report.outcome}`,
-        })
-        company_reports.push(report)
-        continue
-      }
-
       await syncProgress(admin, runId, progressMeta, {
         companyName: company.company_name,
         companyStep: 'LinkedIn web search + optional Hunter domain search',
