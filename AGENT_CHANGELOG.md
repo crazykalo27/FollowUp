@@ -1,5 +1,6 @@
 # Agent change log
 
+- Profile chat: add/remove updates rewrite full profile + filters; removals delete (not add)
 - LinkedIn people search: drop hardcoded Founder/CEO/recruiter queries — use general company + filter title batches only
 - LinkedIn people search: company-first queries + report shows actual queries/SERP hit counts
 - Search report: show looking-for titles, filter funnel, and sample reject reasons; clearer empty-run diagnosis

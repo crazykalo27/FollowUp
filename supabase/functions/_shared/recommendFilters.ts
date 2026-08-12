@@ -133,6 +133,8 @@ ${pref?.dislikes_doc || '(empty)'}
 IMPORTANT polarity: preference docs may say "REJECT niches: …" and "PREFER niches: …".
 Treat REJECT as industries/signals to avoid; PREFER as targets to reinforce — even when the PREFER line came from a discard note like "fusion not embedded automotive" (reject fusion, prefer embedded automotive).
 
+If recent chat asked to REMOVE something from the profile/search targets, do not put that topic (or close synonyms) in include_titles / locations / seniority mirrors — rebuild from the updated profile. If they asked to ADD something, integrate it into includes when it fits who to email.
+
 "Wrong company" discards mean the person did not actually work at the labeled employer — do not change industries for that; keep seeking the intended company more carefully.
 
 Discard/keep reason counts:

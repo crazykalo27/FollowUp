@@ -1,3 +1,9 @@
+## 2026-08-12 — Profile chat add/remove rewrites
+
+- Freeform coach treats “remove X” / “add Y” as updates: full profile rewrite around that change, then filter refresh.
+- Removals delete matching targets (never add the rejected topic); additions integrate and refigure related fields.
+- Server applies authoritative rewrite (empty arrays clear); guards against accidental total wipe.
+
 ## 2026-08-12 — No hardcoded Founder/CEO people queries
 
 - LinkedIn SERP queries are general company (`site:linkedin.com/in "Company"`) plus filter-driven title batches / niche / location.
