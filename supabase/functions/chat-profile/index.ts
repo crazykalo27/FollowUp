@@ -8,8 +8,9 @@ import {
 } from '../_shared/cors.ts'
 import { recommendFiltersForUser } from '../_shared/recommendFilters.ts'
 import {
-  messageRequestsDropFounderCeo,
-  scrubFounderCeoFromProfileFields,
+  asTermList,
+  ensureProfileAdditions,
+  scrubProfileByRemoveTerms,
 } from '../_shared/peopleTitlePolicy.ts'
 
 type Profile = {
@@ -718,9 +719,9 @@ Choose intent:
 When intent is "update_profile" or "update_filters":
 - Return a FULL rewritten profile JSON (every field), not a sparse patch.
 - Start from the current profile, apply the user's add/remove/change, then refigure related fields so the profile stays coherent (e.g. removing an industry may drop mismatched roles/outreach_targets/must_haves; adding a role may adjust outreach_targets).
-- Removals / negatives: DELETE matching items (and close synonyms) from the relevant lists — especially profile.outreach_targets ("People to find" on Filters) and roles. Never add the rejected topic as a positive target, skill, must-have, note-as-goal, or outreach title.
-- If they say founders / CEO / entrepreneur should be gone: remove Founder, Co-Founder, CEO, Entrepreneur (and close variants) from outreach_targets, roles, and must_haves. Refigure outreach_targets toward practitioners/managers in their remaining niches (e.g. ASIC, CPU design, computer engineering, quantum) using the resume as background only.
-- Additions / positives: integrate into the right fields; dedupe; keep specificity.
+- Removals / negatives: DELETE matching items (and close synonyms) from the relevant lists — especially profile.outreach_targets ("People to find" on Filters), roles, and industries. Never add the rejected topic as a positive target, skill, must-have, note-as-goal, or outreach title.
+- Additions / positives: integrate into the right fields; dedupe; keep specificity. Users may retarget to ANY niche (technical, arts, trades, etc.) — follow what they asked for, not resume inertia, unless they say "like my resume".
+- Also return remove_terms and add_terms: short phrases for everything they asked to drop or add (titles, niches, people types). Example: remove technical/ASIC and add painting → remove_terms:["technical","ASIC","CPU","engineering"], add_terms:["painting","Gallery Curator"].
 - Copy unchanged fields through from the current profile so nothing is dropped accidentally.
 - Empty arrays/strings are allowed when the user cleared that field.
 
@@ -739,13 +740,13 @@ Reply rules:
 - Keep orientation_q at ${SERIES_DONE} and roles_confirmed true unless they clearly restart (do not restart on normal chat).
 
 Return JSON only:
-{"intent":"inform"|"update_profile"|"update_filters","refresh_filters":false,"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","company_size":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":true,"orientation_q":${SERIES_DONE}}}`
+{"intent":"inform"|"update_profile"|"update_filters","refresh_filters":false,"remove_terms":[],"add_terms":[],"reply":"...","profile":{"roles":[],"industries":[],"company_types":[],"outreach_targets":[],"skills":[],"locations":[],"employment_types":[],"remote_preference":"","company_size":"","seniority":"","must_haves":[],"tone":"","notes":"","roles_confirmed":true,"orientation_q":${SERIES_DONE}}}`
 
       const freeformMsgs = [
         {
           role: 'system',
           content:
-            'You are FollowUp AI. Return valid JSON only. Prefer answering questions over rewriting the profile. When the user asks to add OR remove something, treat that as an update: rewrite the full profile around that change (removals delete; additions integrate). Never turn a removal request into an addition.',
+            'You are FollowUp AI. Return valid JSON only. Prefer answering questions over rewriting the profile. When the user asks to add OR remove anything (any niche or title), treat that as an update: rewrite the full profile around that change, fill remove_terms/add_terms, and never turn a removal into an addition.',
         },
         ...state.history.slice(-20).map((m) => ({
           role: m.role === 'assistant' ? 'assistant' : 'user',
@@ -764,6 +765,8 @@ Return JSON only:
           ? parsed.intent
           : 'inform'
       ) as CoachIntent
+      const removeTerms = asTermList(parsed.remove_terms)
+      const addTerms = asTermList(parsed.add_terms)
 
       let profile = state.profile
       if (intent === 'update_profile' || intent === 'update_filters') {
@@ -777,10 +780,13 @@ Return JSON only:
             }),
           ),
         )
-        // Deterministic: "People to find" (outreach_targets) must drop founder/CEO
-        // even if the model forgets — Filters page reads this field.
-        if (messageRequestsDropFounderCeo(message)) {
-          profile = scrubFounderCeoFromProfileFields(profile)
+        // Deterministic tuning so Filters "People to find" follows any remove/add,
+        // not just one hardcoded niche.
+        if (removeTerms.length) {
+          profile = scrubProfileByRemoveTerms(profile, removeTerms)
+        }
+        if (addTerms.length) {
+          profile = ensureProfileAdditions(profile, addTerms)
         }
       }
 
@@ -813,7 +819,10 @@ Return JSON only:
       }
 
       const filters = refreshFilters
-        ? await recommendFiltersForUser(admin, user.id)
+        ? await recommendFiltersForUser(admin, user.id, {
+            banTerms: removeTerms,
+            preferTerms: addTerms,
+          })
         : null
 
       return jsonResponse({
@@ -825,6 +834,8 @@ Return JSON only:
         filters,
         intent,
         filters_updated: Boolean(filters),
+        remove_terms: removeTerms,
+        add_terms: addTerms,
       })
     }
 

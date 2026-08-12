@@ -1,10 +1,10 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 import { openaiChat } from './cors.ts'
 import {
-  filterIncludeTitlesAgainstProfile,
-  messageRequestsDropFounderCeo,
-  scrubFounderCeoFromProfileFields,
-  withoutFounderCeoEntrepreneur,
+  applyTitleTuningToIncludes,
+  asTermList,
+  preferProfileAlignedIncludes,
+  scrubProfileByRemoveTerms,
 } from './peopleTitlePolicy.ts'
 
 const FILTER_SYSTEM = `You set deterministic contact search filters for FollowUp.
@@ -25,7 +25,7 @@ Industries must stay SPECIFIC niches (never collapse to generic buckets like "te
 include_titles must come primarily from profile.outreach_targets (who to email) and the roles/industries the user confirmed.
 Use titles that fit THEIR niches only — do not assume software, engineering, or tech unless the profile indicates it.
 Prioritize people who refer or influence hiring for those niches (managers, directors, team leads, senior practitioners in that field).
-Do NOT invent Founder, Co-Founder, CEO, or Entrepreneur titles unless they already appear in profile.outreach_targets or profile.roles.
+Never invent people titles the user asked to remove (see ban_terms). Prefer titles from outreach_targets / prefer_terms.
 Broader titles when aligned with profile. Recruiter / Talent Acquisition only as low-priority includes.
 Preference docs describe feedback on contacts (what to seek or avoid) —
 NOT biographies of people. Use negative feedback to avoid bad match patterns; use positive feedback to reinforce good ones.
@@ -63,10 +63,18 @@ function normalizeFilters(parsed: Record<string, unknown>) {
   }
 }
 
+export type RecommendFilterOpts = {
+  /** Topics/titles the user asked to drop this turn (any domain). */
+  banTerms?: string[]
+  /** Topics/titles the user asked to add this turn. */
+  preferTerms?: string[]
+}
+
 /** AI writes search_filters from profile + resume + preference docs. */
 export async function recommendFiltersForUser(
   admin: SupabaseClient,
   userId: string,
+  opts?: RecommendFilterOpts,
 ): Promise<Record<string, unknown> | null> {
   const [{ data: resume }, { data: sp }, { data: pref }, { data: chat }] =
     await Promise.all([
@@ -102,22 +110,23 @@ export async function recommendFiltersForUser(
     .slice(0, 4000)
   const resumeText = (resume?.extracted_text || '').slice(0, 8000)
 
+  const banTerms = asTermList(opts?.banTerms)
+  const preferTerms = asTermList(opts?.preferTerms)
+
   const profileRaw = (sp?.profile || {}) as {
     outreach_targets?: string[]
     roles?: string[]
+    industries?: string[]
     must_haves?: string[]
     skills?: string[]
     [key: string]: unknown
   }
-  const dropFounderCeo =
-    messageRequestsDropFounderCeo(chatBits) ||
-    messageRequestsDropFounderCeo(String(sp?.chat_summary || ''))
-  const profile = dropFounderCeo
-    ? scrubFounderCeoFromProfileFields(profileRaw)
+  const profile = banTerms.length
+    ? scrubProfileByRemoveTerms(profileRaw, banTerms)
     : profileRaw
 
   if (
-    dropFounderCeo &&
+    banTerms.length &&
     JSON.stringify(profile.outreach_targets || []) !==
       JSON.stringify(profileRaw.outreach_targets || [])
   ) {
@@ -148,6 +157,10 @@ Profile fields:
 Search profile JSON:
 ${JSON.stringify(profile)}
 
+This-turn tuning (honor strictly):
+- ban_terms (must NOT appear in include_titles; add to exclude_titles when people titles): ${JSON.stringify(banTerms)}
+- prefer_terms (should appear in include_titles when they are people/roles): ${JSON.stringify(preferTerms)}
+
 Chat summary:
 ${sp?.chat_summary || '(none)'}
 
@@ -170,7 +183,7 @@ IMPORTANT polarity: preference docs may say "REJECT niches: …" and "PREFER nic
 Treat REJECT as industries/signals to avoid; PREFER as targets to reinforce — even when the PREFER line came from a discard note like "fusion not embedded automotive" (reject fusion, prefer embedded automotive).
 
 If recent chat asked to REMOVE something from the profile/search targets, do not put that topic (or close synonyms) in include_titles / locations / seniority mirrors — rebuild from the updated profile. If they asked to ADD something, integrate it into includes when it fits who to email.
-If they asked to drop Founder / CEO / Entrepreneur, omit those from include_titles entirely and prefer niche practitioners (e.g. ASIC / CPU / quantum / computer engineering titles when those are in the profile or resume).
+Tune to whatever niches the user wants (technical, arts, anything) — follow ban_terms / prefer_terms and the rewritten profile, do not keep stale people titles.
 
 "Wrong company" discards mean the person did not actually work at the labeled employer — do not change industries for that; keep seeking the intended company more carefully.
 
@@ -183,22 +196,18 @@ ${JSON.stringify(pref?.discard_reason_counts || {})}`,
 
   const parsed = parseFiltersJson(raw)
   const filters = normalizeFilters(parsed)
-  // Never invent Founder/CEO/Entrepreneur into "people to find" / include titles
-  // unless the (possibly scrubbed) profile still lists them.
-  filters.include_titles = filterIncludeTitlesAgainstProfile(
+  filters.include_titles = preferProfileAlignedIncludes(
     filters.include_titles,
     profile,
+    banTerms,
   )
-  if (dropFounderCeo) {
-    filters.include_titles = withoutFounderCeoEntrepreneur(filters.include_titles)
+  filters.include_titles = applyTitleTuningToIncludes(filters.include_titles, {
+    banTerms,
+    preferTerms,
+  })
+  if (banTerms.length) {
     filters.exclude_titles = Array.from(
-      new Set([
-        ...filters.exclude_titles,
-        'Founder',
-        'Co-Founder',
-        'CEO',
-        'Entrepreneur',
-      ]),
+      new Set([...filters.exclude_titles, ...banTerms]),
     )
   }
 
