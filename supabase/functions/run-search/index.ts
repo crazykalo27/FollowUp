@@ -418,12 +418,28 @@ function dedupeKey(c: Candidate, domain: string): string {
   return `name:${domain}:${name}:${(c.title || '').toLowerCase()}`
 }
 
+function preferPersonTitle(
+  a: string | null,
+  b: string | null,
+): string | null {
+  const ta = a?.trim() || null
+  const tb = b?.trim() || null
+  if (!ta) return tb
+  if (!tb) return ta
+  const aHasEmployer = /[@＠]|\bat\s+/i.test(ta)
+  const bHasEmployer = /[@＠]|\bat\s+/i.test(tb)
+  if (aHasEmployer && !bHasEmployer) return tb
+  if (bHasEmployer && !aHasEmployer) return ta
+  // Prefer the more specific (longer) role line
+  return tb.length > ta.length ? tb : ta
+}
+
 function mergeCandidate(into: Candidate, from: Candidate): Candidate {
   return {
     first_name: into.first_name || from.first_name,
     last_name: into.last_name || from.last_name,
     full_name: into.full_name || from.full_name,
-    title: into.title || from.title,
+    title: preferPersonTitle(into.title, from.title),
     email:
       sanitizeOutreachEmail(into.email) || sanitizeOutreachEmail(from.email),
     linkedin_url: into.linkedin_url || from.linkedin_url,
