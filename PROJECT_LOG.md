@@ -1,3 +1,9 @@
+## 2026-08-12 — Live LinkedIn location extraction
+
+- Verified against live SpaceX / Stripe / NVIDIA LinkedIn hits (e.g. Nate Hancock → Greater Seattle Area).
+- Also reads bare geo lines with `(US)` suffix when `Location:` is missing.
+- Test: `node scripts/test-linkedin-location-live.mjs`
+
 ## 2026-08-12 — LinkedIn SERP → contact card extraction
 
 - Card fields (name, title, location) parsed from LinkedIn *search result* titles/snippets — e.g. `Nate Hancock - ASIC/FPGA Design Engineer @ SpaceX` plus `Experience:` / `Location:` labels.

@@ -1,5 +1,6 @@
 # Agent change log
 
+- LinkedIn location: extract from Location: labels, · segments, and bare geo lines like “Greater Seattle Area (US)”
 - LinkedIn card fill: parse SERP “Name - Title @ Company” + Experience/Location snippets; AI fills gaps (discovery unchanged)
 - People search: always require employer evidence (company → people at company → role); filter before OSINT; no snippet-only claims
 - Wrong company: discard reason + learn avoid; application/company search requires LinkedIn evidence of target employer

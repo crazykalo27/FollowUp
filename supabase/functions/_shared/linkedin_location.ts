@@ -46,8 +46,11 @@ function hasStrongGeoSignal(text: string): boolean {
 }
 
 export function looksLikeLocationString(text: string): boolean {
-  const s = text.trim()
+  let s = text.trim()
   if (!s || s.length > 96) return false
+  // LinkedIn often appends country codes: "Greater Seattle Area (US)"
+  s = s.replace(/\s*\((?:US|UK|CA|EU|AU|IN|DE|FR|NL|IE|SG|JP|BR|MX)\)\s*$/i, '').trim()
+  if (!s) return false
   if (PROSE_RE.test(s)) return false
   if (NOISE_SEGMENT_RE.test(s)) return false
   if (CONNECTIONS_RE.test(s)) return false
@@ -131,8 +134,26 @@ export function parseLocationFromLinkedInSnippet(snippet: string): string | null
   if (!raw) return null
 
   const labeled = raw.match(/\bLocation:\s*([^·|\n]+)/i)
-  if (labeled?.[1] && looksLikeLocationString(labeled[1])) {
-    return labeled[1].trim()
+  if (labeled?.[1]) {
+    const loc = labeled[1]
+      .trim()
+      .replace(/\s*\((?:US|UK|CA|EU|AU|IN|DE|FR|NL|IE|SG|JP|BR|MX)\)\s*$/i, '')
+      .trim()
+    if (looksLikeLocationString(loc) || looksLikeLocationString(labeled[1])) {
+      return loc || labeled[1].trim()
+    }
+  }
+
+  // Multiline SERP/profile cards often put geo on its own line:
+  // "ASIC/FPGA Design Engineer @ SpaceX\nGreater Seattle Area (US)\nExperience: SpaceX"
+  for (const line of raw.split(/\n+/)) {
+    const cleaned = line
+      .trim()
+      .replace(/\s*\((?:US|UK|CA|EU|AU|IN|DE|FR|NL|IE|SG|JP|BR|MX)\)\s*$/i, '')
+      .trim()
+    if (looksLikeLocationString(cleaned) || looksLikeLocationString(line.trim())) {
+      return cleaned || line.trim()
+    }
   }
 
   const segments = raw.split('·').map((p) => p.trim()).filter(Boolean)
@@ -140,7 +161,11 @@ export function parseLocationFromLinkedInSnippet(snippet: string): string | null
   for (let i = 0; i < segments.length; i++) {
     if (CONNECTIONS_RE.test(segments[i]) && i > 0) {
       const prev = segments[i - 1]
-      if (looksLikeLocationString(prev)) return prev
+        .replace(/\s*\((?:US|UK|CA|EU|AU|IN|DE|FR|NL|IE|SG|JP|BR|MX)\)\s*$/i, '')
+        .trim()
+      if (looksLikeLocationString(prev) || looksLikeLocationString(segments[i - 1])) {
+        return prev || segments[i - 1]
+      }
     }
   }
 
@@ -152,7 +177,12 @@ export function parseLocationFromLinkedInSnippet(snippet: string): string | null
     if (NOISE_SEGMENT_RE.test(seg)) continue
     if (CONNECTIONS_RE.test(seg)) continue
     if (looksLikeJobTitleOrHeadline(seg)) continue
-    if (looksLikeLocationString(seg)) return seg
+    const cleaned = seg
+      .replace(/\s*\((?:US|UK|CA|EU|AU|IN|DE|FR|NL|IE|SG|JP|BR|MX)\)\s*$/i, '')
+      .trim()
+    if (looksLikeLocationString(cleaned) || looksLikeLocationString(seg)) {
+      return cleaned || seg
+    }
   }
 
   return null

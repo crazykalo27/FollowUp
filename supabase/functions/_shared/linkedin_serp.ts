@@ -87,10 +87,12 @@ function parseLabeledSnippet(snippet: string): {
   const education =
     raw.match(/\bEducation:\s*([^·|\n]+)/i)?.[1]?.trim() || null
   let location = raw.match(/\bLocation:\s*([^·|\n]+)/i)?.[1]?.trim() || null
-  if (location && !looksLikeLocationString(location)) {
-    // Still keep labeled Location: values — LinkedIn is usually right
-    location = location.slice(0, 96)
-  } else if (!location) {
+  if (location) {
+    location = location
+      .replace(/\s*\((?:US|UK|CA|EU|AU|IN|DE|FR|NL|IE|SG|JP|BR|MX)\)\s*$/i, '')
+      .trim()
+      .slice(0, 96)
+  } else {
     location = parseLocationFromLinkedInSnippet(raw)
   }
 
