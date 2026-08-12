@@ -1,5 +1,6 @@
 # Agent change log
 
+- Search stats: Contacts chip is found / kept (same #/# style as emails sent / drafts)
 - Domain resolve: OpenAI must web_search (Bing/Serper) before picking a domain — no memory-only guesses
 - Fix TS casts for withoutLegacyRunLimits → SearchFiltersData
 - Contacts: search (name/title/location/company) + sort (recently added, recently kept, A–Z)

@@ -260,7 +260,8 @@ export function OverviewPage() {
   const orientation = useOrientation()
   const [stats, setStats] = useState({
     resumes: 0,
-    contacts: 0,
+    contactsFound: 0,
+    contactsKept: 0,
     drafts: 0,
     emailsSent: 0,
     onboarding: false,
@@ -354,7 +355,7 @@ export function OverviewPage() {
     setSummary(next)
     setStats((s) => ({
       ...s,
-      contacts: s.contacts + next.contacts_created,
+      contactsFound: s.contactsFound + next.contacts_created,
     }))
     setSearching(false)
     saveActiveRunId(null)
@@ -533,9 +534,13 @@ export function OverviewPage() {
   useEffect(() => {
     if (!user) return
     ;(async () => {
-      const [r, c, d, sent, p, g] = await Promise.all([
+      const [r, c, kept, d, sent, p, g] = await Promise.all([
         supabase.from('resumes').select('id', { count: 'exact', head: true }),
         supabase.from('contacts').select('id', { count: 'exact', head: true }),
+        supabase
+          .from('contacts')
+          .select('id', { count: 'exact', head: true })
+          .eq('review_status', 'kept'),
         supabase.from('outreach_drafts').select('id', { count: 'exact', head: true }),
         supabase
           .from('outreach_drafts')
@@ -546,7 +551,8 @@ export function OverviewPage() {
       ])
       setStats({
         resumes: r.count || 0,
-        contacts: c.count || 0,
+        contactsFound: c.count || 0,
+        contactsKept: kept.count || 0,
         drafts: d.count || 0,
         emailsSent: sent.count || 0,
         onboarding: Boolean(p.data?.onboarding_complete),
@@ -956,8 +962,11 @@ export function OverviewPage() {
             <span>Resumes</span>
           </div>
           <div className="search-stat-chip">
-            <strong>{stats.contacts}</strong>
-            <span>Contacts</span>
+            <strong>
+              {stats.contactsFound}
+              <span className="search-stat-ratio"> / {stats.contactsKept}</span>
+            </strong>
+            <span>Contacts found / kept</span>
           </div>
           <div className="search-stat-chip">
             <strong>

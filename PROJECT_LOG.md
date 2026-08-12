@@ -1,3 +1,7 @@
+## 2026-08-12 — Search contacts found / kept stat
+
+- Search page stat chip: **Contacts found / kept** as `total / kept` (same ratio style as Emails sent / drafts).
+
 ## 2026-08-12 — Domain resolve via live web search
 
 - Domain AI now uses the same `web_search` tool pattern as company discovery (Bing/Serper).
