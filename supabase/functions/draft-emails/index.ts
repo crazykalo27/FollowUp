@@ -14,6 +14,7 @@ import {
   stripRemainingPlaceholders,
   type TemplateVars,
 } from '../_shared/emailTemplate.ts'
+import { formatApplicationJobDescription } from '../_shared/jobPosting.ts'
 
 function buildVars(
   contact: {
@@ -65,11 +66,24 @@ function buildVars(
     contact.application_context ||
     contact.source_details?.application ||
     null
-  const jobDescription =
+  const storedJobDescription =
     (typeof contact.source_details?.job_description === 'string'
       ? contact.source_details.job_description
       : null)?.trim() ||
     app?.job_description?.trim() ||
+    ''
+  const jobDescription =
+    (app
+      ? formatApplicationJobDescription({
+          job_title: app.job_title,
+          job_description: storedJobDescription || app.job_description,
+          company: app.company || company?.name,
+          projects: app.projects,
+          responsibilities: app.responsibilities,
+          contact_title: contact.title,
+        })
+      : '') ||
+    storedJobDescription ||
     app?.job_title?.trim() ||
     company?.hiring_signal_title?.trim() ||
     ''

@@ -14,7 +14,7 @@ export const TEMPLATE_PLACEHOLDER_HELP: Array<{
   {
     key: 'job description',
     description:
-      'Exact role you applied to (from Application search) — also [job_description]',
+      'One sentence from Application search: I applied for [role] because I am interested in [detail] — also [job_description]',
   },
   { key: 'employment_type', description: 'Full-time, internship, part-time, etc.' },
   { key: 'remote', description: 'Remote / hybrid / onsite preference' },

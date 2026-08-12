@@ -1,8 +1,15 @@
+<<<<<<< HEAD
 ## 2026-08-12 — Auto-retry guessed emails on bounce
 
 - When a **guessed** outreach address bounces, keep the draft pending and resend with the next name pattern (first.last → flast → firstlast → …), up to 5 attempts.
 - Found/public emails still mark bounced immediately. Exhausted guesses mark bounced with a clear note.
 - Shared Gmail send helper used by initial send and bounce retries.
+=======
+## 2026-08-12 — Application role: one-sentence draft fill
+
+- `[job description]` is now a single first-person sentence: “I applied for [role] because I am interested in [detail related to the person found].”
+- Interest clause prefers JD projects/responsibilities that overlap the contact’s title; drafts regenerate this on send/create.
+>>>>>>> origin/cursor/application-role-sentence-2e95
 
 ## 2026-08-12 — Looking for prefs on Filters
 

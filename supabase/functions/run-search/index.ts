@@ -2728,6 +2728,7 @@ Deno.serve(async (req) => {
               company: meta.target_company,
               projects: appCtx.projects,
               responsibilities: appCtx.responsibilities,
+              contact_title: cand.title,
             })
           : ''
         const signal =
