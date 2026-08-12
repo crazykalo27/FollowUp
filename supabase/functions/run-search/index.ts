@@ -1498,11 +1498,10 @@ Deno.serve(async (req) => {
             : aiParsed?.search_keywords || [],
         }
 
-        if (!applicationParsed.job_description) {
-          applicationParsed.job_description = formatApplicationJobDescription(
-            applicationParsed,
-          )
-        }
+        // Always rewrite — never keep multi-sentence / "I will be working" AI dumps
+        applicationParsed.job_description = formatApplicationJobDescription(
+          applicationParsed,
+        )
 
         // Ensure we always have short LinkedIn-style titles from the JD role
         if (!applicationParsed.search_titles.length && applicationParsed.job_title) {

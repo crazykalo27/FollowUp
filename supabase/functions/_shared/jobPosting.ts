@@ -121,7 +121,7 @@ function seniorVariants(title: string): string[] {
   return uniqTrim(out.filter(isPlausibleJobTitle), 10)
 }
 
-function clipInterest(text: string, max = 100): string {
+function clipInterest(text: string, max = 72): string {
   return text.replace(/\.$/, '').replace(/\s+/g, ' ').trim().slice(0, max)
 }
 
@@ -130,6 +130,46 @@ const INTEREST_STOP = new Set([
   'senior', 'junior', 'staff', 'principal', 'lead', 'manager', 'director',
   'head', 'chief', 'intern', 'associate', 'i', 'ii', 'iii', 'sr', 'jr',
 ])
+
+/** Drop certainty / "I already have this job" phrasing from interest clauses. */
+function sanitizeInterest(raw: string): string {
+  let s = clipInterest(raw, 72)
+  if (!s) return ''
+  s = s
+    .replace(/\bin this position[,:]?\s*/gi, '')
+    .replace(/\b(i will be|i'll be|i will|i'll|i am going to|i'm going to)\b[^.]*$/gi, '')
+    .replace(
+      /^(developing|building|designing|working on|working with|owning|leading|managing|creating|implementing)\s+/i,
+      '',
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!s) return ''
+  if (
+    /\bi will\b|\bi'll\b|\bin this position\b|\bi am developing\b|\bi'm developing\b/i.test(
+      s,
+    )
+  ) {
+    return ''
+  }
+  // Prefer short noun phrases — reject long duty dumps
+  if (s.split(/\s+/).length > 12) {
+    s = s.split(/\s+/).slice(0, 10).join(' ')
+  }
+  return s
+}
+
+function titleFocusPhrase(contactTitle: string): string {
+  const focus = contactTitle
+    .replace(
+      /\b(senior|junior|staff|principal|lead|manager|director|head|chief|intern|associate|i|ii|iii|sr|jr)\b/gi,
+      ' ',
+    )
+    .replace(/\b(engineer|engineering)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return sanitizeInterest(focus)
+}
 
 /** Prefer JD details that overlap the found person's title/role. */
 function interestDetailForPerson(opts: {
@@ -149,65 +189,62 @@ function interestDetailForPerson(opts: {
     .map((r) => r.trim())
     .filter(Boolean)
 
-  for (const p of projects) {
-    const pl = p.toLowerCase()
-    if (contactTokens.some((t) => pl.includes(t))) {
-      return /project|team|platform|product/i.test(p)
-        ? clipInterest(p)
-        : clipInterest(`the ${p} work`)
+  const pickProject = (list: string[]): string => {
+    for (const p of list) {
+      const phrase = sanitizeInterest(p)
+      if (phrase) return phrase
     }
+    return ''
+  }
+
+  if (contactTokens.length) {
+    const matched = projects.filter((p) => {
+      const pl = p.toLowerCase()
+      return contactTokens.some((t) => pl.includes(t))
+    })
+    const fromMatch = pickProject(matched)
+    if (fromMatch) return fromMatch
+  }
+
+  const fromProject = pickProject(projects)
+  if (fromProject) return fromProject
+
+  if (contactTokens.length) {
+    for (const r of responsibilities) {
+      const rl = r.toLowerCase()
+      if (contactTokens.some((t) => rl.includes(t))) {
+        const phrase = sanitizeInterest(r)
+        if (phrase) return phrase
+      }
+    }
+  }
+
+  if (contactTitle) {
+    const focus = titleFocusPhrase(contactTitle)
+    if (focus) return focus
   }
 
   for (const r of responsibilities) {
-    const rl = r.toLowerCase()
-    if (contactTokens.some((t) => rl.includes(t))) {
-      return clipInterest(r)
-    }
+    const phrase = sanitizeInterest(r)
+    if (phrase) return phrase
   }
 
-  if (projects[0]) {
-    const p = projects[0]
-    return /project|team|platform|product/i.test(p)
-      ? clipInterest(p)
-      : clipInterest(`the ${p} work`)
+  // Only reuse a clean existing one-liner interest — never multi-sentence AI dumps
+  const summary = (opts.fallback_summary || '').replace(/\s+/g, ' ').trim()
+  const oneLiner = summary.match(
+    /^i applied for .+ because i am interested in (.+)$/i,
+  )
+  if (oneLiner?.[1] && !/\.\s+[A-Z]/.test(summary)) {
+    const phrase = sanitizeInterest(oneLiner[1])
+    if (phrase) return phrase
   }
 
-  if (responsibilities[0]) return clipInterest(responsibilities[0])
-
-  if (contactTitle) {
-    // "Senior RTL Design Engineer" → "RTL design"
-    const focus = contactTitle
-      .replace(
-        /\b(senior|junior|staff|principal|lead|manager|director|head|chief|intern|associate|i|ii|iii|sr|jr)\b/gi,
-        ' ',
-      )
-      .replace(/\bengineer\b/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (focus.length >= 3) return clipInterest(`${focus} work`)
-  }
-
-  const summary = (opts.fallback_summary || '').trim()
-  if (summary) {
-    const m = summary.match(
-      /interested in\s+(.+?)(?:\.|$)/i,
-    )
-    if (m?.[1]) return clipInterest(m[1])
-    const withoutLead = summary
-      .replace(/^i applied for[^.]*\.\s*/i, '')
-      .replace(/^i'?m especially interested in\s+/i, '')
-      .trim()
-    if (withoutLead && withoutLead.length < summary.length) {
-      return clipInterest(withoutLead)
-    }
-  }
-
-  return "this team's work"
+  return 'the work your team is doing'
 }
 
 /**
- * One first-person sentence for Application search → drafts:
- * "I applied for [role] because I am interested in [detail related to the person]."
+ * One short first-person sentence for Application search → drafts.
+ * Never claims the job ("I will be working/developing…").
  */
 function firstPersonRoleSummary(parts: {
   job_title?: string
@@ -228,7 +265,7 @@ function firstPersonRoleSummary(parts: {
   })
   return `I applied for ${role} because I am interested in ${interest}.`.slice(
     0,
-    400,
+    200,
   )
 }
 
@@ -378,7 +415,7 @@ Return JSON only with keys:
 company (string),
 job_title (string),
 location (string — city/region/country or Remote/Hybrid if stated; empty string if unknown),
-job_description (string — ONE first-person sentence only: "I applied for the [role] because I am interested in [one specific aspect of the role]." Do not add company, location, or a second sentence),
+job_description (string — EXACTLY one short first-person sentence in this shape only: "I applied for the [role] because I am interested in [short noun phrase]." NEVER say "I will be", "In this position", "I will be working/developing", company, location, or a second sentence. Interest must be a brief topic (e.g. "Starlink" or "FPGA/ASIC design"), not a job-duty claim),
 projects (string array: named teams/products/projects — prefer exact proper names),
 responsibilities (string array: key duties, max 8),
 search_titles (string array: SHORT LinkedIn-style job titles only, e.g. "RTL Design Engineer", "Senior RTL Design Engineer" — exact role, more senior versions, nearby technical leads/managers on the same team — NOT recruiters/HR, NOT soft-skill phrases, NOT sentence fragments from the JD),
