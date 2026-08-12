@@ -55,6 +55,10 @@ import {
 } from '../_shared/company_discovery.ts'
 import { pickCompanyDomain } from '../_shared/companyDomain.ts'
 import {
+  applyLoosenAspect,
+  pickLoosenAspect,
+} from '../_shared/retryLoosen.ts'
+import {
   extractCoreJobTitle,
   formatApplicationJobDescription,
   isPlausibleJobTitle,
@@ -1041,6 +1045,8 @@ async function searchWebLinkedIn(
   opts?: {
     locationHint?: string | null
     lightKeywords?: string[]
+    /** When true, skip legacy round title/recruiter broaden — aspect loosen already applied. */
+    aspectLoosen?: boolean
   },
 ): Promise<Candidate[]> {
   const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
@@ -1049,16 +1055,18 @@ async function searchWebLinkedIn(
 
   stats.attempted += 1
   let titleList = titles
-  if (searchRound === 1) {
-    titleList = [...titles.slice(0, 4), ...BROAD_PEOPLE_TITLES.slice(0, 5)]
-  } else if (searchRound >= 2) {
-    titleList = [
-      ...titles.slice(0, 3),
-      'Technical Recruiter',
-      'Talent Acquisition',
-      'Recruiting Manager',
-      ...BROAD_PEOPLE_TITLES.slice(0, 4),
-    ]
+  if (!opts?.aspectLoosen) {
+    if (searchRound === 1) {
+      titleList = [...titles.slice(0, 4), ...BROAD_PEOPLE_TITLES.slice(0, 5)]
+    } else if (searchRound >= 2) {
+      titleList = [
+        ...titles.slice(0, 3),
+        'Technical Recruiter',
+        'Talent Acquisition',
+        'Recruiting Manager',
+        ...BROAD_PEOPLE_TITLES.slice(0, 4),
+      ]
+    }
   }
   const titleClause = titleList
     .filter((t) => t.trim().length > 0 && t.trim().length <= 60 && !t.includes(','))
@@ -1098,17 +1106,19 @@ async function searchWebLinkedIn(
   if (queries.length === 0) {
     queries.push(`site:linkedin.com/in "${companyName}"`)
   }
-  if (searchRound >= 1) {
-    queries.push(
-      locationHint
-        ? `site:linkedin.com/in "${companyName}" "${locationHint}" (manager OR director OR lead)`
-        : `site:linkedin.com/in "${companyName}" (manager OR director OR lead)`,
-    )
-  }
-  if (searchRound >= 2) {
-    queries.push(
-      `site:linkedin.com/in "${companyName}" (recruiter OR "talent acquisition")`,
-    )
+  if (!opts?.aspectLoosen) {
+    if (searchRound >= 1) {
+      queries.push(
+        locationHint
+          ? `site:linkedin.com/in "${companyName}" "${locationHint}" (manager OR director OR lead)`
+          : `site:linkedin.com/in "${companyName}" (manager OR director OR lead)`,
+      )
+    }
+    if (searchRound >= 2) {
+      queries.push(
+        `site:linkedin.com/in "${companyName}" (recruiter OR "talent acquisition")`,
+      )
+    }
   }
 
   try {
@@ -1117,7 +1127,11 @@ async function searchWebLinkedIn(
     const preferBing = Boolean(bingKey)
     const via = preferBing ? 'bing' : 'serper'
     const maxQueries =
-      searchRound >= 2 ? 4 : locationHint || lightClause ? 3 : 2
+      searchRound >= 2 || opts?.aspectLoosen
+        ? 4
+        : locationHint || lightClause
+          ? 3
+          : 2
 
     for (const q of queries.slice(0, maxQueries)) {
       const organic = await runWebSearch(q, 6, { preferBing })
@@ -2304,7 +2318,54 @@ Deno.serve(async (req) => {
         pipeline!.company_attempt = 0
         pipeline!.company_kept_total = 0
         pipeline!.tried_candidate_keys = []
+        pipeline!.company_loosen_aspects = []
         pipeline!.company_ctx = null
+      }
+
+      // Temporary ~15% loosen on one random aspect per retry (not persisted niches)
+      let peopleTitlesPass = peopleTitlesRun
+      let deptKeywordsPass = deptKeywordsRun
+      let includePass = includeRun
+      let linkedInOptsPass = linkedInSearchOpts
+        ? { ...linkedInSearchOpts }
+        : undefined
+      let minKeepScore = 5
+      let aspectLoosen = false
+      let loosenNote: string | null = null
+
+      if (webSearchRound > 0) {
+        const tried = pipeline!.company_loosen_aspects ?? []
+        const aspect = pickLoosenAspect(tried)
+        if (aspect) {
+          const loosened = applyLoosenAspect(
+            {
+              titles: peopleTitlesRun,
+              deptKeywords: deptKeywordsRun,
+              include: includeRun,
+              locationHint: linkedInSearchOpts?.locationHint ?? null,
+              lightKeywords: linkedInSearchOpts?.lightKeywords ?? [],
+              minScore: 5,
+            },
+            aspect,
+            BROAD_PEOPLE_TITLES,
+          )
+          pipeline!.company_loosen_aspects = [...tried, aspect]
+          peopleTitlesPass = loosened.titles
+          deptKeywordsPass = loosened.deptKeywords
+          includePass = loosened.include
+          minKeepScore = loosened.minScore
+          aspectLoosen = true
+          loosenNote = loosened.note
+          linkedInOptsPass = {
+            locationHint: loosened.locationHint,
+            lightKeywords: loosened.lightKeywords,
+            aspectLoosen: true,
+          }
+          pushProgressLog(
+            progressMeta,
+            `${company.company_name}: temporary loosen · ${aspect} (${loosened.note})`,
+          )
+        }
       }
 
       await syncProgress(admin, runId, progressMeta, {
@@ -2313,18 +2374,24 @@ Deno.serve(async (req) => {
         message: skipCompanySetup
           ? `Retry ${webSearchRound} at ${company.company_name} (${companyKeptSoFar}/${peopleGoal} new people)…`
           : `Searching people at ${company.company_name}…`,
-        detail: `Company ${i + 1} of ${selected.length}`,
+        detail: loosenNote
+          ? `Company ${i + 1} of ${selected.length} · temporary loosen: ${loosenNote}`
+          : `Company ${i + 1} of ${selected.length}`,
         current_company: company.company_name,
         companies_total: selected.length,
         companies_done: i,
         companyName: company.company_name,
         companyStatus: 'active',
         companyStep: skipCompanySetup
-          ? 'Broader people search (retry)'
+          ? aspectLoosen
+            ? 'Broader people search (temporary loosen)'
+            : 'Broader people search (retry)'
           : 'Resolving domain via AI web search',
         companyProgress: 8,
         logLine: skipCompanySetup
-          ? `${company.company_name}: retry ${webSearchRound} — ${companyKeptSoFar}/${peopleGoal} new so far`
+          ? `${company.company_name}: retry ${webSearchRound} — ${companyKeptSoFar}/${peopleGoal} new so far${
+              loosenNote ? ` · ${loosenNote}` : ''
+            }`
           : `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain via AI web search`,
       })
 
@@ -2423,11 +2490,11 @@ Deno.serve(async (req) => {
           ? searchWebLinkedIn(
               company.company_name,
               domain,
-              peopleTitlesRun,
+              peopleTitlesPass,
               source_stats.websearch,
-              deptKeywordsRun,
+              deptKeywordsPass,
               webSearchRound,
-              linkedInSearchOpts,
+              linkedInOptsPass,
             )
           : Promise.resolve([] as Candidate[]),
         hunterKey && hunterEnabled && !hunterState.quotaExhausted
@@ -2530,11 +2597,11 @@ Deno.serve(async (req) => {
           ? await searchWebLinkedIn(
               company.company_name,
               domain,
-              peopleTitlesRun,
+              peopleTitlesPass,
               source_stats.websearch,
-              deptKeywordsRun,
+              deptKeywordsPass,
               webSearchRound,
-              linkedInSearchOpts,
+              linkedInOptsPass,
             )
           : []
       }
@@ -2643,7 +2710,7 @@ Deno.serve(async (req) => {
           continue
         }
 
-        const match = titleMatchesFilters(cand.title, includeRun, excludeRun)
+        const match = titleMatchesFilters(cand.title, includePass, excludeRun)
         if (!match.ok && match.reason.startsWith('excluded')) continue
 
         if (contactAlreadyKnown(cand, companyId, contactIndex)) {
@@ -2661,16 +2728,17 @@ Deno.serve(async (req) => {
           : 0
         const locationBonus = locationMatchScore(
           cand.location,
-          appLocationHint,
+          linkedInOptsPass?.locationHint || appLocationHint,
         )
         // Light boost when title/snippet mentions exact project / role summary tokens
         let lightBonus = 0
-        if (appLightKeywords.length) {
+        const lightKws = linkedInOptsPass?.lightKeywords ?? appLightKeywords
+        if (lightKws.length) {
           const ws = cand.source_details?.websearch as
             | { snippet?: string | null }
             | undefined
           const blob = `${cand.title || ''} ${ws?.snippet || ''}`.toLowerCase()
-          for (const kw of appLightKeywords) {
+          for (const kw of lightKws) {
             if (kw.length > 2 && blob.includes(kw.toLowerCase())) {
               lightBonus += 1
             }
@@ -2685,7 +2753,7 @@ Deno.serve(async (req) => {
           locationBonus +
           lightBonus +
           employerBonus
-        if (totalScore < 5 && !match.ok) continue
+        if (totalScore < minKeepScore && !match.ok) continue
 
         rankedPeople.push({
           cand,
@@ -3077,6 +3145,7 @@ Deno.serve(async (req) => {
         pipeline!.tried_candidate_keys = []
         pipeline!.company_attempt = 0
         pipeline!.company_find_failures = 0
+        pipeline!.company_loosen_aspects = []
       }
 
       await syncProgress(admin, runId, progressMeta, {

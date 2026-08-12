@@ -1,3 +1,10 @@
+## 2026-08-12 — Temporary loosen on company people retries
+
+- On each empty company retry, pick one unused aspect and loosen ~15% for that pass only:
+  broader titles, fewer niche keywords, softer title-fit score, or weaker location/light focus.
+- Does not update profile niches / filters / gradient for future searches.
+- Progress log: `temporary loosen · <aspect>`.
+
 ## 2026-08-12 — Search contacts found / kept stat
 
 - Search page stat chip: **Contacts found / kept** as `total / kept` (same ratio style as Emails sent / drafts).

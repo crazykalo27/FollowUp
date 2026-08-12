@@ -48,6 +48,8 @@ export type SearchPipelineState = {
   company_attempt?: number
   company_kept_total?: number
   tried_candidate_keys?: string[]
+  /** Temporary people-search loosen aspects already used this company (not persisted niches). */
+  company_loosen_aspects?: string[]
   plan_meta: {
     webCompanies: number
     allJobs: number
