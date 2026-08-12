@@ -1,3 +1,9 @@
+## 2026-08-12 — Strict company→people pipeline
+
+- Invariant for every company loop: find people **at that company**, then match role — never keep role-only SERP hits.
+- Employer check always on (all search modes): require company in LinkedIn title/headline; reject `at OtherCo` and foreign dash segments; snippet-only mentions are not enough.
+- Filter wrong-company candidates before OSINT; LinkedIn queries put `"CompanyName"` first.
+
 ## 2026-08-12 — Wrong company discard + strict employer match
 
 - New discard chip **Wrong company** (AI learns via dislikes + avoid company list; not treated as an industry miss).

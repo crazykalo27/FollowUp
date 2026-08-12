@@ -662,9 +662,14 @@ function foreignEmployerMention(
   return null
 }
 
+/** Location-like LinkedIn title segments (not employers). */
+function looksLikeLinkedInLocationSegment(segment: string): boolean {
+  return looksLikeLocationString(segment)
+}
+
 /**
- * For application/company search: require LinkedIn title/snippet evidence of the
- * target employer, and reject clear "at OtherCo" affiliations.
+ * Pipeline invariant: people are found *at a company*, then filtered by role.
+ * Require positive evidence of that employer; reject clear foreign affiliations.
  */
 function candidateMatchesEmployer(
   cand: Candidate,
@@ -685,17 +690,25 @@ function candidateMatchesEmployer(
   const title = cand.title || ''
   const snippet = ws.snippet || ''
   const serpTitle = ws.serp_title || ''
-  const textKey = companyKey(`${title} ${snippet} ${serpTitle} ${hunterOrg}`)
   const target = companyKey(companyName)
   const brand = domain
     ? companyKey((domain.split('.')[0] || '').replace(/^www\./, ''))
     : ''
 
-  const mentionsTarget =
-    (target.length >= 3 && textKey.includes(target)) ||
-    (brand.length >= 3 && textKey.includes(brand)) ||
+  // Prefer title / SERP headline over noisy snippets for positive evidence
+  const strongText = `${title} ${serpTitle} ${hunterOrg}`
+  const strongKey = companyKey(strongText)
+  const weakKey = companyKey(snippet)
+  const mentionsInStrong =
+    (target.length >= 3 && strongKey.includes(target)) ||
+    (brand.length >= 3 && strongKey.includes(brand)) ||
     (hunterOrg && companyNameMatchesTarget(hunterOrg, companyName))
+  const mentionsInSnippetOnly =
+    !mentionsInStrong &&
+    ((target.length >= 3 && weakKey.includes(target)) ||
+      (brand.length >= 3 && weakKey.includes(brand)))
 
+  // Reject foreign "at OtherCo" in any field
   for (const field of [title, serpTitle, snippet]) {
     const foreign = foreignEmployerMention(field, target, brand)
     if (foreign) {
@@ -706,20 +719,66 @@ function candidateMatchesEmployer(
     }
   }
 
-  // Hunter domain-search people are trusted when no foreign "at …" was found
+  // LinkedIn dash segments: "Name - Title - Amazon - Location"
+  const cleanedSerp = serpTitle
+    .replace(/\s*\|\s*LinkedIn.*$/i, '')
+    .replace(/\s*-\s*LinkedIn.*$/i, '')
+    .trim()
+  if (cleanedSerp) {
+    const parts = cleanedSerp
+      .split(/\s[-–—]\s/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+    for (let i = 1; i < parts.length; i++) {
+      const seg = parts[i]
+      if (looksLikeLinkedInLocationSegment(seg)) continue
+      // Role-like segments usually have engineer/manager/etc. — skip soft
+      if (
+        /\b(engineer|manager|director|scientist|recruiter|designer|lead|intern|analyst|architect|specialist|officer|founder|ceo|cto|vp)\b/i.test(
+          seg,
+        )
+      ) {
+        continue
+      }
+      const segKey = companyKey(seg)
+      if (segKey.length < 3) continue
+      if (employerOverlapsTarget(seg, target, brand)) continue
+      // Looks like a different company name sitting in the headline
+      if (/^[A-Z0-9]/.test(seg) && segKey.length >= 4) {
+        return {
+          ok: false,
+          reason: `wrong employer segment (“${seg}”)`,
+        }
+      }
+    }
+  }
+
   const hunterOnly =
     cand.sources.includes('hunter') && !cand.sources.includes('websearch')
   if (hunterOnly) {
+    if (hunterOrg && !companyNameMatchesTarget(hunterOrg, companyName)) {
+      return {
+        ok: false,
+        reason: `Hunter org mismatch (“${hunterOrg}”)`,
+      }
+    }
     return { ok: true, reason: 'hunter domain match' }
   }
 
-  if (!mentionsTarget) {
+  // Web hits must show the company in the headline/title (snippet alone is too weak)
+  if (mentionsInStrong) {
+    return { ok: true, reason: 'company evidence in title' }
+  }
+  if (mentionsInSnippetOnly) {
     return {
       ok: false,
-      reason: 'no evidence of target company in LinkedIn title/snippet',
+      reason: 'company only in snippet — not enough to claim employment',
     }
   }
-  return { ok: true, reason: 'company evidence found' }
+  return {
+    ok: false,
+    reason: 'no evidence of target company in LinkedIn title',
+  }
 }
 
 async function resolveUserTargetCompany(rawName: string): Promise<CompanyHit> {
@@ -1026,14 +1085,17 @@ async function searchWebLinkedIn(
     .map((k) => `"${k}"`)
     .join(' OR ')
 
-  // Prefer similar role titles at the company; location is high-priority when known.
-  // Light project/summary keywords are secondary only.
+  // People AT this company with role — company name is mandatory in every query.
+  // Prefer "current" / exact company phrasing so SERP hits aren't role-only.
   const queries = [
     titleClause && locationHint
-      ? `site:linkedin.com/in (${titleClause}) "${companyName}" "${locationHint}"`
+      ? `site:linkedin.com/in "${companyName}" (${titleClause}) "${locationHint}"`
       : null,
     titleClause
-      ? `site:linkedin.com/in (${titleClause}) "${companyName}"`
+      ? `site:linkedin.com/in "${companyName}" (${titleClause})`
+      : null,
+    titleClause
+      ? `site:linkedin.com/in "${companyName}" current (${titleClause})`
       : null,
     lightClause
       ? `site:linkedin.com/in "${companyName}" (${lightClause})`
@@ -1081,7 +1143,7 @@ async function searchWebLinkedIn(
             (l) => l && looksLikeLocationString(l),
           ) || null
         const names = splitName(parsed.full_name)
-        out.push({
+        const cand: Candidate = {
           first_name: names.first_name,
           last_name: names.last_name,
           full_name: parsed.full_name,
@@ -1101,7 +1163,11 @@ async function searchWebLinkedIn(
               location,
             },
           },
-        })
+        }
+        // Drop role-only SERP noise before it enters the company people pipeline
+        const aff = candidateMatchesEmployer(cand, companyName, domain)
+        if (!aff.ok) continue
+        out.push(cand)
       }
     }
 
@@ -2502,6 +2568,22 @@ Deno.serve(async (req) => {
         merged.set(key, prev ? mergeCandidate(prev, c) : c)
       }
 
+      // Drop anyone we cannot verify works at this company before OSINT/email work
+      let skippedWrongCompany = 0
+      for (const [key, cand] of [...merged.entries()]) {
+        const aff = candidateMatchesEmployer(cand, canonicalName, domain)
+        if (!aff.ok) {
+          merged.delete(key)
+          skippedWrongCompany += 1
+        }
+      }
+      if (skippedWrongCompany > 0) {
+        pushProgressLog(
+          progressMeta,
+          `${canonicalName}: dropped ${skippedWrongCompany} people without employer evidence`,
+        )
+      }
+
       const peopleForOsint = [...merged.values()]
         .filter((c) => {
           if (!c.first_name || !c.last_name) return false
@@ -2547,8 +2629,14 @@ Deno.serve(async (req) => {
         match: { ok: boolean; reason: string }
       }> = []
 
-      let skippedWrongCompany = 0
       for (const cand of merged.values()) {
+        // Pipeline: company → people at company → role. Never claim employment without evidence.
+        const aff = candidateMatchesEmployer(cand, canonicalName, domain)
+        if (!aff.ok) {
+          skippedWrongCompany += 1
+          continue
+        }
+
         const match = titleMatchesFilters(cand.title, includeRun, excludeRun)
         if (!match.ok && match.reason.startsWith('excluded')) continue
 
@@ -2557,16 +2645,6 @@ Deno.serve(async (req) => {
           contactsSkippedDuplicate += 1
           triedKeys.add(dedupeKey(cand, domain))
           continue
-        }
-
-        const strictEmployer =
-          meta.search_mode === 'application' || meta.search_mode === 'company'
-        if (strictEmployer) {
-          const aff = candidateMatchesEmployer(cand, canonicalName, domain)
-          if (!aff.ok) {
-            skippedWrongCompany += 1
-            continue
-          }
         }
 
         const outreachScore = scoreOutreachTitle(cand.title)
@@ -2593,22 +2671,19 @@ Deno.serve(async (req) => {
           }
           lightBonus = Math.min(lightBonus, 2)
         }
+        // Employer already verified — bonus so company-anchored hits rank above role-only noise
+        const employerBonus = 8
         const totalScore =
-          outreachScore + includeBonus + locationBonus + lightBonus
-        // Never keep untitled web-only hits for application/company searches
-        const webOnlyLoose =
-          !strictEmployer &&
-          totalScore < 5 &&
-          cand.sources.includes('websearch') &&
-          !cand.title &&
-          Boolean(cand.linkedin_url) &&
-          Boolean(cand.first_name)
-
-        if (totalScore < 5 && !match.ok && !webOnlyLoose) continue
+          outreachScore +
+          includeBonus +
+          locationBonus +
+          lightBonus +
+          employerBonus
+        if (totalScore < 5 && !match.ok) continue
 
         rankedPeople.push({
           cand,
-          score: totalScore + (webOnlyLoose ? 5 : 0),
+          score: totalScore,
           match,
         })
       }
@@ -2619,7 +2694,7 @@ Deno.serve(async (req) => {
         companyName: company.company_name,
         companyStep: 'Matching emails to contacts & verification',
         companyProgress: 68,
-        logLine: `${canonicalName}: OSINT ${osintBundle.seedEmails.length} seed emails · ${rankedPeople.length} people after title filter${
+        logLine: `${canonicalName}: OSINT ${osintBundle.seedEmails.length} seed emails · ${rankedPeople.length} people at company${
           skippedWrongCompany
             ? ` · ${skippedWrongCompany} wrong-company filtered`
             : ''
