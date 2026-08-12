@@ -1,5 +1,6 @@
 # Agent change log
 
+- Wrong company: discard reason + learn avoid; application/company search requires LinkedIn evidence of target employer
 - Domain resolve: remove publisher skip-list — AI may return youtube.com, facebook.com, etc. as employers
 - Domain resolve bugfix: skip-list `x.com` substring blocked spacex.com/box.com/netflix.com — use domain-boundary matching
 - Domain resolve: OpenAI only — no slug/web/existing fallbacks or per-company defaults; log "resolving domain through AI"

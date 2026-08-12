@@ -88,6 +88,7 @@ type ContactRow = {
 
 const DISCARD_REASONS = [
   { id: 'not_a_person', label: 'Not a person' },
+  { id: 'wrong_company', label: 'Wrong company' },
   { id: 'wrong_industry', label: 'Wrong industry' },
   { id: 'not_hiring_connected', label: 'Not someone connected to hiring' },
   { id: 'wrong_location', label: 'Wrong location' },

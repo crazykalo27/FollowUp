@@ -24,6 +24,7 @@ Prioritize people who refer or influence hiring for those niches (managers, dire
 Broader titles when aligned with profile. Recruiter / Talent Acquisition only as low-priority includes.
 Preference docs describe feedback on contacts (what to seek or avoid) —
 NOT biographies of people. Use negative feedback to avoid bad match patterns; use positive feedback to reinforce good ones.
+If discard_reason_counts includes wrong_company, that means people were attached to the wrong employer (SERP noise) — reinforce tighter company targeting, not a different industry.
 locations mirror profile.locations when present.
 exclude_titles: generic HR/People Ops/Staffing — do not blanket-exclude Recruiter if profile includes them.`
 
@@ -135,6 +136,8 @@ ${pref?.dislikes_doc || '(empty)'}
 
 IMPORTANT polarity: preference docs may say "REJECT niches: …" and "PREFER niches: …".
 Treat REJECT as industries/signals to avoid; PREFER as targets to reinforce — even when the PREFER line came from a discard note like "fusion not embedded automotive" (reject fusion, prefer embedded automotive).
+
+"Wrong company" discards mean the person did not actually work at the labeled employer — do not change industries for that; keep seeking the intended company more carefully.
 
 Discard/keep reason counts:
 ${JSON.stringify(pref?.discard_reason_counts || {})}`,

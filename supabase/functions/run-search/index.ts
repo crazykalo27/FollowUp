@@ -619,6 +619,109 @@ function companyNameMatchesTarget(companyName: string, target: string): boolean 
   return a === b || a.includes(b) || b.includes(a)
 }
 
+function companyKey(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function employerOverlapsTarget(
+  otherRaw: string,
+  target: string,
+  brand: string,
+): boolean {
+  const other = companyKey(otherRaw)
+  if (other.length < 3) return true
+  if (
+    target.length >= 3 &&
+    (other === target || other.includes(target) || target.includes(other))
+  ) {
+    return true
+  }
+  if (
+    brand.length >= 3 &&
+    (other === brand || other.includes(brand) || brand.includes(other))
+  ) {
+    return true
+  }
+  return false
+}
+
+/** Pull a short employer name after “at …” (max ~4 tokens). */
+function foreignEmployerMention(
+  text: string,
+  target: string,
+  brand: string,
+): string | null {
+  if (!text.trim()) return null
+  const re =
+    /\bat\s+([A-Za-z0-9][A-Za-z0-9.&'/+-]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'/+-]*){0,3})/gi
+  for (const m of text.matchAll(re)) {
+    const otherRaw = m[1].trim().replace(/[.,;:]+$/g, '')
+    if (!otherRaw || employerOverlapsTarget(otherRaw, target, brand)) continue
+    return otherRaw
+  }
+  return null
+}
+
+/**
+ * For application/company search: require LinkedIn title/snippet evidence of the
+ * target employer, and reject clear "at OtherCo" affiliations.
+ */
+function candidateMatchesEmployer(
+  cand: Candidate,
+  companyName: string,
+  domain: string | null,
+): { ok: boolean; reason: string } {
+  const ws = (cand.source_details?.websearch || {}) as {
+    snippet?: string | null
+    serp_title?: string | null
+  }
+  const hunterOrg =
+    typeof (cand.source_details?.hunter as { organization?: string } | undefined)
+      ?.organization === 'string'
+      ? String(
+          (cand.source_details.hunter as { organization?: string }).organization,
+        )
+      : ''
+  const title = cand.title || ''
+  const snippet = ws.snippet || ''
+  const serpTitle = ws.serp_title || ''
+  const textKey = companyKey(`${title} ${snippet} ${serpTitle} ${hunterOrg}`)
+  const target = companyKey(companyName)
+  const brand = domain
+    ? companyKey((domain.split('.')[0] || '').replace(/^www\./, ''))
+    : ''
+
+  const mentionsTarget =
+    (target.length >= 3 && textKey.includes(target)) ||
+    (brand.length >= 3 && textKey.includes(brand)) ||
+    (hunterOrg && companyNameMatchesTarget(hunterOrg, companyName))
+
+  for (const field of [title, serpTitle, snippet]) {
+    const foreign = foreignEmployerMention(field, target, brand)
+    if (foreign) {
+      return {
+        ok: false,
+        reason: `wrong employer (“at ${foreign}”)`,
+      }
+    }
+  }
+
+  // Hunter domain-search people are trusted when no foreign "at …" was found
+  const hunterOnly =
+    cand.sources.includes('hunter') && !cand.sources.includes('websearch')
+  if (hunterOnly) {
+    return { ok: true, reason: 'hunter domain match' }
+  }
+
+  if (!mentionsTarget) {
+    return {
+      ok: false,
+      reason: 'no evidence of target company in LinkedIn title/snippet',
+    }
+  }
+  return { ok: true, reason: 'company evidence found' }
+}
+
 async function resolveUserTargetCompany(rawName: string): Promise<CompanyHit> {
   const company_name = rawName.trim()
 
@@ -707,7 +810,12 @@ async function searchHunter(
         verification_status: p.verification?.status || null,
         sources: ['hunter'],
         source_details: {
-          hunter: { via: 'domain-search', domain, limit: 10 },
+          hunter: {
+            via: 'domain-search',
+            domain,
+            limit: 10,
+            organization: organization || null,
+          },
         },
       } satisfies Candidate
     })
@@ -815,9 +923,28 @@ function parseLinkedInTitle(title: string, companyName: string): {
 
   for (let i = 1; i < parts.length; i++) {
     const segment = parts[i]
-    if (segment.toLowerCase() === companyLower) continue
+    const segKey = segment.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    const companyKeyLocal = companyLower.replace(/[^a-z0-9]+/g, '')
+    if (
+      segment.toLowerCase() === companyLower ||
+      (companyKeyLocal.length >= 3 &&
+        (segKey === companyKeyLocal ||
+          segKey.includes(companyKeyLocal) ||
+          companyKeyLocal.includes(segKey)))
+    ) {
+      continue
+    }
     if (!person_title) {
+      // Strip trailing " at TargetCompany" from role lines
       person_title = segment
+        .replace(
+          new RegExp(
+            `\\s+at\\s+${companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`,
+            'i',
+          ),
+          '',
+        )
+        .trim() || segment
       break
     }
   }
@@ -970,6 +1097,7 @@ async function searchWebLinkedIn(
               query: q,
               domain,
               snippet: snippet || null,
+              serp_title: item.title || null,
               location,
             },
           },
@@ -2419,6 +2547,7 @@ Deno.serve(async (req) => {
         match: { ok: boolean; reason: string }
       }> = []
 
+      let skippedWrongCompany = 0
       for (const cand of merged.values()) {
         const match = titleMatchesFilters(cand.title, includeRun, excludeRun)
         if (!match.ok && match.reason.startsWith('excluded')) continue
@@ -2428,6 +2557,16 @@ Deno.serve(async (req) => {
           contactsSkippedDuplicate += 1
           triedKeys.add(dedupeKey(cand, domain))
           continue
+        }
+
+        const strictEmployer =
+          meta.search_mode === 'application' || meta.search_mode === 'company'
+        if (strictEmployer) {
+          const aff = candidateMatchesEmployer(cand, canonicalName, domain)
+          if (!aff.ok) {
+            skippedWrongCompany += 1
+            continue
+          }
         }
 
         const outreachScore = scoreOutreachTitle(cand.title)
@@ -2456,7 +2595,9 @@ Deno.serve(async (req) => {
         }
         const totalScore =
           outreachScore + includeBonus + locationBonus + lightBonus
+        // Never keep untitled web-only hits for application/company searches
         const webOnlyLoose =
+          !strictEmployer &&
           totalScore < 5 &&
           cand.sources.includes('websearch') &&
           !cand.title &&
@@ -2478,7 +2619,11 @@ Deno.serve(async (req) => {
         companyName: company.company_name,
         companyStep: 'Matching emails to contacts & verification',
         companyProgress: 68,
-        logLine: `${canonicalName}: OSINT ${osintBundle.seedEmails.length} seed emails · ${rankedPeople.length} people after title filter`,
+        logLine: `${canonicalName}: OSINT ${osintBundle.seedEmails.length} seed emails · ${rankedPeople.length} people after title filter${
+          skippedWrongCompany
+            ? ` · ${skippedWrongCompany} wrong-company filtered`
+            : ''
+        }`,
       })
 
       let kept = 0

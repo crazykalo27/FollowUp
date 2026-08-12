@@ -1,3 +1,8 @@
+## 2026-08-12 — Wrong company discard + strict employer match
+
+- New discard chip **Wrong company** (AI learns via dislikes + avoid company list; not treated as an industry miss).
+- Application / specific-company search: drop LinkedIn hits that say “at OtherCo” or lack any evidence of the target employer (fixes SpaceX cards that were really Amazon Leo).
+
 ## 2026-08-12 — Drop publisher domain skip-list
 
 - Removed the denylist that blocked YouTube, Facebook, LinkedIn, news sites, etc. as employer domains.

@@ -14,6 +14,7 @@ import {
 
 export const DISCARD_REASONS = [
   { id: 'not_a_person', label: 'Not a person' },
+  { id: 'wrong_company', label: 'Wrong company' },
   { id: 'wrong_industry', label: 'Wrong industry' },
   { id: 'not_hiring_connected', label: 'Not someone connected to hiring' },
   { id: 'wrong_location', label: 'Wrong location' },
@@ -32,7 +33,7 @@ export const KEEP_REASONS = [
 const REASON_LABEL: Record<string, string> = Object.fromEntries([
   ...DISCARD_REASONS.map((r) => [r.id, r.label]),
   ...KEEP_REASONS.map((r) => [r.id, r.label]),
-  ['company_mismatch', 'Company isn’t a fit'],
+  ['company_mismatch', 'Wrong company'],
 ])
 
 type SignalFeedback = {
@@ -425,7 +426,7 @@ Deno.serve(async (req) => {
               user_id: user.id,
               contact_id: id,
               decision: 'discard',
-              reasons: ['wrong_industry'],
+              reasons: ['wrong_company'],
               note: 'discard all contacts at company',
             })),
           )
@@ -438,7 +439,7 @@ Deno.serve(async (req) => {
           {
             signal: pick.signal || companyName,
             match_reason: `company-wide discard @ ${companyName}`,
-            reasons: ['wrong_industry'],
+            reasons: ['wrong_company'],
             decision: 'discard',
             note: `discard all contacts at company (${pendingIds.length})`,
             at: stamp,
@@ -563,6 +564,21 @@ Deno.serve(async (req) => {
       },
       stamp,
     )
+
+    // Wrong company → learn to avoid attaching this employer (or false hits under it)
+    if (
+      decision === 'discard' &&
+      reasons.includes('wrong_company') &&
+      companyName
+    ) {
+      if (!bundle.dislikes.companies.includes(companyName)) {
+        bundle.dislikes.companies.push(companyName)
+      }
+      const line = `${stamp} | Wrong company: contact was not actually at ${companyName}${
+        contact.title ? ` (listed as “${contact.title}”)` : ''
+      }`
+      bundle.dislikesDoc = `${bundle.dislikesDoc}\n${line}`.trim()
+    }
 
     await maybeRefreshAiSummary(
       admin,
