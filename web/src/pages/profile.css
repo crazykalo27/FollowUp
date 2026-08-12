@@ -141,7 +141,7 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 1.15rem 1.15rem 2rem;
+  padding: 1.15rem 1.15rem 0.5rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -152,7 +152,16 @@
   flex-direction: column;
   gap: 1rem;
   min-height: 2rem;
-  padding-bottom: 1.35rem;
+  /* Spacer after the last bubble so it never sits flush on the compose bar
+     (more reliable than padding-bottom alone on overflow flex containers). */
+  padding-bottom: 0;
+}
+
+.coach-log::after {
+  content: '';
+  display: block;
+  flex-shrink: 0;
+  height: 1.5rem;
 }
 
 .coach-msg {
@@ -225,7 +234,7 @@
 .profile-chat-compose {
   flex-shrink: 0;
   border-top: 1px solid var(--line);
-  padding: 0.65rem 1rem 0.75rem;
+  padding: 0.85rem 1rem 0.75rem;
   background: var(--bg-2);
 }
 

@@ -1,3 +1,7 @@
+## 2026-08-12 — Profile chat: padding above compose bar
+
+- Last coach message no longer sits flush on the input bar; spacer under the message log plus a bit more compose top padding.
+
 ## 2026-08-11 — Drafts tab: instant switch via background prefetch
 
 - Shared drafts cache warms while browsing other app pages; Drafts hydrates from cache on mount.
