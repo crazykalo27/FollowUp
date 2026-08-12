@@ -1,3 +1,8 @@
+## 2026-08-12 — Contacts kept = all-time
+
+- Search chip “Contacts found / kept” counts `contact_decisions` with decision=keep (lifetime), not current `review_status=kept`.
+- Archive/delete no longer lowers the kept number; migration keeps decision rows when contacts are deleted (`contact_id` set null).
+
 ## 2026-08-12 — General profile/filter retune (any niche)
 
 - Profile chat returns `remove_terms` / `add_terms` for whatever the user asked (Founder/CEO, technical→painting, etc.).
