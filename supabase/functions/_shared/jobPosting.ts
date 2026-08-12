@@ -121,33 +121,115 @@ function seniorVariants(title: string): string[] {
   return uniqTrim(out.filter(isPlausibleJobTitle), 10)
 }
 
+function clipInterest(text: string, max = 100): string {
+  return text.replace(/\.$/, '').replace(/\s+/g, ' ').trim().slice(0, max)
+}
+
+const INTEREST_STOP = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'your', 'our', 'their',
+  'senior', 'junior', 'staff', 'principal', 'lead', 'manager', 'director',
+  'head', 'chief', 'intern', 'associate', 'i', 'ii', 'iii', 'sr', 'jr',
+])
+
+/** Prefer JD details that overlap the found person's title/role. */
+function interestDetailForPerson(opts: {
+  contact_title?: string
+  projects?: string[]
+  responsibilities?: string[]
+  fallback_summary?: string
+}): string {
+  const contactTitle = (opts.contact_title || '').trim()
+  const contactTokens = contactTitle
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2 && !INTEREST_STOP.has(t))
+
+  const projects = (opts.projects || []).map((p) => p.trim()).filter(Boolean)
+  const responsibilities = (opts.responsibilities || [])
+    .map((r) => r.trim())
+    .filter(Boolean)
+
+  for (const p of projects) {
+    const pl = p.toLowerCase()
+    if (contactTokens.some((t) => pl.includes(t))) {
+      return /project|team|platform|product/i.test(p)
+        ? clipInterest(p)
+        : clipInterest(`the ${p} work`)
+    }
+  }
+
+  for (const r of responsibilities) {
+    const rl = r.toLowerCase()
+    if (contactTokens.some((t) => rl.includes(t))) {
+      return clipInterest(r)
+    }
+  }
+
+  if (projects[0]) {
+    const p = projects[0]
+    return /project|team|platform|product/i.test(p)
+      ? clipInterest(p)
+      : clipInterest(`the ${p} work`)
+  }
+
+  if (responsibilities[0]) return clipInterest(responsibilities[0])
+
+  if (contactTitle) {
+    // "Senior RTL Design Engineer" → "RTL design"
+    const focus = contactTitle
+      .replace(
+        /\b(senior|junior|staff|principal|lead|manager|director|head|chief|intern|associate|i|ii|iii|sr|jr)\b/gi,
+        ' ',
+      )
+      .replace(/\bengineer\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (focus.length >= 3) return clipInterest(`${focus} work`)
+  }
+
+  const summary = (opts.fallback_summary || '').trim()
+  if (summary) {
+    const m = summary.match(
+      /interested in\s+(.+?)(?:\.|$)/i,
+    )
+    if (m?.[1]) return clipInterest(m[1])
+    const withoutLead = summary
+      .replace(/^i applied for[^.]*\.\s*/i, '')
+      .replace(/^i'?m especially interested in\s+/i, '')
+      .trim()
+    if (withoutLead && withoutLead.length < summary.length) {
+      return clipInterest(withoutLead)
+    }
+  }
+
+  return "this team's work"
+}
+
+/**
+ * One first-person sentence for Application search → drafts:
+ * "I applied for [role] because I am interested in [detail related to the person]."
+ */
 function firstPersonRoleSummary(parts: {
   job_title?: string
   company?: string
   projects?: string[]
   responsibilities?: string[]
   location?: string
+  contact_title?: string
+  fallback_summary?: string
 }): string {
   const title = parts.job_title?.trim()
-  const company = parts.company?.trim()
-  const project = parts.projects?.[0]?.trim()
-  const focus = parts.responsibilities?.[0]?.trim()
-  const location = parts.location?.trim()
-
-  if (!title && !company && !project) return ''
-
-  let s = 'I applied for'
-  if (title) s += ` the ${title} role`
-  else s += ' this role'
-  if (company) s += ` at ${company}`
-  if (project) s += ` on the ${project} team/project`
-  if (location) s += ` (${location})`
-  s += '.'
-  if (focus) {
-    const clipped = focus.replace(/\.$/, '').slice(0, 120)
-    s += ` I'm especially interested in ${clipped}.`
-  }
-  return s.slice(0, 500)
+  const role = title ? `the ${title} role` : 'this role'
+  const interest = interestDetailForPerson({
+    contact_title: parts.contact_title,
+    projects: parts.projects,
+    responsibilities: parts.responsibilities,
+    fallback_summary: parts.fallback_summary,
+  })
+  return `I applied for ${role} because I am interested in ${interest}.`.slice(
+    0,
+    400,
+  )
 }
 
 /** Light tokens from a first-person summary — for soft people-search boosts only. */
@@ -157,7 +239,7 @@ export function lightSearchHintsFromSummary(summary: string): string[] {
   const stop = new Set([
     'i', 'applied', 'for', 'the', 'role', 'at', 'on', 'team', 'project',
     'and', 'a', 'an', 'to', 'of', 'in', 'my', 'im', "i'm", 'especially',
-    'interested', 'this', 'with', 'that', 'as',
+    'interested', 'this', 'with', 'that', 'as', 'because', 'am',
   ])
   const words = raw
     .replace(/[^\w\s\-/.]/g, ' ')
@@ -296,7 +378,7 @@ Return JSON only with keys:
 company (string),
 job_title (string),
 location (string — city/region/country or Remote/Hybrid if stated; empty string if unknown),
-job_description (string — 1-3 sentences in FIRST PERSON as if YOU are the job seeker who applied, e.g. "I applied for the … role at … on the … project…"),
+job_description (string — ONE first-person sentence only: "I applied for the [role] because I am interested in [one specific aspect of the role]." Do not add company, location, or a second sentence),
 projects (string array: named teams/products/projects — prefer exact proper names),
 responsibilities (string array: key duties, max 8),
 search_titles (string array: SHORT LinkedIn-style job titles only, e.g. "RTL Design Engineer", "Senior RTL Design Engineer" — exact role, more senior versions, nearby technical leads/managers on the same team — NOT recruiters/HR, NOT soft-skill phrases, NOT sentence fragments from the JD),
@@ -320,28 +402,6 @@ Prefer technical ICs and seniors who own the work described. If company, title, 
     )
     const company = String(parsed.company || fallback.company || '').trim()
     const location = String(parsed.location || fallback.location || '').trim().slice(0, 80)
-    let job_description = String(
-      parsed.job_description || fallback.job_description || '',
-    )
-      .trim()
-      .slice(0, 600)
-
-    // Ensure first-person voice if the model slipped into third person
-    if (job_description && !/^i\b/i.test(job_description)) {
-      job_description =
-        firstPersonRoleSummary({
-          job_title,
-          company,
-          projects: Array.isArray(parsed.projects)
-            ? parsed.projects.map(String)
-            : fallback.projects,
-          responsibilities: Array.isArray(parsed.responsibilities)
-            ? parsed.responsibilities.map(String)
-            : fallback.responsibilities,
-          location,
-        }) || job_description
-    }
-
     const projects = uniqTrim(
       [
         ...(Array.isArray(parsed.projects) ? parsed.projects.map(String) : []),
@@ -358,6 +418,20 @@ Prefer technical ICs and seniors who own the work described. If company, title, 
       ],
       8,
     )
+
+    // Always normalize to one first-person "I applied…because…" sentence
+    const job_description =
+      firstPersonRoleSummary({
+        job_title,
+        company,
+        projects,
+        responsibilities,
+        location,
+        fallback_summary: String(
+          parsed.job_description || fallback.job_description || '',
+        ).trim(),
+      }) || fallback.job_description
+
     const search_titles = uniqTrim(
       [
         ...(Array.isArray(parsed.search_titles)
@@ -383,15 +457,7 @@ Prefer technical ICs and seniors who own the work described. If company, title, 
     return {
       company,
       job_title,
-      job_description:
-        job_description ||
-        firstPersonRoleSummary({
-          job_title,
-          company,
-          projects,
-          responsibilities,
-          location,
-        }),
+      job_description,
       location,
       projects,
       responsibilities,
@@ -410,26 +476,17 @@ export function formatApplicationJobDescription(parsed: {
   responsibilities?: string[] | null
   projects?: string[] | null
   location?: string | null
+  /** Found contact's title — bias the "interested in …" clause toward their work. */
+  contact_title?: string | null
 }): string {
-  const summary = parsed.job_description?.trim()
-  if (summary) {
-    if (/^i\b/i.test(summary)) return summary
-    return (
-      firstPersonRoleSummary({
-        job_title: parsed.job_title || undefined,
-        company: parsed.company || undefined,
-        projects: parsed.projects || undefined,
-        responsibilities: parsed.responsibilities || undefined,
-        location: parsed.location || undefined,
-      }) || summary
-    )
-  }
   return firstPersonRoleSummary({
     job_title: parsed.job_title || undefined,
     company: parsed.company || undefined,
     projects: parsed.projects || undefined,
     responsibilities: parsed.responsibilities || undefined,
     location: parsed.location || undefined,
+    contact_title: parsed.contact_title || undefined,
+    fallback_summary: parsed.job_description || undefined,
   })
 }
 

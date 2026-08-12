@@ -1,5 +1,6 @@
 # Agent change log
 
+- Application drafts: [job description] is one sentence — "I applied for [role] because I am interested in [detail related to the person]"
 - Filters: "Looking for" chip row (role type, workplace, company size, level); removed from Settings
 - Profile chat: FollowUp-aware coach — answers app/profile questions; updates profile/filters only when asked; orientation can pause for off-topic Q&A
 - Profile chat: space below last AI bubble so it doesn't sit flush on the compose bar

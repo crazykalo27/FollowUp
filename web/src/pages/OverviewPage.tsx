@@ -1136,10 +1136,10 @@ export function OverviewPage() {
                 <label className="search-application-summary">
                   Role summary{' '}
                   <span className="muted" style={{ fontWeight: 400 }}>
-                    (first person — fills [job description] in drafts)
+                    (one sentence — fills [job description] in drafts)
                   </span>
                   <textarea
-                    rows={3}
+                    rows={2}
                     className="search-job-posting-input"
                     value={applicationExtract?.job_description || ''}
                     disabled={searching}
@@ -1148,7 +1148,7 @@ export function OverviewPage() {
                         job_description: e.target.value,
                       })
                     }
-                    placeholder="I applied for the … role at …"
+                    placeholder="I applied for the … role because I am interested in …"
                   />
                 </label>
                 {(applicationExtract?.projects?.length ||

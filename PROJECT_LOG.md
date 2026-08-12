@@ -1,3 +1,8 @@
+## 2026-08-12 — Application role: one-sentence draft fill
+
+- `[job description]` is now a single first-person sentence: “I applied for [role] because I am interested in [detail related to the person found].”
+- Interest clause prefers JD projects/responsibilities that overlap the contact’s title; drafts regenerate this on send/create.
+
 ## 2026-08-12 — Looking for prefs on Filters
 
 - Moved employment / remote prefs from Settings into a compact “Looking for” chip section at the bottom of Filters.
