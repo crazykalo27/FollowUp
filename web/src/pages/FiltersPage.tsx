@@ -228,6 +228,22 @@ export function FiltersPage() {
     }
   }, [user, orientation.complete])
 
+  // Profile chat may rewrite outreach_targets ("People to find"); refresh when
+  // returning to this tab so the textarea isn't stale.
+  useEffect(() => {
+    function refresh() {
+      if (document.visibilityState !== 'visible') return
+      void loadSearchTargets()
+      void loadFilters()
+    }
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('focus', refresh)
+    return () => {
+      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [user])
+
   async function saveSearchTargets(): Promise<boolean> {
     if (!user) return false
     const roles = textToList(rolesText)
