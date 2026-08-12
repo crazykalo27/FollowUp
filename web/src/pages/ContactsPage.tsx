@@ -16,6 +16,10 @@ import {
 } from '../lib/linkedin_location'
 import { buildEmailProvenance } from '../lib/emailProvenance'
 import { prefetchDrafts } from '../lib/draftsCache'
+import {
+  filterAndSortContacts,
+  type ContactSort,
+} from '../lib/contactsList'
 import { EmailVerifyButton } from '../components/EmailVerifyButton'
 
 type ContactRow = {
@@ -32,6 +36,8 @@ type ContactRow = {
   sources: string[] | null
   review_status: string | null
   created_at?: string | null
+  /** Latest keep (or restore) time for sort */
+  kept_at?: string | null
   source_details: {
     hiring_signal?: string
     hiring_signal_url?: string
@@ -376,6 +382,60 @@ function ContactDetail({
   )
 }
 
+const CONTACT_SORT_OPTIONS: { id: ContactSort; label: string }[] = [
+  { id: 'recent_added', label: 'Most recently added' },
+  { id: 'recent_kept', label: 'Most recently kept' },
+  { id: 'alpha', label: 'Alphabetical' },
+]
+
+function ContactsListControls({
+  query,
+  sort,
+  onQueryChange,
+  onSortChange,
+  resultCount,
+  totalCount,
+}: {
+  query: string
+  sort: ContactSort
+  onQueryChange: (q: string) => void
+  onSortChange: (s: ContactSort) => void
+  resultCount: number
+  totalCount: number
+}) {
+  return (
+    <div className="contacts-list-controls">
+      <label className="contacts-search">
+        <span className="contacts-control-label">Search</span>
+        <input
+          type="search"
+          value={query}
+          placeholder="Name, title, location, company…"
+          onChange={(e) => onQueryChange(e.target.value)}
+        />
+      </label>
+      <label className="contacts-sort">
+        <span className="contacts-control-label">Sort</span>
+        <select
+          value={sort}
+          onChange={(e) => onSortChange(e.target.value as ContactSort)}
+        >
+          {CONTACT_SORT_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {query.trim() && totalCount > 0 && (
+        <p className="muted small contacts-filter-count">
+          Showing {resultCount} of {totalCount}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ContactSelectCheckbox({
   checked,
   disabled,
@@ -434,6 +494,8 @@ export function ContactsPage() {
   const [discardCompanyOpen, setDiscardCompanyOpen] = useState(false)
   const [swipeDir, setSwipeDir] = useState<'left' | 'right' | null>(null)
   const [tab, setTab] = useState<'review' | 'kept' | 'archived'>('review')
+  const [listQuery, setListQuery] = useState('')
+  const [listSort, setListSort] = useState<ContactSort>('recent_added')
   const [activeId, setActiveId] = useState<string | null>(null)
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
@@ -453,19 +515,26 @@ export function ContactsPage() {
 
   const load = useCallback(async () => {
     if (!user) return
-    const [{ data }, { data: draftRows }] = await Promise.all([
-      supabase
-        .from('contacts')
-        .select(
-          'id, company_id, full_name, title, email, location, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, created_at, source_details, application_context, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
-        )
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('outreach_drafts')
-        .select('contact_id, status')
-        .eq('user_id', user.id),
-    ])
+    const [{ data }, { data: draftRows }, { data: keepDecisions }] =
+      await Promise.all([
+        supabase
+          .from('contacts')
+          .select(
+            'id, company_id, full_name, title, email, location, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, created_at, source_details, application_context, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
+          )
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('outreach_drafts')
+          .select('contact_id, status')
+          .eq('user_id', user.id),
+        supabase
+          .from('contact_decisions')
+          .select('contact_id, created_at')
+          .eq('user_id', user.id)
+          .eq('decision', 'keep')
+          .order('created_at', { ascending: false }),
+      ])
     const drafted = new Set<string>()
     const sent = new Set<string>()
     for (const row of draftRows || []) {
@@ -476,9 +545,18 @@ export function ContactsPage() {
     }
     setDraftedContactIds(drafted)
     setSentOutreachIds(sent)
+    const keptAtByContact = new Map<string, string>()
+    for (const d of keepDecisions || []) {
+      const cid = d.contact_id as string
+      const at = d.created_at as string
+      if (cid && at && !keptAtByContact.has(cid)) {
+        keptAtByContact.set(cid, at)
+      }
+    }
     const mapped = (data || []).map((r) => ({
       ...r,
       companies: Array.isArray(r.companies) ? r.companies[0] : r.companies,
+      kept_at: keptAtByContact.get(r.id as string) || null,
     })) as ContactRow[]
     setRows(mapped)
 
@@ -536,6 +614,28 @@ export function ContactsPage() {
     () => rows.filter((r) => r.review_status === 'archived'),
     [rows],
   )
+
+  const searchExtras = useCallback(
+    (r: ContactRow) => {
+      const loc = contactLocation(r)
+      return loc ? [loc] : []
+    },
+    [],
+  )
+
+  const pendingList = useMemo(
+    () => filterAndSortContacts(pending, listQuery, listSort, searchExtras),
+    [pending, listQuery, listSort, searchExtras],
+  )
+  const keptList = useMemo(
+    () => filterAndSortContacts(kept, listQuery, listSort, searchExtras),
+    [kept, listQuery, listSort, searchExtras],
+  )
+  const archivedList = useMemo(
+    () => filterAndSortContacts(archived, listQuery, listSort, searchExtras),
+    [archived, listQuery, listSort, searchExtras],
+  )
+
   /** Hide Kept/Archived while a full keep/discard queue is still in progress. */
   const reviewingQueue =
     calibrationReview || (secondPassReview && pending.length > 0)
@@ -546,16 +646,16 @@ export function ContactsPage() {
     [rows],
   )
 
-  // Keep activeId valid; do not reset to first when a saved id is still pending
+  // Keep activeId valid within the visible (filtered/sorted) pending list
   useEffect(() => {
-    if (pending.length === 0) {
+    if (pendingList.length === 0) {
       if (activeId !== null) setActiveId(null)
       return
     }
-    if (!activeId || !pending.some((p) => p.id === activeId)) {
-      setActiveId(pending[0].id)
+    if (!activeId || !pendingList.some((p) => p.id === activeId)) {
+      setActiveId(pendingList[0].id)
     }
-  }, [pending, activeId])
+  }, [pendingList, activeId])
 
   // Persist last-reviewed contact while navigating around the app
   useEffect(() => {
@@ -571,29 +671,29 @@ export function ContactsPage() {
   }, [user, activeId, newestCreatedAt])
 
   const current = useMemo(
-    () => pending.find((p) => p.id === activeId) || pending[0] || null,
-    [pending, activeId],
+    () => pendingList.find((p) => p.id === activeId) || pendingList[0] || null,
+    [pendingList, activeId],
   )
 
   const currentIndex = useMemo(() => {
     if (!current) return -1
-    return pending.findIndex((p) => p.id === current.id)
-  }, [pending, current])
+    return pendingList.findIndex((p) => p.id === current.id)
+  }, [pendingList, current])
 
   const prevContact = useMemo(() => {
     if (currentIndex <= 0) return null
-    return pending[currentIndex - 1] ?? null
-  }, [pending, currentIndex])
+    return pendingList[currentIndex - 1] ?? null
+  }, [pendingList, currentIndex])
 
   const nextContact = useMemo(() => {
-    if (currentIndex < 0 || currentIndex >= pending.length - 1) return null
-    return pending[currentIndex + 1] ?? null
-  }, [pending, currentIndex])
+    if (currentIndex < 0 || currentIndex >= pendingList.length - 1) return null
+    return pendingList[currentIndex + 1] ?? null
+  }, [pendingList, currentIndex])
 
   const pendingAtCompany = useMemo(() => {
     if (!current?.company_id) return 0
-    return pending.filter((p) => p.company_id === current.company_id).length
-  }, [pending, current])
+    return pendingList.filter((p) => p.company_id === current.company_id).length
+  }, [pendingList, current])
 
   function enqueueReviewChain(
     task: () => Promise<void>,
@@ -730,10 +830,12 @@ export function ContactsPage() {
     const decidingId = deciding.id
     const isReviewQueue = (deciding.review_status || 'pending') === 'pending'
     const remainingPending = isReviewQueue
-      ? pending.filter((p) => p.id !== decidingId)
-      : pending
+      ? pendingList.filter((p) => p.id !== decidingId)
+      : pendingList
     const nextId = remainingPending[0]?.id || null
     const reviewStatus = decision === 'keep' ? 'kept' : 'discarded'
+    const keptAt =
+      decision === 'keep' ? new Date().toISOString() : deciding.kept_at
 
     setBusy(true)
     setMsg(null)
@@ -754,7 +856,9 @@ export function ContactsPage() {
 
     setRows((prev) =>
       prev.map((r) =>
-        r.id === decidingId ? { ...r, review_status: reviewStatus } : r,
+        r.id === decidingId
+          ? { ...r, review_status: reviewStatus, kept_at: keptAt }
+          : r,
       ),
     )
 
@@ -910,7 +1014,13 @@ export function ContactsPage() {
     const snapshot = row
     setRows((prev) =>
       prev.map((r) =>
-        r.id === row.id ? { ...r, review_status: 'kept' } : r,
+        r.id === row.id
+          ? {
+              ...r,
+              review_status: 'kept',
+              kept_at: new Date().toISOString(),
+            }
+          : r,
       ),
     )
     setSelectedIds((prev) => {
@@ -935,7 +1045,7 @@ export function ContactsPage() {
       return next
     })
     if (activeId === row.id) {
-      const remaining = pending.filter((p) => p.id !== row.id)
+      const remaining = pendingList.filter((p) => p.id !== row.id)
       setActiveId(remaining[0]?.id || null)
     }
     setMsg(`Deleted ${row.full_name || 'contact'}.`)
@@ -1326,19 +1436,33 @@ export function ContactsPage() {
 
       {tab === 'review' && (
         <div className="review-layout">
+          {pending.length > 0 && (
+            <ContactsListControls
+              query={listQuery}
+              sort={listSort}
+              onQueryChange={setListQuery}
+              onSortChange={setListSort}
+              resultCount={pendingList.length}
+              totalCount={pending.length}
+            />
+          )}
           <div className="review-stage" ref={deckRef}>
             {!current && (
               <p className="muted review-empty">
                 {rows.length === 0
                   ? 'No contacts yet. Run a people search from Search.'
-                  : 'You’re caught up — no pending contacts. Check Kept, or run another search.'}
+                  : pending.length === 0
+                    ? 'You’re caught up — no pending contacts. Check Kept, or run another search.'
+                    : 'No pending contacts match your search.'}
               </p>
             )}
 
             {current && (
               <>
                 <p className="muted small review-progress">
-                  {pending.length} pending · center card is active
+                  {listQuery.trim()
+                    ? `${pendingList.length} matching · ${pending.length} pending · center card is active`
+                    : `${pending.length} pending · center card is active`}
                 </p>
                 <div className="carousel-viewport">
                   <div
@@ -1458,14 +1582,16 @@ export function ContactsPage() {
                 <button
                   type="button"
                   className="btn ghost small"
-                  disabled={busy || pending.length === 0}
+                  disabled={busy || pendingList.length === 0}
                   onClick={() =>
-                    selectedIds.size === pending.length
+                    selectedIds.size === pendingList.length &&
+                    pendingList.length > 0
                       ? clearSelection()
-                      : selectAllFrom(pending)
+                      : selectAllFrom(pendingList)
                   }
                 >
-                  {selectedIds.size === pending.length && pending.length > 0
+                  {selectedIds.size === pendingList.length &&
+                  pendingList.length > 0
                     ? 'Clear selection'
                     : 'Select all'}
                 </button>
@@ -1486,7 +1612,7 @@ export function ContactsPage() {
                 )}
               </div>
               <div className="contact-grid">
-                {pending.map((r) => (
+                {pendingList.map((r) => (
                   <article
                     key={r.id}
                     className={`contact-card selectable ${r.id === current?.id ? 'highlighted' : ''} ${selectedIds.has(r.id) ? 'is-selected' : ''}`}
@@ -1508,6 +1634,9 @@ export function ContactsPage() {
                   </article>
                 ))}
               </div>
+              {pendingList.length === 0 && (
+                <p className="muted">No pending contacts match your search.</p>
+              )}
             </section>
           )}
         </div>
@@ -1528,56 +1657,68 @@ export function ContactsPage() {
             </div>
           )}
           {kept.length > 0 && (
-            <div className="selection-toolbar">
-              <button
-                type="button"
-                className="btn ghost small"
-                disabled={busy}
-                onClick={() =>
-                  selectedIds.size === kept.length
-                    ? clearSelection()
-                    : selectAllFrom(kept)
-                }
-              >
-                {selectedIds.size === kept.length ? 'Clear selection' : 'Select all'}
-              </button>
-              {selectedIds.size > 0 && (
-                <>
-                  <span className="muted small">{selectedIds.size} selected</span>
-                  <button
-                    type="button"
-                    className="btn primary small"
-                    disabled={busy}
-                    onClick={() => void draftSelected(kept)}
-                  >
-                    Draft for selected
-                  </button>
-                  {!pickKeptForDraft && (
-                    <>
-                      <button
-                        type="button"
-                        className="btn ghost small"
-                        disabled={busy}
-                        onClick={() => archiveSelected(kept)}
-                      >
-                        Archive selected
-                      </button>
-                      <button
-                        type="button"
-                        className="btn ghost small swipe-discard"
-                        disabled={busy}
-                        onClick={() => setBulkDeleteOpen(true)}
-                      >
-                        Delete selected
-                      </button>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
+            <>
+              <ContactsListControls
+                query={listQuery}
+                sort={listSort}
+                onQueryChange={setListQuery}
+                onSortChange={setListSort}
+                resultCount={keptList.length}
+                totalCount={kept.length}
+              />
+              <div className="selection-toolbar">
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  disabled={busy || keptList.length === 0}
+                  onClick={() =>
+                    selectedIds.size === keptList.length && keptList.length > 0
+                      ? clearSelection()
+                      : selectAllFrom(keptList)
+                  }
+                >
+                  {selectedIds.size === keptList.length && keptList.length > 0
+                    ? 'Clear selection'
+                    : 'Select all'}
+                </button>
+                {selectedIds.size > 0 && (
+                  <>
+                    <span className="muted small">{selectedIds.size} selected</span>
+                    <button
+                      type="button"
+                      className="btn primary small"
+                      disabled={busy}
+                      onClick={() => void draftSelected(keptList)}
+                    >
+                      Draft for selected
+                    </button>
+                    {!pickKeptForDraft && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn ghost small"
+                          disabled={busy}
+                          onClick={() => archiveSelected(keptList)}
+                        >
+                          Archive selected
+                        </button>
+                        <button
+                          type="button"
+                          className="btn ghost small swipe-discard"
+                          disabled={busy}
+                          onClick={() => setBulkDeleteOpen(true)}
+                        >
+                          Delete selected
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
           )}
           <div className="contact-grid">
-            {kept.map((r) => (
+            {keptList.map((r) => (
               <article
                 key={r.id}
                 className={`contact-card ${selectedIds.has(r.id) ? 'is-selected' : ''}`}
@@ -1647,6 +1788,9 @@ export function ContactsPage() {
           {kept.length === 0 && (
             <p className="muted">No kept contacts yet — review the queue first.</p>
           )}
+          {kept.length > 0 && keptList.length === 0 && (
+            <p className="muted">No kept contacts match your search.</p>
+          )}
         </div>
       )}
 
@@ -1657,46 +1801,60 @@ export function ContactsPage() {
             teach the AI to avoid them.
           </p>
           {archived.length > 0 && (
-            <div className="selection-toolbar">
-              <button
-                type="button"
-                className="btn ghost small"
-                disabled={busy}
-                onClick={() =>
-                  selectedIds.size === archived.length
-                    ? clearSelection()
-                    : selectAllFrom(archived)
-                }
-              >
-                {selectedIds.size === archived.length
-                  ? 'Clear selection'
-                  : 'Select all'}
-              </button>
-              {selectedIds.size > 0 && (
-                <>
-                  <span className="muted small">{selectedIds.size} selected</span>
-                  <button
-                    type="button"
-                    className="btn ghost small"
-                    disabled={busy}
-                    onClick={() => restoreSelected(archived)}
-                  >
-                    Restore selected
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost small swipe-discard"
-                    disabled={busy}
-                    onClick={() => setBulkDeleteOpen(true)}
-                  >
-                    Delete selected
-                  </button>
-                </>
-              )}
-            </div>
+            <>
+              <ContactsListControls
+                query={listQuery}
+                sort={listSort}
+                onQueryChange={setListQuery}
+                onSortChange={setListSort}
+                resultCount={archivedList.length}
+                totalCount={archived.length}
+              />
+              <div className="selection-toolbar">
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  disabled={busy || archivedList.length === 0}
+                  onClick={() =>
+                    selectedIds.size === archivedList.length &&
+                    archivedList.length > 0
+                      ? clearSelection()
+                      : selectAllFrom(archivedList)
+                  }
+                >
+                  {selectedIds.size === archivedList.length &&
+                  archivedList.length > 0
+                    ? 'Clear selection'
+                    : 'Select all'}
+                </button>
+                {selectedIds.size > 0 && (
+                  <>
+                    <span className="muted small">
+                      {selectedIds.size} selected
+                    </span>
+                    <button
+                      type="button"
+                      className="btn ghost small"
+                      disabled={busy}
+                      onClick={() => restoreSelected(archivedList)}
+                    >
+                      Restore selected
+                    </button>
+                    <button
+                      type="button"
+                      className="btn ghost small swipe-discard"
+                      disabled={busy}
+                      onClick={() => setBulkDeleteOpen(true)}
+                    >
+                      Delete selected
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
           )}
           <div className="contact-grid">
-            {archived.map((r) => (
+            {archivedList.map((r) => (
               <article
                 key={r.id}
                 className={`contact-card ${selectedIds.has(r.id) ? 'is-selected' : ''}`}
@@ -1731,6 +1889,9 @@ export function ContactsPage() {
           </div>
           {archived.length === 0 && (
             <p className="muted">No archived contacts yet.</p>
+          )}
+          {archived.length > 0 && archivedList.length === 0 && (
+            <p className="muted">No archived contacts match your search.</p>
           )}
         </div>
       )}

@@ -1,5 +1,6 @@
 # Agent change log
 
+- Contacts: search (name/title/location/company) + sort (recently added, recently kept, A–Z)
 - Simplify: drop dead 10/5 caps; one helper strips legacy filter run-limit keys
 - Filters: remove max companies/run and max contacts/company — Search sizing owns batch size
 - Location display: sync web parser with edge; trust pipeline-stored locations on contact cards (tests were offline fixtures before)

@@ -1,3 +1,9 @@
+## 2026-08-12 — Contacts search + sort
+
+- Search bar filters Review / Kept / Archived by name, title, location, company, email, match reason.
+- Sort: most recently added, most recently kept (from keep decisions), alphabetical.
+- Select-all / bulk actions operate on the filtered list.
+
 ## 2026-08-12 — Drop filter run-limit settings
 
 - Removed **Max companies / run** and **Max contacts / company** from Filters UI.
