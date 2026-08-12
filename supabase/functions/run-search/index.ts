@@ -802,8 +802,11 @@ function candidateMatchesEmployer(
 async function resolveUserTargetCompany(rawName: string): Promise<CompanyHit> {
   const company_name = rawName.trim()
 
-      // Only method: ask OpenAI for the official domain / common @email
-  const picked = await pickCompanyDomain({ companyName: company_name })
+      // OpenAI + live web_search for the official domain / common @email
+  const picked = await pickCompanyDomain({
+    companyName: company_name,
+    runWebSearch: (q, num) => runWebSearch(q, num),
+  })
   const domain = picked.domain
   const url = picked.url || (domain ? `https://${domain}` : 'https://example.com')
 
@@ -812,7 +815,10 @@ async function resolveUserTargetCompany(rawName: string): Promise<CompanyHit> {
     domain,
     url,
     source: 'user_target',
-    domain_source: picked.source === 'openai' ? 'openai' : 'none',
+    domain_source:
+      picked.source === 'openai_web_search' || picked.source === 'openai'
+        ? picked.source
+        : 'none',
     hiring_signal: 'You chose this employer to follow up after applying.',
     relevance: 12,
     domain_error: picked.error || null,
@@ -1773,7 +1779,7 @@ Deno.serve(async (req) => {
 
       pushProgressLog(
         progressMeta,
-        `${targetCompanyName}: resolving domain through AI`,
+        `${targetCompanyName}: resolving domain via AI web search`,
       )
       await saveProgressMeta(admin, runId!, progressMeta)
 
@@ -2315,11 +2321,11 @@ Deno.serve(async (req) => {
         companyStatus: 'active',
         companyStep: skipCompanySetup
           ? 'Broader people search (retry)'
-          : 'Resolving domain through AI',
+          : 'Resolving domain via AI web search',
         companyProgress: 8,
         logLine: skipCompanySetup
           ? `${company.company_name}: retry ${webSearchRound} — ${companyKeptSoFar}/${peopleGoal} new so far`
-          : `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain through AI`,
+          : `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain via AI web search`,
       })
 
       const triedKeys = new Set(pipeline!.tried_candidate_keys ?? [])
@@ -2363,6 +2369,7 @@ Deno.serve(async (req) => {
       } else {
       const picked = await pickCompanyDomain({
         companyName: company.company_name,
+        runWebSearch: (q, num) => runWebSearch(q, num),
       })
 
       domain = picked.domain
@@ -2375,13 +2382,17 @@ Deno.serve(async (req) => {
 
       report.domain = domain
       report.domain_source = picked.source
-      if (picked.source === 'openai' && picked.email_domain) {
+      if (
+        (picked.source === 'openai_web_search' ||
+          picked.source === 'openai') &&
+        picked.email_domain
+      ) {
         report.email_domain = picked.email_domain
       }
 
       pushProgressLog(
         progressMeta,
-        `${company.company_name}: domain ${domain || 'none'} · AI${
+        `${company.company_name}: domain ${domain || 'none'} · AI web search${
           !domain && picked.error ? ` (${picked.error})` : ''
         }`,
       )

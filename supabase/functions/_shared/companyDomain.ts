@@ -1,9 +1,12 @@
 /**
- * Resolve a company's official website / email domain via OpenAI.
- * This is the only domain resolution method — no slug guesses, web-search
- * lookalikes, or per-company hardcodes.
+ * Resolve a company's official website / email domain via OpenAI + live web_search.
+ * The model must search (Bing/Serper) before choosing a domain — no memory-only guesses.
  */
-import { openaiChat } from './cors.ts'
+import {
+  openaiChatRaw,
+  type OpenAiChatMessage,
+  type OpenAiToolDef,
+} from './cors.ts'
 import { isEmployerCorporateHost } from './company_discovery.ts'
 
 export type CompanyDomainResolution = {
@@ -11,11 +14,38 @@ export type CompanyDomainResolution = {
   email_domain: string | null
   url: string | null
   confidence: 'high' | 'medium' | 'low'
-  source: 'openai' | 'none'
+  source: 'openai_web_search' | 'openai' | 'none'
   error?: string | null
 }
 
+export type DomainWebSearchHit = {
+  title?: string
+  link?: string
+  url?: string
+  snippet?: string
+}
+
 const cache = new Map<string, CompanyDomainResolution>()
+
+const DOMAIN_WEB_SEARCH_TOOL: OpenAiToolDef = {
+  type: 'function',
+  function: {
+    name: 'web_search',
+    description:
+      "Search the live web for a company's official website. Prefer queries like \"{Company} official website\" or \"{Company} corporate site\". Avoid job boards and lookalike brands.",
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Search query that should surface the official company homepage (e.g. "SpaceX official website").',
+        },
+      },
+      required: ['query'],
+    },
+  },
+}
 
 function normalizeHost(raw: string | null | undefined): string | null {
   if (!raw) return null
@@ -23,14 +53,16 @@ function normalizeHost(raw: string | null | undefined): string | null {
   d = d.replace(/^mailto:/, '').replace(/^@/, '')
   d = d.replace(/^https?:\/\//, '').replace(/^www\./, '')
   d = d.split('/')[0]?.split('?')[0]?.split('#')[0] || ''
-  // Common junk: trailing dots, @ leftover
   d = d.replace(/^\.+|\.+$/g, '')
   if (!d || !d.includes('.')) return null
   if (!isEmployerCorporateHost(d)) return null
   return d
 }
 
-function parseResolution(raw: string): CompanyDomainResolution {
+function parseResolution(
+  raw: string,
+  source: CompanyDomainResolution['source'],
+): CompanyDomainResolution {
   try {
     const start = raw.indexOf('{')
     const end = raw.lastIndexOf('}')
@@ -84,7 +116,7 @@ function parseResolution(raw: string): CompanyDomainResolution {
       email_domain: emailDomain || domain,
       url,
       confidence: domain ? confidence : 'low',
-      source: domain ? 'openai' : 'none',
+      source: domain ? source : 'none',
       error: domain
         ? null
         : `AI domain rejected or missing (raw=${String(domainRaw || '').slice(0, 80)})`,
@@ -102,11 +134,16 @@ function parseResolution(raw: string): CompanyDomainResolution {
 }
 
 /**
- * Ask OpenAI for the official website domain and common @email domain.
- * Works for any company — no hardcoded domain map.
+ * Ask OpenAI to web_search for the official website / email domain, then return JSON.
  */
 export async function resolveCompanyDomainWithAi(
   companyName: string,
+  opts?: {
+    runWebSearch?: (
+      q: string,
+      num: number,
+    ) => Promise<DomainWebSearchHit[]>
+  },
 ): Promise<CompanyDomainResolution> {
   const name = companyName.trim()
   if (!name) {
@@ -135,33 +172,166 @@ export async function resolveCompanyDomainWithAi(
     }
   }
 
-  const prompt = `What is the official primary website domain and the most common employee email @domain for this company?
+  const runWebSearch = opts?.runWebSearch
+  if (!runWebSearch) {
+    return {
+      domain: null,
+      email_domain: null,
+      url: null,
+      confidence: 'low',
+      source: 'none',
+      error: 'runWebSearch not provided — domain resolve requires live web search',
+    }
+  }
+
+  const system = `You resolve official company website and employee email domains.
+You MUST call the web_search tool before answering — do not rely on memory alone.
+Use search results to pick the official corporate site (not lookalikes, job boards, news, Wikipedia, or LinkedIn).
+After you have enough live evidence, stop calling tools and return JSON only.`
+
+  const user = `Find the official primary website domain and the most common employee email @domain for this company using web_search.
 
 Company name: ${name}
 
-Return JSON only:
+Suggested first query: "${name} official website"
+
+Return JSON only when done:
 {"domain":"example.com","email_domain":"example.com","url":"https://www.example.com","confidence":"high"}
 
 Rules:
-- domain = official corporate website host (no www), e.g. SpaceX → spacex.com, Google → google.com, Meta → meta.com.
-- email_domain = what appears after @ on typical employee emails (often the same as domain; sometimes different, e.g. Alphabet employees @google.com).
-- NEVER use job boards, recruiting agencies, news sites, Wikipedia, LinkedIn, Crunchbase, or similarly named unrelated companies (e.g. do not confuse SpaceX with SpaceCrew or other lookalikes).
-- If you are not reasonably sure, set confidence to "low" and still give the best-known official domain when the company is well-known.
+- domain = official corporate website host (no www), e.g. SpaceX → spacex.com.
+- email_domain = what appears after @ on typical employee emails (often the same as domain).
+- Prefer homepage URLs from search results over third-party directories.
+- NEVER use job boards, recruiting agencies, news sites, Wikipedia, LinkedIn, Crunchbase, or similarly named unrelated companies.
+- If search results conflict, prefer the company's own site and set confidence to "medium" or "low".
 - No markdown, no commentary.`
 
+  const messages: OpenAiChatMessage[] = [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ]
+
+  const maxRounds = 3
+  let usedSearch = false
+
   try {
-    const raw = await openaiChat(
+    for (let round = 0; round < maxRounds; round++) {
+      const message = await openaiChatRaw(messages, {
+        temperature: 0,
+        tools: [DOMAIN_WEB_SEARCH_TOOL],
+        // Force a search on the first turn so the model cannot skip to memory.
+        tool_choice:
+          round === 0
+            ? {
+                type: 'function',
+                function: { name: 'web_search' },
+              }
+            : 'auto',
+        model: 'gpt-4o-mini',
+      })
+
+      const toolCalls = message.tool_calls || []
+      if (toolCalls.length > 0) {
+        messages.push({
+          role: 'assistant',
+          content: message.content || null,
+          tool_calls: toolCalls,
+        })
+
+        for (const call of toolCalls) {
+          if (call.function?.name !== 'web_search') {
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: JSON.stringify({ error: 'unknown tool' }),
+            })
+            continue
+          }
+
+          let query = ''
+          try {
+            const args = JSON.parse(call.function.arguments || '{}') as {
+              query?: string
+            }
+            query = (args.query || '').trim()
+          } catch {
+            query = ''
+          }
+
+          if (!query) {
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: JSON.stringify({ error: 'missing query' }),
+            })
+            continue
+          }
+
+          usedSearch = true
+          try {
+            const organic = await runWebSearch(query, 8)
+            const compact = organic.slice(0, 8).map((item) => ({
+              title: item.title || null,
+              url: item.link || item.url || null,
+              snippet: item.snippet || null,
+            }))
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: JSON.stringify({ query, results: compact }),
+            })
+          } catch (e) {
+            const err =
+              e instanceof Error ? e.message : `Search failed: ${query}`
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: JSON.stringify({ query, error: err, results: [] }),
+            })
+          }
+        }
+        continue
+      }
+
+      const content = message.content || ''
+      const resolved = parseResolution(
+        content,
+        usedSearch ? 'openai_web_search' : 'openai',
+      )
+      if (resolved.domain) {
+        cache.set(cacheKey, resolved)
+        return resolved
+      }
+
+      messages.push({ role: 'assistant', content })
+      messages.push({
+        role: 'user',
+        content:
+          'Return the final JSON now with domain, email_domain, url, and confidence based on the search results. No tools.',
+      })
+    }
+
+    // Final forced JSON pass without tools
+    const finalMsg = await openaiChatRaw(
       [
+        ...messages,
         {
-          role: 'system',
+          role: 'user',
           content:
-            'You resolve official company website and email domains. Return valid JSON only. Prefer well-known corporate domains; reject lookalikes.',
+            'Based on the web_search evidence so far, return ONLY the JSON object. No tools.',
         },
-        { role: 'user', content: prompt },
       ],
-      { temperature: 0, response_format: { type: 'json_object' } },
+      {
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        tool_choice: 'none',
+        model: 'gpt-4o-mini',
+      },
     )
-    const resolved = parseResolution(typeof raw === 'string' ? raw : '')
+    const resolved = parseResolution(
+      finalMsg.content || '',
+      usedSearch ? 'openai_web_search' : 'openai',
+    )
     if (resolved.domain) cache.set(cacheKey, resolved)
     return resolved
   } catch (e) {
@@ -179,10 +349,14 @@ Rules:
 }
 
 /**
- * Resolve company domain via OpenAI only — no slug/web/existing fallbacks.
+ * Resolve company domain via OpenAI + live web_search only.
  */
 export async function pickCompanyDomain(opts: {
   companyName: string
+  runWebSearch?: (
+    q: string,
+    num: number,
+  ) => Promise<DomainWebSearchHit[]>
 }): Promise<{
   domain: string | null
   email_domain: string | null
@@ -191,13 +365,15 @@ export async function pickCompanyDomain(opts: {
   confidence: 'high' | 'medium' | 'low'
   error?: string | null
 }> {
-  const ai = await resolveCompanyDomainWithAi(opts.companyName)
+  const ai = await resolveCompanyDomainWithAi(opts.companyName, {
+    runWebSearch: opts.runWebSearch,
+  })
   if (ai.domain && isEmployerCorporateHost(ai.domain)) {
     return {
       domain: ai.domain,
       email_domain: ai.email_domain || ai.domain,
       url: ai.url || `https://${ai.domain}`,
-      source: 'openai',
+      source: ai.source,
       confidence: ai.confidence,
       error: null,
     }
@@ -212,6 +388,6 @@ export async function pickCompanyDomain(opts: {
       ai.error ||
       (ai.domain
         ? `Rejected host ${ai.domain}`
-        : 'AI could not resolve domain'),
+        : 'AI could not resolve domain from web search'),
   }
 }

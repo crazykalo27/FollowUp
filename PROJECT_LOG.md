@@ -1,3 +1,9 @@
+## 2026-08-12 — Domain resolve via live web search
+
+- Domain AI now uses the same `web_search` tool pattern as company discovery (Bing/Serper).
+- First turn forces a tool call; prompt tells the model not to answer from memory alone.
+- Progress logs: “resolving domain via AI web search”.
+
 ## 2026-08-12 — Contacts search + sort
 
 - Search bar filters Review / Kept / Archived by name, title, location, company, email, match reason.

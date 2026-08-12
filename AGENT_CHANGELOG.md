@@ -1,5 +1,6 @@
 # Agent change log
 
+- Domain resolve: OpenAI must web_search (Bing/Serper) before picking a domain — no memory-only guesses
 - Fix TS casts for withoutLegacyRunLimits → SearchFiltersData
 - Contacts: search (name/title/location/company) + sort (recently added, recently kept, A–Z)
 - Simplify: drop dead 10/5 caps; one helper strips legacy filter run-limit keys

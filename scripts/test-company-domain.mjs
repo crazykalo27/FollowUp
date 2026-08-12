@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * Test hostname shape checks + optional live OpenAI domain resolve.
+ * Test hostname shape checks used by domain resolve.
+ *
+ * Production domain resolve uses OpenAI + Bing/Serper web_search tool
+ * (see supabase/functions/_shared/companyDomain.ts).
  *
  * Usage:
  *   node scripts/test-company-domain.mjs
- *   OPENAI_API_KEY=sk-... node scripts/test-company-domain.mjs --live
  */
 
 function isEmployerCorporateHost(host) {
@@ -51,74 +53,7 @@ for (const bad of ['nota domain', 'localhost', '', 'com']) {
 }
 
 console.log(`\nShape failures: ${failures}`)
-
-const live = process.argv.includes('--live')
-if (!live) {
-  console.log('\nSkip live OpenAI (pass --live with OPENAI_API_KEY to test).')
-  process.exit(failures ? 1 : 0)
-}
-
-const key = process.env.OPENAI_API_KEY
-if (!key) {
-  console.error('OPENAI_API_KEY required for --live')
-  process.exit(1)
-}
-
-async function resolveViaAi(companyName) {
-  const prompt = `What is the official primary website domain and the most common employee email @domain for this company?
-
-Company name: ${companyName}
-
-Return JSON only:
-{"domain":"example.com","email_domain":"example.com","url":"https://www.example.com","confidence":"high"}`
-
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You resolve official company website and email domains. Return valid JSON only.',
-        },
-        { role: 'user', content: prompt },
-      ],
-    }),
-  })
-  const body = await res.json()
-  if (!res.ok) throw new Error(body?.error?.message || `OpenAI ${res.status}`)
-  const raw = body.choices?.[0]?.message?.content || '{}'
-  const parsed = JSON.parse(raw)
-  const domain = String(parsed.domain || '')
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .split('/')[0]
-  return { domain, email_domain: parsed.email_domain || domain }
-}
-
-console.log('\n=== Live OpenAI domain resolve ===')
-let aiFailures = 0
-for (const [name, expected] of COMPANIES) {
-  try {
-    const { domain, email_domain } = await resolveViaAi(name)
-    const ok = isEmployerCorporateHost(domain)
-    if (!ok || !domain) aiFailures++
-    console.log(
-      `${ok && domain ? 'ok' : 'FAIL'} ${name.padEnd(18)} → ${domain || 'null'} (@${email_domain || '—'}) expected~${expected}`,
-    )
-  } catch (e) {
-    aiFailures++
-    console.log(`FAIL  ${name.padEnd(18)} error: ${e.message}`)
-  }
-}
-
-console.log(`\nAI resolve failures: ${aiFailures}`)
-process.exit(failures || aiFailures ? 1 : 0)
+console.log(
+  '\nLive domain resolve needs OpenAI + Bing/Serper inside run-search; skipped here.',
+)
+process.exit(failures ? 1 : 0)
