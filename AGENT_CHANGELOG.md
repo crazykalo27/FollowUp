@@ -1,10 +1,8 @@
 # Agent change log
 
-<<<<<<< HEAD
-- Bounce retry: guessed emails auto-try up to 5 alternate name patterns and stay pending; give up → bounced
-=======
+- Application role fill: force one short “I applied…because I’m interested in…” sentence; ban “I will be working/developing” certainty language
 - Application drafts: [job description] is one sentence — "I applied for [role] because I am interested in [detail related to the person]"
->>>>>>> origin/cursor/application-role-sentence-2e95
+- Bounce retry: guessed emails auto-try up to 5 alternate name patterns and stay pending; give up → bounced
 - Filters: "Looking for" chip row (role type, workplace, company size, level); removed from Settings
 - Profile chat: FollowUp-aware coach — answers app/profile questions; updates profile/filters only when asked; orientation can pause for off-topic Q&A
 - Profile chat: space below last AI bubble so it doesn't sit flush on the compose bar
