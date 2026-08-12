@@ -1,5 +1,6 @@
 # Agent change log
 
+- Search report: show looking-for titles, filter funnel, and sample reject reasons; clearer empty-run diagnosis
 - Company retries: temporary ~15% loosen on one random aspect per empty round (titles/dept/score/location) — not persisted
 - Search stats: Contacts chip is found / kept (same #/# style as emails sent / drafts)
 - Domain resolve: OpenAI must web_search (Bing/Serper) before picking a domain — no memory-only guesses

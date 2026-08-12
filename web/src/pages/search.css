@@ -441,6 +441,77 @@
   font-size: 1.35rem;
 }
 
+.search-report-simple .search-report-headline {
+  margin: 0 0 0.85rem;
+  font-size: 1rem;
+}
+
+.search-report-simple .search-report-diagnosis {
+  margin-bottom: 1rem;
+}
+
+.search-report-funnel {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.search-report-company-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.search-report-company {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.search-report-company header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  margin-bottom: 0.25rem;
+}
+
+.search-report-company p {
+  margin: 0.2rem 0;
+}
+
+.search-report-rejects {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.search-report-reject-title {
+  font-weight: 600;
+}
+
+.search-report-more {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+}
+
+.search-report-more summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--muted);
+  list-style: none;
+}
+
+.search-report-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.search-report-more .source-grid {
+  margin-top: 0.75rem;
+}
+
 @media (max-width: 720px) {
   .search-mode-grid {
     grid-template-columns: 1fr;

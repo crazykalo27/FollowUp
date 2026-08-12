@@ -2641,6 +2641,43 @@ Deno.serve(async (req) => {
         merged.set(key, prev ? mergeCandidate(prev, c) : c)
       }
 
+      const filterFunnel = {
+        raw: merged.size,
+        wrong_company: 0,
+        excluded: 0,
+        below_score: 0,
+        duplicates: 0,
+        passed: 0,
+        no_email: 0,
+        kept: 0,
+        looking_for: {
+          include_titles: includePass.slice(0, 8),
+          people_titles: peopleTitlesPass.slice(0, 8),
+          dept_keywords: deptKeywordsPass.slice(0, 6),
+          min_score: minKeepScore,
+        },
+        rejects: [] as Array<{
+          name: string | null
+          title: string | null
+          reason: string
+          score?: number
+        }>,
+      }
+
+      const pushReject = (
+        cand: Candidate,
+        reason: string,
+        score?: number,
+      ) => {
+        if (filterFunnel.rejects.length >= 6) return
+        filterFunnel.rejects.push({
+          name: cand.full_name || null,
+          title: cand.title || null,
+          reason,
+          ...(score != null ? { score } : {}),
+        })
+      }
+
       // Drop anyone we cannot verify works at this company before OSINT/email work
       let skippedWrongCompany = 0
       for (const [key, cand] of [...merged.entries()]) {
@@ -2648,8 +2685,10 @@ Deno.serve(async (req) => {
         if (!aff.ok) {
           merged.delete(key)
           skippedWrongCompany += 1
+          pushReject(cand, aff.reason || 'wrong company')
         }
       }
+      filterFunnel.wrong_company = skippedWrongCompany
       if (skippedWrongCompany > 0) {
         pushProgressLog(
           progressMeta,
@@ -2707,16 +2746,23 @@ Deno.serve(async (req) => {
         const aff = candidateMatchesEmployer(cand, canonicalName, domain)
         if (!aff.ok) {
           skippedWrongCompany += 1
+          filterFunnel.wrong_company = skippedWrongCompany
+          pushReject(cand, aff.reason || 'wrong company')
           continue
         }
 
         const match = titleMatchesFilters(cand.title, includePass, excludeRun)
-        if (!match.ok && match.reason.startsWith('excluded')) continue
+        if (!match.ok && match.reason.startsWith('excluded')) {
+          filterFunnel.excluded += 1
+          pushReject(cand, match.reason)
+          continue
+        }
 
         if (contactAlreadyKnown(cand, companyId, contactIndex)) {
           skippedDup += 1
           contactsSkippedDuplicate += 1
           triedKeys.add(dedupeKey(cand, domain))
+          filterFunnel.duplicates += 1
           continue
         }
 
@@ -2753,7 +2799,17 @@ Deno.serve(async (req) => {
           locationBonus +
           lightBonus +
           employerBonus
-        if (totalScore < minKeepScore && !match.ok) continue
+        if (totalScore < minKeepScore && !match.ok) {
+          filterFunnel.below_score += 1
+          pushReject(
+            cand,
+            `score ${totalScore} < ${minKeepScore} (outreach ${outreachScore}${
+              match.ok ? '' : '; no include-title match'
+            })`,
+            totalScore,
+          )
+          continue
+        }
 
         rankedPeople.push({
           cand,
@@ -2763,6 +2819,7 @@ Deno.serve(async (req) => {
       }
 
       rankedPeople.sort((a, b) => b.score - a.score)
+      filterFunnel.passed = rankedPeople.length
 
       await syncProgress(admin, runId, progressMeta, {
         companyName: company.company_name,
@@ -2943,7 +3000,11 @@ Deno.serve(async (req) => {
           }
         }
 
-        if (!cand.email) continue
+        if (!cand.email) {
+          filterFunnel.no_email += 1
+          pushReject(cand, 'no email found')
+          continue
+        }
 
         if (meta.require_verified_email === true) {
           const apolloVerified =
@@ -2998,6 +3059,11 @@ Deno.serve(async (req) => {
               meta.accept_accept_all !== false,
             )
           ) {
+            filterFunnel.no_email += 1
+            pushReject(
+              cand,
+              `email not verified (${cand.verification_status || 'unknown'})`,
+            )
             continue
           }
         }
@@ -3107,6 +3173,8 @@ Deno.serve(async (req) => {
       const companyKept = pipeline!.company_kept_total
 
       report.kept = companyKept
+      filterFunnel.kept = companyKept
+      ;(report as Record<string, unknown>).filter = filterFunnel
       if (skippedDup > 0) {
         ;(report as Record<string, unknown>).skipped_duplicate = skippedDup
       }
@@ -3303,8 +3371,10 @@ Deno.serve(async (req) => {
               webCompaniesLen,
               allJobsLen,
               includeRun,
+              peopleTitlesRun,
               meta.webConfigured,
               meta.search_mode || 'general',
+              company_reports,
             )
           : null,
     }
@@ -3368,8 +3438,10 @@ function diagnose(
   industryCompanies: number,
   jobs: number,
   include: string[],
+  peopleTitles: string[],
   webConfigured: boolean,
   searchMode: 'general' | 'company' | 'application' = 'general',
+  companyReports: Array<Record<string, unknown>> = [],
 ): string {
   if (!webConfigured && industryCompanies === 0 && jobs === 0) {
     return 'Add SERPER_API_KEY or BING_SEARCH_API_KEY to discover industry-aligned companies.'
@@ -3385,24 +3457,65 @@ function diagnose(
   if (!webConfigured) {
     return 'Add SERPER_API_KEY for industry company discovery and LinkedIn people search. Hunter alone is capped at 10 emails/domain.'
   }
+
+  const lookingFor =
+    (peopleTitles.length ? peopleTitles : include).slice(0, 5).join(', ') ||
+    'none'
+
+  type FilterSnap = {
+    raw?: number
+    wrong_company?: number
+    excluded?: number
+    below_score?: number
+    duplicates?: number
+    passed?: number
+    no_email?: number
+    rejects?: Array<{ title?: string | null; reason?: string }>
+  }
+  const funnels = companyReports
+    .map((r) => r.filter as FilterSnap | undefined)
+    .filter(Boolean) as FilterSnap[]
+  const sum = (key: keyof FilterSnap) =>
+    funnels.reduce((n, f) => n + (Number(f[key]) || 0), 0)
+  const raw = sum('raw')
+  const wrong = sum('wrong_company')
+  const excluded = sum('excluded')
+  const below = sum('below_score')
+  const passed = sum('passed')
+  const noEmail = sum('no_email')
+  const sampleReject = funnels
+    .flatMap((f) => f.rejects || [])
+    .find((r) => r.title || r.reason)
+
+  if (raw === 0) {
+    return searchMode === 'application'
+      ? `No people found for application titles (${lookingFor}). Re-extract the job description or broaden the role.`
+      : `No LinkedIn people found for titles (${lookingFor}). Try different Filters include titles or another company.`
+  }
+  if (passed === 0) {
+    const bits: string[] = []
+    if (wrong) bits.push(`${wrong} wrong company`)
+    if (excluded) bits.push(`${excluded} excluded title`)
+    if (below) bits.push(`${below} below title/score fit`)
+    const why = bits.join(', ') || 'filtered out'
+    const sample = sampleReject
+      ? ` Example: “${sampleReject.title || 'unknown title'}” — ${sampleReject.reason}`
+      : ''
+    return `Found ${raw} people, but none passed Filters (${why}). Looking for: ${lookingFor}.${sample} Widen include titles or lower the seniority bar.`
+  }
+  if (noEmail > 0 && passed > 0) {
+    return searchMode === 'application'
+      ? `Found people who matched the role, but emails failed find/verify (${noEmail}). Try disabling “Require verified email” or enable Apollo/Hunter in Settings.`
+      : `Found ${passed} people who passed Filters, but emails failed find/verify (${noEmail}). Try disabling “Require verified email” or enable Apollo/Hunter in Settings.`
+  }
+
   const after =
     (stats.hunter?.after_title_filter || 0) +
     (stats.websearch?.after_title_filter || 0) +
     (stats.apollo?.after_title_filter || 0) +
     (stats.osint?.after_title_filter || 0)
-  const found =
-    (stats.hunter?.people_found || 0) +
-    (stats.websearch?.people_found || 0)
   if (after === 0) {
-    if (searchMode === 'application') {
-      return found > 0
-        ? `Found ${found} people at the employer, but none matched the application role titles (${include.slice(0, 4).join(', ') || 'none'}). Check the extracted job title / search titles.`
-        : `No people found for the application role titles (${include.slice(0, 4).join(', ') || 'none'}). Re-extract the job description or broaden the role title.`
-    }
-    return `People found, but none scored above outreach threshold (includes: ${include.slice(0, 4).join(', ') || 'none'}). Widen Filters or lower seniority bar.`
+    return `Found ${raw} people, but none were kept after Filters / email checks. Looking for: ${lookingFor}.`
   }
-  if (searchMode === 'application') {
-    return 'People matched the application role, but emails failed find/verify. Try disabling "Require verified email" or enable Apollo/Hunter in Settings.'
-  }
-    return 'People matched but emails failed find/verify. Try disabling "Require verified email" or enable Apollo/Hunter in Settings.'
+  return 'People matched Filters, but none were kept. Check email settings or try another company.'
 }

@@ -1,3 +1,9 @@
+## 2026-08-12 — Richer, simpler Search report
+
+- Per-company filter funnel: found → passed → kept, plus reject samples (wrong company, excluded, low score, no email).
+- Report UI: Looking for / funnel / by company; source stats collapsed.
+- Empty-run diagnosis uses real reject reasons instead of a generic “outreach threshold” line.
+
 ## 2026-08-12 — Temporary loosen on company people retries
 
 - On each empty company retry, pick one unused aspect and loosen ~15% for that pass only:

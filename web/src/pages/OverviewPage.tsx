@@ -70,11 +70,14 @@ function formatFoundContactsMessage(text: string): string {
 
 function CalibrationSearchReport({ summary }: { summary: SearchSummary }) {
   const n = summary.contacts_created
+  const totals = funnelTotals(summary.company_reports)
   return (
     <div className="search-report search-report-compact">
       <p>
-        Found <strong>{n}</strong> contact{n === 1 ? '' : 's'} across{' '}
-        {summary.companies_selected} companies
+        Found <strong>{totals.raw || n}</strong> people
+        {totals.passed ? ` · ${totals.passed} passed filters` : ''}
+        {' · '}
+        <strong>{n}</strong> kept across {summary.companies_selected} companies
         {summary.contacts_skipped_duplicate != null &&
         summary.contacts_skipped_duplicate > 0
           ? ` (${summary.contacts_skipped_duplicate} skipped — already on file)`
@@ -89,11 +92,13 @@ function CalibrationSearchReport({ summary }: { summary: SearchSummary }) {
           {summary.company_reports.map((r, i) => (
             <li key={`${r.name}-${i}`}>
               <strong>{r.name}</strong>
-              {r.outcome
-                ? ` — ${formatFoundContactsMessage(r.outcome)}`
-                : r.kept > 0
-                  ? ` — Found ${r.kept} contact${r.kept === 1 ? '' : 's'}`
-                  : ''}
+              {r.filter
+                ? ` — found ${r.filter.raw}, passed ${r.filter.passed}, kept ${r.kept}`
+                : r.outcome
+                  ? ` — ${formatFoundContactsMessage(r.outcome)}`
+                  : r.kept > 0
+                    ? ` — Found ${r.kept} contact${r.kept === 1 ? '' : 's'}`
+                    : ''}
             </li>
           ))}
         </ul>
@@ -116,6 +121,31 @@ type SourceStats = {
   note?: string | null
 }
 
+type FilterReject = {
+  name: string | null
+  title: string | null
+  reason: string
+  score?: number
+}
+
+type CompanyFilterFunnel = {
+  raw: number
+  wrong_company: number
+  excluded: number
+  below_score: number
+  duplicates: number
+  passed: number
+  no_email: number
+  kept: number
+  looking_for?: {
+    include_titles?: string[]
+    people_titles?: string[]
+    dept_keywords?: string[]
+    min_score?: number
+  }
+  rejects?: FilterReject[]
+}
+
 type CompanyReport = {
   name: string
   domain: string | null
@@ -124,6 +154,7 @@ type CompanyReport = {
   by_provider?: { websearch: number; hunter: number }
   kept: number
   outcome: string
+  filter?: CompanyFilterFunnel
 }
 
 type SearchSummary = {
@@ -170,6 +201,7 @@ type SearchSummary = {
     profile_skills: string[]
     include_titles: string[]
     people_search_titles?: string[]
+    department_keywords?: string[]
     exclude_titles: string[]
     require_verified_email: boolean
     enable_hunter?: boolean
@@ -177,6 +209,37 @@ type SearchSummary = {
     max_companies_per_run: number
     max_contacts_per_company: number
   }
+}
+
+function funnelTotals(reports: CompanyReport[]) {
+  const empty = {
+    raw: 0,
+    passed: 0,
+    kept: 0,
+    wrong_company: 0,
+    excluded: 0,
+    below_score: 0,
+    no_email: 0,
+    duplicates: 0,
+  }
+  return reports.reduce((acc, r) => {
+    const f = r.filter
+    if (!f) return acc
+    acc.raw += f.raw || 0
+    acc.passed += f.passed || 0
+    acc.kept += f.kept || 0
+    acc.wrong_company += f.wrong_company || 0
+    acc.excluded += f.excluded || 0
+    acc.below_score += f.below_score || 0
+    acc.no_email += f.no_email || 0
+    acc.duplicates += f.duplicates || 0
+    return acc
+  }, empty)
+}
+
+function joinList(items: string[] | undefined, fallback = '—') {
+  const clean = (items || []).map((s) => s.trim()).filter(Boolean)
+  return clean.length ? clean.join(', ') : fallback
 }
 
 function ModeIcon({ mode }: { mode: SearchMode }) {
@@ -233,21 +296,216 @@ function SourceCard({
       ) : (
         <ul className="report-list">
           <li>
-            Found <strong>{stats.people_found}</strong> people
+            Found <strong>{stats.people_found}</strong>
           </li>
           <li>
-            After title filter: <strong>{stats.after_title_filter}</strong>
-          </li>
-          <li>
-            With email: <strong>{stats.with_email}</strong>
-          </li>
-          <li>
-            Kept as contacts: <strong>{stats.contacts_kept}</strong>
+            Kept <strong>{stats.contacts_kept}</strong>
           </li>
         </ul>
       )}
       {stats.errors?.length > 0 && (
         <p className="small flash error">{stats.errors[0]}</p>
+      )}
+    </div>
+  )
+}
+
+function SearchReportBody({
+  summary,
+  compact,
+}: {
+  summary: SearchSummary
+  compact?: boolean
+}) {
+  const totals = funnelTotals(summary.company_reports)
+  const lookingTitles =
+    summary.how.people_search_titles?.length
+      ? summary.how.people_search_titles
+      : summary.how.include_titles
+  const niches =
+    summary.how.department_keywords?.length
+      ? summary.how.department_keywords
+      : summary.how.profile_industries
+
+  if (compact) {
+    return <CalibrationSearchReport summary={summary} />
+  }
+
+  return (
+    <div className="search-report search-report-simple">
+      <p className="search-report-headline">
+        <strong>{summary.contacts_created}</strong> contacts kept
+        <span className="muted">
+          {' '}
+          · {summary.companies_selected} companies
+          {totals.raw > 0 ? ` · ${totals.raw} people found` : ''}
+          {summary.contacts_skipped_duplicate
+            ? ` · ${summary.contacts_skipped_duplicate} already on file`
+            : ''}
+        </span>
+      </p>
+
+      {summary.diagnosis && (
+        <p className="flash error search-report-diagnosis">{summary.diagnosis}</p>
+      )}
+
+      <div className="report-block">
+        <h3>Looking for</h3>
+        <ul className="report-list">
+          {(summary.how.search_mode === 'company' ||
+            summary.how.search_mode === 'application') &&
+            summary.how.target_company && (
+              <li>
+                <strong>Company:</strong> {summary.how.target_company}
+                {summary.how.application?.job_title
+                  ? ` · ${summary.how.application.job_title}`
+                  : ''}
+              </li>
+            )}
+          <li>
+            <strong>People titles:</strong> {joinList(lookingTitles)}
+          </li>
+          <li>
+            <strong>Filter includes:</strong>{' '}
+            {joinList(summary.how.include_titles)}
+          </li>
+          {niches && niches.length > 0 && (
+            <li>
+              <strong>Niches:</strong> {joinList(niches)}
+            </li>
+          )}
+        </ul>
+      </div>
+
+      {totals.raw > 0 && (
+        <div className="report-block">
+          <h3>Filter funnel</h3>
+          <p className="search-report-funnel">
+            Found <strong>{totals.raw}</strong>
+            <span aria-hidden> → </span>
+            Passed <strong>{totals.passed}</strong>
+            <span aria-hidden> → </span>
+            Kept <strong>{totals.kept}</strong>
+          </p>
+          <p className="muted small">
+            {[
+              totals.wrong_company
+                ? `${totals.wrong_company} wrong company`
+                : null,
+              totals.excluded ? `${totals.excluded} excluded title` : null,
+              totals.below_score
+                ? `${totals.below_score} below title/score fit`
+                : null,
+              totals.no_email ? `${totals.no_email} no/unverified email` : null,
+              totals.duplicates ? `${totals.duplicates} duplicates` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'No filter rejects recorded'}
+          </p>
+        </div>
+      )}
+
+      <div className="report-block">
+        <h3>By company</h3>
+        <div className="search-report-company-list">
+          {summary.company_reports.map((r, i) => {
+            const f = r.filter
+            const rejectBits = [
+              f?.wrong_company ? `${f.wrong_company} wrong co` : null,
+              f?.excluded ? `${f.excluded} excluded` : null,
+              f?.below_score ? `${f.below_score} low score` : null,
+              f?.no_email ? `${f.no_email} no email` : null,
+            ].filter(Boolean)
+            return (
+              <article
+                key={`${r.name}-${i}`}
+                className="search-report-company"
+              >
+                <header>
+                  <strong>{r.name}</strong>
+                  <span className="muted small">
+                    {r.domain || 'no domain'} · kept {r.kept}
+                    {r.by_provider
+                      ? ` · web ${r.by_provider.websearch}/H ${r.by_provider.hunter}`
+                      : ''}
+                  </span>
+                </header>
+                <p className="small">{formatFoundContactsMessage(r.outcome)}</p>
+                {f && (
+                  <p className="muted small">
+                    Found {f.raw} · passed {f.passed}
+                    {rejectBits.length ? ` · ${rejectBits.join(', ')}` : ''}
+                  </p>
+                )}
+                {f?.rejects && f.rejects.length > 0 && (
+                  <ul className="search-report-rejects">
+                    {f.rejects.slice(0, 4).map((rej, ri) => (
+                      <li key={ri}>
+                        <span className="search-report-reject-title">
+                          {rej.title || rej.name || 'Unknown'}
+                        </span>
+                        <span className="muted"> — {rej.reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </article>
+            )
+          })}
+          {summary.company_reports.length === 0 && (
+            <p className="muted small">No company results in this run.</p>
+          )}
+        </div>
+      </div>
+
+      <details className="search-report-more">
+        <summary>Source stats</summary>
+        <div className="source-grid">
+          <SourceCard name="Hunter" stats={summary.source_stats.hunter} />
+          <SourceCard
+            name="Apollo"
+            stats={
+              summary.source_stats.apollo ?? {
+                configured: false,
+                attempted: 0,
+                people_found: 0,
+                after_title_filter: 0,
+                with_email: 0,
+                contacts_kept: 0,
+                errors: [],
+              }
+            }
+          />
+          <SourceCard
+            name="OSINT email"
+            stats={
+              summary.source_stats.osint ?? {
+                configured: true,
+                attempted: 0,
+                people_found: 0,
+                after_title_filter: 0,
+                with_email: 0,
+                contacts_kept: 0,
+                errors: [],
+              }
+            }
+          />
+          <SourceCard
+            name="Web → LinkedIn"
+            stats={summary.source_stats.websearch}
+          />
+        </div>
+      </details>
+
+      {summary.errors?.length > 0 && (
+        <div className="report-block">
+          <h3>Errors</h3>
+          <ul className="report-list">
+            {summary.errors.slice(0, 8).map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   )
@@ -1477,207 +1735,19 @@ export function OverviewPage() {
       {errorMsg && <p className="flash error">{errorMsg}</p>}
 
       {summary && (
-        <details className="search-report-details">
-          <summary>Search report</summary>
+        <details className="search-report-details" open={summary.contacts_created === 0}>
+          <summary>
+            Search report
+            {summary.contacts_created > 0
+              ? ` · ${summary.contacts_created} kept`
+              : ' · no contacts kept'}
+          </summary>
           <div className="search-report-card">
-        {showFullSearchUi ? (
-        <div className="search-report">
-          <p className="flash">
-            {summary.companies_discovered != null
-              ? `${summary.companies_discovered} industry companies`
-              : 'Industry discovery'}{' '}
-            · {summary.jobs_scanned} jobs → {summary.companies_selected}{' '}
-            companies → <strong>{summary.contacts_created} contacts</strong>
-            {summary.contacts_skipped_duplicate != null &&
-              summary.contacts_skipped_duplicate > 0 && (
-                <span className="muted">
-                  {' '}
-                  · {summary.contacts_skipped_duplicate} skipped (already on
-                  file)
-                </span>
-              )}
-          </p>
-
-          {summary.diagnosis && (
-            <p className="flash error">{summary.diagnosis}</p>
-          )}
-
-          <div className="report-block">
-            <h3>Source effectiveness</h3>
-            <div className="source-grid">
-              <SourceCard name="Hunter" stats={summary.source_stats.hunter} />
-              <SourceCard
-                name="Apollo"
-                stats={
-                  summary.source_stats.apollo ?? {
-                    configured: false,
-                    attempted: 0,
-                    people_found: 0,
-                    after_title_filter: 0,
-                    with_email: 0,
-                    contacts_kept: 0,
-                    errors: [],
-                  }
-                }
-              />
-              <SourceCard
-                name="OSINT email"
-                stats={
-                  summary.source_stats.osint ?? {
-                    configured: true,
-                    attempted: 0,
-                    people_found: 0,
-                    after_title_filter: 0,
-                    with_email: 0,
-                    contacts_kept: 0,
-                    errors: [],
-                  }
-                }
-              />
-              <SourceCard
-                name="Web → LinkedIn"
-                stats={summary.source_stats.websearch}
-              />
-            </div>
+            <SearchReportBody
+              summary={summary}
+              compact={!showFullSearchUi}
+            />
           </div>
-
-          <div className="report-block">
-            <h3>How this works</h3>
-            <p className="muted">{summary.how.method}</p>
-            {(summary.how.search_mode === 'company' ||
-              summary.how.search_mode === 'application') &&
-              summary.how.target_company && (
-                <p className="small">
-                  <strong>Target employer:</strong> {summary.how.target_company}
-                  {summary.how.application?.job_title
-                    ? ` · ${summary.how.application.job_title}`
-                    : ''}
-                </p>
-              )}
-            {summary.how.search_mode === 'application' &&
-              summary.how.application?.job_description && (
-                <p className="small">
-                  <strong>Job description:</strong>{' '}
-                  {summary.how.application.job_description}
-                </p>
-              )}
-            <ul className="report-list">
-              <li>
-                <strong>
-                  {summary.how.search_mode === 'application'
-                    ? 'Role titles'
-                    : 'Target roles'}
-                  :
-                </strong>{' '}
-                {summary.how.search_mode === 'application'
-                  ? (
-                      summary.how.people_search_titles ||
-                      summary.how.include_titles ||
-                      summary.how.profile_roles ||
-                      []
-                    ).join(', ') || '—'
-                  : summary.how.profile_roles?.join(', ') || '—'}
-              </li>
-              {summary.how.search_mode !== 'application' &&
-                summary.how.profile_industries &&
-                summary.how.profile_industries.length > 0 && (
-                  <li>
-                    <strong>Industries:</strong>{' '}
-                    {summary.how.profile_industries.join(', ')}
-                  </li>
-                )}
-              <li>
-                <strong>Company queries:</strong>{' '}
-                {(summary.how.company_queries || [])
-                  .map((q) => `“${q}”`)
-                  .join(', ') || '—'}
-              </li>
-              <li>
-                <strong>
-                  {summary.how.search_mode === 'application'
-                    ? 'People queries'
-                    : 'Job queries'}
-                  :
-                </strong>{' '}
-                {(summary.how.job_queries ||
-                  (summary.how.job_query ? [summary.how.job_query] : [])
-                )
-                  .map((q) => `“${q}”`)
-                  .join(', ') || '—'}
-              </li>
-              {summary.how.search_mode !== 'application' && (
-                <li>
-                  <strong>Web companies:</strong>{' '}
-                  {summary.how.sources.web_company?.used
-                    ? summary.how.sources.web_company.companies
-                    : summary.how.sources.web_company?.note || '—'}{' '}
-                  · <strong>Remotive:</strong>{' '}
-                  {summary.how.sources.remotive.jobs} jobs ·{' '}
-                  <strong>Adzuna:</strong>{' '}
-                  {summary.how.sources.adzuna.used
-                    ? summary.how.sources.adzuna.jobs
-                    : summary.how.sources.adzuna.note}
-                </li>
-              )}
-              <li>
-                <strong>Include titles:</strong>{' '}
-                {summary.how.include_titles.join(', ') || '—'}
-              </li>
-            </ul>
-          </div>
-
-          <div className="report-block">
-            <h3>Per company</h3>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Company</th>
-                    <th>Domain</th>
-                    <th>Web / H</th>
-                    <th>Kept</th>
-                    <th>Outcome</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.company_reports.map((r, i) => (
-                    <tr key={`${r.name}-${i}`}>
-                      <td>
-                        {r.name}
-                        <div className="muted small">{r.hiring_signal}</div>
-                      </td>
-                      <td>{r.domain || '—'}</td>
-                      <td className="small">
-                        {r.by_provider
-                          ? `${r.by_provider.websearch} / ${r.by_provider.hunter}`
-                          : '—'}
-                      </td>
-                      <td>{r.kept}</td>
-                      <td className="small">
-                        {formatFoundContactsMessage(r.outcome)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {summary.errors?.length > 0 && (
-            <div className="report-block">
-              <h3>Errors</h3>
-              <ul className="report-list">
-                {summary.errors.slice(0, 12).map((e, i) => (
-                  <li key={i}>{e}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-        ) : (
-          <CalibrationSearchReport summary={summary} />
-        )}
-        </div>
         </details>
       )}
     </div>
