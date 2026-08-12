@@ -1,5 +1,11 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 import { openaiChat } from './cors.ts'
+import {
+  filterIncludeTitlesAgainstProfile,
+  messageRequestsDropFounderCeo,
+  scrubFounderCeoFromProfileFields,
+  withoutFounderCeoEntrepreneur,
+} from './peopleTitlePolicy.ts'
 
 const FILTER_SYSTEM = `You set deterministic contact search filters for FollowUp.
 Return JSON only:
@@ -19,6 +25,7 @@ Industries must stay SPECIFIC niches (never collapse to generic buckets like "te
 include_titles must come primarily from profile.outreach_targets (who to email) and the roles/industries the user confirmed.
 Use titles that fit THEIR niches only — do not assume software, engineering, or tech unless the profile indicates it.
 Prioritize people who refer or influence hiring for those niches (managers, directors, team leads, senior practitioners in that field).
+Do NOT invent Founder, Co-Founder, CEO, or Entrepreneur titles unless they already appear in profile.outreach_targets or profile.roles.
 Broader titles when aligned with profile. Recruiter / Talent Acquisition only as low-priority includes.
 Preference docs describe feedback on contacts (what to seek or avoid) —
 NOT biographies of people. Use negative feedback to avoid bad match patterns; use positive feedback to reinforce good ones.
@@ -88,13 +95,42 @@ export async function recommendFiltersForUser(
         .limit(12),
     ])
 
-  const profile = sp?.profile || {}
   const chatBits = (chat || [])
     .reverse()
     .map((m) => `${m.role}: ${m.content}`)
     .join('\n')
     .slice(0, 4000)
   const resumeText = (resume?.extracted_text || '').slice(0, 8000)
+
+  const profileRaw = (sp?.profile || {}) as {
+    outreach_targets?: string[]
+    roles?: string[]
+    must_haves?: string[]
+    skills?: string[]
+    [key: string]: unknown
+  }
+  const dropFounderCeo =
+    messageRequestsDropFounderCeo(chatBits) ||
+    messageRequestsDropFounderCeo(String(sp?.chat_summary || ''))
+  const profile = dropFounderCeo
+    ? scrubFounderCeoFromProfileFields(profileRaw)
+    : profileRaw
+
+  if (
+    dropFounderCeo &&
+    JSON.stringify(profile.outreach_targets || []) !==
+      JSON.stringify(profileRaw.outreach_targets || [])
+  ) {
+    await admin.from('search_profiles').upsert(
+      {
+        user_id: userId,
+        profile,
+        chat_summary: sp?.chat_summary || null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    )
+  }
 
   const raw = await openaiChat(
     [
@@ -134,6 +170,7 @@ IMPORTANT polarity: preference docs may say "REJECT niches: …" and "PREFER nic
 Treat REJECT as industries/signals to avoid; PREFER as targets to reinforce — even when the PREFER line came from a discard note like "fusion not embedded automotive" (reject fusion, prefer embedded automotive).
 
 If recent chat asked to REMOVE something from the profile/search targets, do not put that topic (or close synonyms) in include_titles / locations / seniority mirrors — rebuild from the updated profile. If they asked to ADD something, integrate it into includes when it fits who to email.
+If they asked to drop Founder / CEO / Entrepreneur, omit those from include_titles entirely and prefer niche practitioners (e.g. ASIC / CPU / quantum / computer engineering titles when those are in the profile or resume).
 
 "Wrong company" discards mean the person did not actually work at the labeled employer — do not change industries for that; keep seeking the intended company more carefully.
 
@@ -146,6 +183,24 @@ ${JSON.stringify(pref?.discard_reason_counts || {})}`,
 
   const parsed = parseFiltersJson(raw)
   const filters = normalizeFilters(parsed)
+  // Never invent Founder/CEO/Entrepreneur into "people to find" / include titles
+  // unless the (possibly scrubbed) profile still lists them.
+  filters.include_titles = filterIncludeTitlesAgainstProfile(
+    filters.include_titles,
+    profile,
+  )
+  if (dropFounderCeo) {
+    filters.include_titles = withoutFounderCeoEntrepreneur(filters.include_titles)
+    filters.exclude_titles = Array.from(
+      new Set([
+        ...filters.exclude_titles,
+        'Founder',
+        'Co-Founder',
+        'CEO',
+        'Entrepreneur',
+      ]),
+    )
+  }
 
   const { data: existingRow } = await admin
     .from('search_filters')

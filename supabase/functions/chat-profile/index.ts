@@ -7,6 +7,10 @@ import {
   adminClient,
 } from '../_shared/cors.ts'
 import { recommendFiltersForUser } from '../_shared/recommendFilters.ts'
+import {
+  messageRequestsDropFounderCeo,
+  scrubFounderCeoFromProfileFields,
+} from '../_shared/peopleTitlePolicy.ts'
 
 type Profile = {
   roles: string[]
@@ -714,7 +718,8 @@ Choose intent:
 When intent is "update_profile" or "update_filters":
 - Return a FULL rewritten profile JSON (every field), not a sparse patch.
 - Start from the current profile, apply the user's add/remove/change, then refigure related fields so the profile stays coherent (e.g. removing an industry may drop mismatched roles/outreach_targets/must_haves; adding a role may adjust outreach_targets).
-- Removals / negatives: DELETE matching items (and close synonyms) from the relevant lists. Never add the rejected topic as a positive target, skill, must-have, note-as-goal, or outreach title.
+- Removals / negatives: DELETE matching items (and close synonyms) from the relevant lists — especially profile.outreach_targets ("People to find" on Filters) and roles. Never add the rejected topic as a positive target, skill, must-have, note-as-goal, or outreach title.
+- If they say founders / CEO / entrepreneur should be gone: remove Founder, Co-Founder, CEO, Entrepreneur (and close variants) from outreach_targets, roles, and must_haves. Refigure outreach_targets toward practitioners/managers in their remaining niches (e.g. ASIC, CPU design, computer engineering, quantum) using the resume as background only.
 - Additions / positives: integrate into the right fields; dedupe; keep specificity.
 - Copy unchanged fields through from the current profile so nothing is dropped accidentally.
 - Empty arrays/strings are allowed when the user cleared that field.
@@ -772,6 +777,11 @@ Return JSON only:
             }),
           ),
         )
+        // Deterministic: "People to find" (outreach_targets) must drop founder/CEO
+        // even if the model forgets — Filters page reads this field.
+        if (messageRequestsDropFounderCeo(message)) {
+          profile = scrubFounderCeoFromProfileFields(profile)
+        }
       }
 
       const modelWantsFilters = parsed.refresh_filters === true

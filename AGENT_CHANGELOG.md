@@ -1,5 +1,6 @@
 # Agent change log
 
+- Filters "People to find": drop Founder/CEO/Entrepreneur on remove prompts; don't re-invent into include titles
 - Profile chat: add/remove updates rewrite full profile + filters; removals delete (not add)
 - LinkedIn people search: drop hardcoded Founder/CEO/recruiter queries — use general company + filter title batches only
 - LinkedIn people search: company-first queries + report shows actual queries/SERP hit counts
