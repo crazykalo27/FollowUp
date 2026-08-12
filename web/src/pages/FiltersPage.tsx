@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
-import { emailSettingsFromFilters } from '../lib/searchEmailSettings'
+import { emailSettingsFromFilters, withoutLegacyRunLimits } from '../lib/searchEmailSettings'
 import { useOrientation } from '../lib/orientationContext'
 import { DEFAULT_FILTERS, type SearchFiltersData, type SearchProfileData } from '../types/database'
 import './filters.css'
@@ -190,18 +190,9 @@ export function FiltersPage() {
       .eq('user_id', user.id)
       .maybeSingle()
     if (data?.filters) {
-      const raw = data.filters as SearchFiltersData & {
-        max_companies_per_run?: number
-        max_contacts_per_company?: number
-      }
-      // Run size lives in Search sizing — drop legacy filter caps if present
-      const {
-        max_companies_per_run: _mc,
-        max_contacts_per_company: _mp,
-        ...f
-      } = raw
-      void _mc
-      void _mp
+      const f = withoutLegacyRunLimits(
+        data.filters as Record<string, unknown>,
+      ) as SearchFiltersData
       setFilters({ ...DEFAULT_FILTERS, ...f })
       setIncludeText(listToText(f.include_titles || DEFAULT_FILTERS.include_titles))
       setExcludeText(listToText(f.exclude_titles || DEFAULT_FILTERS.exclude_titles))
@@ -318,20 +309,10 @@ export function FiltersPage() {
       row?.filters as Record<string, unknown> | undefined,
     )
     const merged: SearchFiltersData = { ...next, ...email }
-    const {
-      max_companies_per_run: _mc,
-      max_contacts_per_company: _mp,
-      ...toStore
-    } = merged as SearchFiltersData & {
-      max_companies_per_run?: number
-      max_contacts_per_company?: number
-    }
-    void _mc
-    void _mp
     const { error } = await supabase.from('search_filters').upsert(
       {
         user_id: user.id,
-        filters: toStore,
+        filters: merged,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' },
@@ -340,7 +321,7 @@ export function FiltersPage() {
       setStatus(error.message)
       return false
     }
-    setFilters(toStore)
+    setFilters(merged)
     if (opts?.message !== '') {
       setStatus(opts?.message ?? 'Settings saved.')
     }
@@ -381,7 +362,6 @@ export function FiltersPage() {
       setContinuing(false)
       return
     }
-    // Sizing depth "orientation" owns the 4×1 batch — not filter run limits
     await orientation.advanceTo('search')
     setContinuing(false)
     navigate('/app/search')

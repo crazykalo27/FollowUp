@@ -2,7 +2,7 @@
 
 - Removed **Max companies / run** and **Max contacts / company** from Filters UI.
 - `run-search` uses Search **sizing** depth caps only (Low/Medium/High/Calibration).
-- AI recommend-filters no longer writes those fields; saves strip legacy keys.
+- AI recommend-filters no longer writes those fields; legacy keys stripped via one helper on load / email-settings save.
 
 ## 2026-08-12 — Fix website location display path
 

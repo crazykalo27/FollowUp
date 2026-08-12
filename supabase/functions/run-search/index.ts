@@ -1422,8 +1422,8 @@ Deno.serve(async (req) => {
     const filters = (filterRow?.filters || {}) as Filters
     const include = filters.include_titles || []
     const exclude = filters.exclude_titles || []
-    let maxCompanies = Math.min(caps.companies, 10)
-    let maxPerCompany = Math.min(caps.per, 5)
+    let maxCompanies = caps.companies
+    let maxPerCompany = caps.per
 
     let searchMode: 'general' | 'company' | 'application' = searchModeInput
     let targetCompanyName = targetCompanyInput

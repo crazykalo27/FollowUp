@@ -33,6 +33,16 @@ export function emailSettingsFromFilters(
   }
 }
 
+/** Drop removed run-size keys still present in older search_filters JSON. */
+export function withoutLegacyRunLimits(
+  filters: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...filters }
+  delete next.max_companies_per_run
+  delete next.max_contacts_per_company
+  return next
+}
+
 export async function loadSearchEmailSettings(
   client: SupabaseClient,
   userId: string,
@@ -58,8 +68,8 @@ export async function saveSearchEmailSettings(
     .eq('user_id', userId)
     .maybeSingle()
 
-  const prev = (existing?.filters || {}) as SearchFiltersData
-  const filters: SearchFiltersData = {
+  const prev = (existing?.filters || {}) as Record<string, unknown>
+  const filters = withoutLegacyRunLimits({
     ...DEFAULT_FILTERS,
     ...prev,
     enable_hunter: settings.enable_hunter,
@@ -67,7 +77,7 @@ export async function saveSearchEmailSettings(
     enable_smtp_verify: settings.enable_smtp_verify,
     require_verified_email: settings.require_verified_email,
     accept_accept_all: settings.accept_accept_all,
-  }
+  }) as SearchFiltersData
 
   const { error } = await client.from('search_filters').upsert(
     {

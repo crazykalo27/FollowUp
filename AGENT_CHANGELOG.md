@@ -1,5 +1,6 @@
 # Agent change log
 
+- Simplify: drop dead 10/5 caps; one helper strips legacy filter run-limit keys
 - Filters: remove max companies/run and max contacts/company — Search sizing owns batch size
 - Location display: sync web parser with edge; trust pipeline-stored locations on contact cards (tests were offline fixtures before)
 - LinkedIn location: extract from Location: labels, · segments, and bare geo lines like “Greater Seattle Area (US)”
