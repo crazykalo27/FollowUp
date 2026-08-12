@@ -1,3 +1,9 @@
+## 2026-08-12 — Drop filter run-limit settings
+
+- Removed **Max companies / run** and **Max contacts / company** from Filters UI.
+- `run-search` uses Search **sizing** depth caps only (Low/Medium/High/Calibration).
+- AI recommend-filters no longer writes those fields; saves strip legacy keys.
+
 ## 2026-08-12 — Fix website location display path
 
 - Earlier location “tests” were offline fixtures, not the live Bing → `run-search` → DB → Contacts card path.

@@ -107,12 +107,6 @@
   margin-bottom: 0.75rem;
 }
 
-.filters-run-limits {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
-}
-
 .filters-looking {
   margin-top: 1.25rem;
   border: 1px solid var(--line);

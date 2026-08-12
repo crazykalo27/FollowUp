@@ -18,8 +18,6 @@ export const DEFAULT_SEARCH_FILTERS = {
   company_size_min: null as number | null,
   company_size_max: null as number | null,
   seniority: [] as string[],
-  max_companies_per_run: 10,
-  max_contacts_per_company: 3,
   require_verified_email: false,
   accept_accept_all: true,
   enable_hunter: false,

@@ -190,7 +190,18 @@ export function FiltersPage() {
       .eq('user_id', user.id)
       .maybeSingle()
     if (data?.filters) {
-      const f = data.filters as SearchFiltersData
+      const raw = data.filters as SearchFiltersData & {
+        max_companies_per_run?: number
+        max_contacts_per_company?: number
+      }
+      // Run size lives in Search sizing — drop legacy filter caps if present
+      const {
+        max_companies_per_run: _mc,
+        max_contacts_per_company: _mp,
+        ...f
+      } = raw
+      void _mc
+      void _mp
       setFilters({ ...DEFAULT_FILTERS, ...f })
       setIncludeText(listToText(f.include_titles || DEFAULT_FILTERS.include_titles))
       setExcludeText(listToText(f.exclude_titles || DEFAULT_FILTERS.exclude_titles))
@@ -307,10 +318,20 @@ export function FiltersPage() {
       row?.filters as Record<string, unknown> | undefined,
     )
     const merged: SearchFiltersData = { ...next, ...email }
+    const {
+      max_companies_per_run: _mc,
+      max_contacts_per_company: _mp,
+      ...toStore
+    } = merged as SearchFiltersData & {
+      max_companies_per_run?: number
+      max_contacts_per_company?: number
+    }
+    void _mc
+    void _mp
     const { error } = await supabase.from('search_filters').upsert(
       {
         user_id: user.id,
-        filters: merged,
+        filters: toStore,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' },
@@ -319,7 +340,7 @@ export function FiltersPage() {
       setStatus(error.message)
       return false
     }
-    setFilters(merged)
+    setFilters(toStore)
     if (opts?.message !== '') {
       setStatus(opts?.message ?? 'Settings saved.')
     }
@@ -360,12 +381,7 @@ export function FiltersPage() {
       setContinuing(false)
       return
     }
-    // Calibration search expects a tight 4-person batch
-    const next = mergeFilters({
-      max_companies_per_run: 4,
-      max_contacts_per_company: 1,
-    })
-    await persistFilters(next, { message: '' })
+    // Sizing depth "orientation" owns the 4×1 batch — not filter run limits
     await orientation.advanceTo('search')
     setContinuing(false)
     navigate('/app/search')
@@ -507,42 +523,6 @@ export function FiltersPage() {
               />
             </label>
           </div>
-          {!inOrientation && (
-            <div className="filters-run-limits">
-              <div className="form-row">
-                <label>
-                  Max companies / run
-                  <input
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={filters.max_companies_per_run}
-                    onChange={(e) =>
-                      setFilters((f) => ({
-                        ...f,
-                        max_companies_per_run: Number(e.target.value),
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Max contacts / company
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={filters.max_contacts_per_company}
-                    onChange={(e) =>
-                      setFilters((f) => ({
-                        ...f,
-                        max_contacts_per_company: Number(e.target.value),
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-            </div>
-          )}
         </section>
       </div>
 

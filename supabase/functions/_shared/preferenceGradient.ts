@@ -606,9 +606,6 @@ export async function runPreferenceGradientRefine(
           ...exclude_titles,
         ]),
       ).slice(0, 16),
-      // Orientation second search stays small
-      max_companies_per_run: 4,
-      max_contacts_per_company: 1,
     }
     await admin.from('search_filters').upsert(
       {

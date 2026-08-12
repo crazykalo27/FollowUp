@@ -1,5 +1,6 @@
 # Agent change log
 
+- Filters: remove max companies/run and max contacts/company — Search sizing owns batch size
 - Location display: sync web parser with edge; trust pipeline-stored locations on contact cards (tests were offline fixtures before)
 - LinkedIn location: extract from Location: labels, · segments, and bare geo lines like “Greater Seattle Area (US)”
 - LinkedIn card fill: parse SERP “Name - Title @ Company” + Experience/Location snippets; AI fills gaps (discovery unchanged)

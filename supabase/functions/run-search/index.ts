@@ -68,8 +68,6 @@ type Filters = {
   include_titles: string[]
   exclude_titles: string[]
   locations: string[]
-  max_companies_per_run: number
-  max_contacts_per_company: number
   require_verified_email: boolean
   accept_accept_all: boolean
   /** When false, email find/verify uses OSINT pipeline only. */
@@ -1424,16 +1422,8 @@ Deno.serve(async (req) => {
     const filters = (filterRow?.filters || {}) as Filters
     const include = filters.include_titles || []
     const exclude = filters.exclude_titles || []
-    let maxCompanies = Math.min(
-      caps.companies,
-      filters.max_companies_per_run || caps.companies,
-      10,
-    )
-    let maxPerCompany = Math.min(
-      caps.per,
-      filters.max_contacts_per_company || caps.per,
-      5,
-    )
+    let maxCompanies = Math.min(caps.companies, 10)
+    let maxPerCompany = Math.min(caps.per, 5)
 
     let searchMode: 'general' | 'company' | 'application' = searchModeInput
     let targetCompanyName = targetCompanyInput

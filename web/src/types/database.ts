@@ -41,8 +41,6 @@ export interface SearchFiltersData {
   company_size_min: number | null
   company_size_max: number | null
   seniority: string[]
-  max_companies_per_run: number
-  max_contacts_per_company: number
   require_verified_email: boolean
   accept_accept_all: boolean
   /** Use Hunter.io for domain search + email find/verify (uses API credits). */
@@ -72,8 +70,6 @@ export const DEFAULT_FILTERS: SearchFiltersData = {
   company_size_min: null,
   company_size_max: null,
   seniority: [],
-  max_companies_per_run: 10,
-  max_contacts_per_company: 3,
   require_verified_email: false,
   accept_accept_all: true,
   enable_hunter: false,

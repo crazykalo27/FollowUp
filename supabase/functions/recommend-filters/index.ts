@@ -33,8 +33,6 @@ Deno.serve(async (req) => {
         seniority: filters.seniority,
         company_size_min: filters.company_size_min,
         company_size_max: filters.company_size_max,
-        max_companies_per_run: filters.max_companies_per_run,
-        max_contacts_per_company: filters.max_contacts_per_company,
         require_verified_email: filters.require_verified_email,
         accept_accept_all: filters.accept_accept_all,
       },
