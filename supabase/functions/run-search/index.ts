@@ -49,10 +49,7 @@ import {
   isEmployerCorporateHost,
   looksLikeEmployerName,
 } from '../_shared/company_discovery.ts'
-import {
-  domainLooksLikeCompany,
-  pickCompanyDomain,
-} from '../_shared/companyDomain.ts'
+import { pickCompanyDomain } from '../_shared/companyDomain.ts'
 import {
   extractCoreJobTitle,
   formatApplicationJobDescription,
@@ -621,67 +618,20 @@ function companyNameMatchesTarget(companyName: string, target: string): boolean 
   return a === b || a.includes(b) || b.includes(a)
 }
 
-async function resolveUserTargetCompany(
-  rawName: string,
-  webConfigured: boolean,
-): Promise<CompanyHit> {
+async function resolveUserTargetCompany(rawName: string): Promise<CompanyHit> {
   const company_name = rawName.trim()
 
-  // Primary: ask OpenAI for the official domain / common @email (avoids lookalikes)
+  // Only method: ask OpenAI for the official domain / common @email
   const picked = await pickCompanyDomain({ companyName: company_name })
-  let domain: string | null = picked.domain
-  let url = picked.url || (domain ? `https://${domain}` : '')
-  let domainSource = picked.source || 'none'
-
-  // Fallback: slug guess, then web — never accept lookalike hosts (e.g. spacecrew for SpaceX)
-  if (!domain) {
-    const slug = slugDomainGuess(company_name)
-    if (slug && domainLooksLikeCompany(company_name, slug)) {
-      domain = slug
-      url = `https://${slug}`
-      domainSource = 'slug'
-    }
-    if (webConfigured) {
-      try {
-        const hits = await runWebSearch(
-          `"${company_name}" company official site OR careers`,
-          6,
-          { preferBing: true },
-        )
-        for (const item of hits) {
-          const link = item.link || item.url
-          if (!link) continue
-          if (/linkedin\.com\/company\//i.test(link)) {
-            if (!url) url = link
-            continue
-          }
-          const d = extractDomain(link)
-          if (
-            d &&
-            isEmployerCorporateHost(d) &&
-            domainLooksLikeCompany(company_name, d)
-          ) {
-            domain = d
-            url = link
-            domainSource = 'web'
-            break
-          }
-        }
-      } catch {
-        // keep slug / AI miss
-      }
-    }
-  }
-
-  if (!url && domain) url = `https://${domain}`
-  if (!url) url = 'https://example.com'
+  const domain = picked.domain
+  const url = picked.url || (domain ? `https://${domain}` : 'https://example.com')
 
   return {
     company_name,
     domain,
     url,
     source: 'user_target',
-    domain_source: domainSource,
+    domain_source: picked.source === 'openai' ? 'openai' : 'none',
     hiring_signal: 'You chose this employer to follow up after applying.',
     relevance: 12,
   }
@@ -1636,10 +1586,7 @@ Deno.serve(async (req) => {
       )
       await saveProgressMeta(admin, runId!, progressMeta)
 
-      const targetHit = await resolveUserTargetCompany(
-        targetCompanyName,
-        webConfigured,
-      )
+      const targetHit = await resolveUserTargetCompany(targetCompanyName)
       if (searchMode === 'application' && applicationParsed) {
         targetHit.hiring_signal =
           applicationParsed.job_title ||
@@ -1656,16 +1603,12 @@ Deno.serve(async (req) => {
             }`
           : `Specific company: ${targetCompanyName}`,
       ]
-      const domainVia =
-        targetHit.domain_source === 'openai'
-          ? 'AI'
-          : targetHit.domain_source || 'unknown'
       pushProgressLog(
         progressMeta,
         `Resolved target employer ${targetHit.company_name}${
           targetHit.domain
-            ? ` (${targetHit.domain} · ${domainVia})`
-            : ' (no domain)'
+            ? ` (${targetHit.domain} · AI)`
+            : ' (AI could not resolve domain)'
         }`,
       )
       await saveProgressMeta(admin, runId!, progressMeta)
@@ -2225,29 +2168,11 @@ Deno.serve(async (req) => {
         report.domain = domain
         report.name = canonicalName
       } else {
-      const hintedRaw =
-        company.domain ||
-        extractDomain(company.url) ||
-        null
-      // Ignore lookalike hints (e.g. spacecrew.com for SpaceX) so AI/slug can win
-      const hinted =
-        hintedRaw && domainLooksLikeCompany(company.company_name, hintedRaw)
-          ? hintedRaw
-          : null
-
       const picked = await pickCompanyDomain({
         companyName: company.company_name,
-        currentDomain: hinted,
-        currentUrl: company.url || null,
       })
 
-      const slug = slugDomainGuess(company.company_name)
-      domain =
-        picked.domain ||
-        hinted ||
-        (slug && domainLooksLikeCompany(company.company_name, slug)
-          ? slug
-          : null)
+      domain = picked.domain
 
       if (picked.url) {
         company.url = picked.url
@@ -2256,16 +2181,14 @@ Deno.serve(async (req) => {
       }
 
       report.domain = domain
-      report.domain_source = picked.source || (hinted ? 'existing' : 'slug')
-      if (picked.source === 'openai') {
-        if (picked.email_domain) report.email_domain = picked.email_domain
+      report.domain_source = picked.source
+      if (picked.source === 'openai' && picked.email_domain) {
+        report.email_domain = picked.email_domain
       }
 
       pushProgressLog(
         progressMeta,
-        `${company.company_name}: domain ${domain || 'none'} · ${
-          report.domain_source === 'openai' ? 'AI' : report.domain_source
-        }`,
+        `${company.company_name}: domain ${domain || 'none'} · AI`,
       )
 
       if (!domain) {
