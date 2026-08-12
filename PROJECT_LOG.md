@@ -1,3 +1,9 @@
+## 2026-08-12 — General profile/filter retune (any niche)
+
+- Profile chat returns `remove_terms` / `add_terms` for whatever the user asked (Founder/CEO, technical→painting, etc.).
+- Server deterministically scrubs/adds those across outreach (“People to find”), roles, industries, then regenerates filters with ban/prefer lists.
+- Synonym expand only helps matching user-named terms (e.g. founder→co-founder) — not a fixed ban list.
+
 ## 2026-08-12 — Strip Founder/CEO from People to find
 
 - Filters “People to find” is `outreach_targets`; remove prompts now deterministically scrub Founder/CEO/Entrepreneur there (not only in chat prose).
