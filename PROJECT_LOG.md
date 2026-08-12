@@ -1,3 +1,9 @@
+## 2026-08-12 — Strip Founder/CEO from People to find
+
+- Filters “People to find” is `outreach_targets`; remove prompts now deterministically scrub Founder/CEO/Entrepreneur there (not only in chat prose).
+- Filter regen won’t invent those titles into include_titles unless the profile still lists them; on drop prompts they go to exclude.
+- Filters page refreshes targets on focus so Profile chat updates show up.
+
 ## 2026-08-12 — Profile chat add/remove rewrites
 
 - Freeform coach treats “remove X” / “add Y” as updates: full profile rewrite around that change, then filter refresh.
