@@ -1,3 +1,10 @@
+## 2026-08-12 — Fix website location display path
+
+- Earlier location “tests” were offline fixtures, not the live Bing → `run-search` → DB → Contacts card path.
+- Synced `web/src/lib/linkedin_location.ts` with the edge parser.
+- Contact cards now **trust** `contacts.location` / `source_details.websearch.location` from the pipeline instead of re-filtering them away.
+- Re-parse snippets on the client as fallback (including `Location:` labels and `serp_title`).
+
 ## 2026-08-12 — Live LinkedIn location extraction
 
 - Verified against live SpaceX / Stripe / NVIDIA LinkedIn hits (e.g. Nate Hancock → Greater Seattle Area).

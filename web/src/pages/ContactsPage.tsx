@@ -11,8 +11,8 @@ import {
   saveContactsReviewPosition,
 } from '../lib/contactsReviewPosition'
 import {
-  looksLikeLocationString,
   parseLocationFromLinkedInSnippet,
+  parseLocationFromLinkedInTitle,
 } from '../lib/linkedin_location'
 import { buildEmailProvenance } from '../lib/emailProvenance'
 import { prefetchDrafts } from '../lib/draftsCache'
@@ -57,7 +57,11 @@ type ContactRow = {
       projects?: string[]
       responsibilities?: string[]
     }
-    websearch?: { location?: string; snippet?: string }
+    websearch?: {
+      location?: string
+      snippet?: string
+      serp_title?: string
+    }
     apollo?: { location?: string; via?: string; domain?: string; apollo_id?: string | null; headline?: string | null }
     live_verify?: {
       at?: string
@@ -140,30 +144,55 @@ function formatSourceLabel(source: string) {
   return labels[source] || source.replace(/_/g, ' ')
 }
 
+function cleanDisplayLocation(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\s*\((?:US|UK|CA|EU|AU|IN|DE|FR|NL|IE|SG|JP|BR|MX)\)\s*$/i, '')
+    .trim()
+}
+
+/**
+ * Prefer locations the search pipeline already stored on the contact.
+ * Do not hide pipeline values behind looksLikeLocationString — that filter is for
+ * noisy SERP re-parsing only. Website cards were blank when the filter rejected
+ * valid stored locations or when only the outdated web parser ran on snippets.
+ */
 function contactLocation(contact: ContactRow): string | null {
   const sd = contact.source_details
   const apolloLoc = sd?.apollo?.location
   if (typeof apolloLoc === 'string' && apolloLoc.trim()) {
-    return apolloLoc.trim()
+    return cleanDisplayLocation(apolloLoc)
   }
 
-  const stored = contact.location?.trim()
-  if (stored && looksLikeLocationString(stored)) return stored
-  if (!sd) return stored || null
-  if (typeof sd.location === 'string' && sd.location.trim()) {
-    const fromSd = sd.location.trim()
-    if (looksLikeLocationString(fromSd)) return fromSd
+  const pipelineCandidates = [
+    contact.location,
+    typeof sd?.location === 'string' ? sd.location : null,
+    sd?.websearch?.location,
+  ]
+  for (const raw of pipelineCandidates) {
+    if (typeof raw === 'string' && raw.trim()) {
+      return cleanDisplayLocation(raw)
+    }
   }
-  const wsLoc = sd.websearch?.location
-  if (typeof wsLoc === 'string' && wsLoc.trim()) {
-    const fromWs = wsLoc.trim()
-    if (looksLikeLocationString(fromWs)) return fromWs
+
+  const snippet = sd?.websearch?.snippet
+  if (typeof snippet === 'string' && snippet.trim()) {
+    const labeled = snippet.match(/\bLocation:\s*([^·|\n]+)/i)?.[1]
+    if (labeled?.trim()) return cleanDisplayLocation(labeled)
+    const parsed = parseLocationFromLinkedInSnippet(snippet)
+    if (parsed) return cleanDisplayLocation(parsed)
   }
-  const snippet = sd.websearch?.snippet
-  if (typeof snippet === 'string') {
-    return parseLocationFromLinkedInSnippet(snippet)
+
+  const serpTitle = sd?.websearch?.serp_title
+  if (typeof serpTitle === 'string' && serpTitle.trim()) {
+    const fromTitle = parseLocationFromLinkedInTitle(
+      serpTitle,
+      contact.companies?.name || '',
+    )
+    if (fromTitle) return cleanDisplayLocation(fromTitle)
   }
-  return stored && looksLikeLocationString(stored) ? stored : null
+
+  return null
 }
 
 function ContactDetail({

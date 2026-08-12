@@ -1,5 +1,6 @@
 # Agent change log
 
+- Location display: sync web parser with edge; trust pipeline-stored locations on contact cards (tests were offline fixtures before)
 - LinkedIn location: extract from Location: labels, · segments, and bare geo lines like “Greater Seattle Area (US)”
 - LinkedIn card fill: parse SERP “Name - Title @ Company” + Experience/Location snippets; AI fills gaps (discovery unchanged)
 - People search: always require employer evidence (company → people at company → role); filter before OSINT; no snippet-only claims

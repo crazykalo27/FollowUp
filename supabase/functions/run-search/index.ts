@@ -1136,14 +1136,14 @@ async function searchWebLinkedIn(
           companyName,
           heuristic: card,
         })
-        const location =
-          [
-            card.location,
-            parseLocationFromLinkedInSnippet(snippet),
-            parseLocationFromLinkedInTitle(serpTitle, companyName),
-          ].find((l) => l && looksLikeLocationString(l)) ||
-          card.location ||
-          null
+      // Prefer SERP card location even if geo heuristic is unsure — store it for the UI
+      const location =
+        card.location ||
+        [
+          parseLocationFromLinkedInSnippet(snippet),
+          parseLocationFromLinkedInTitle(serpTitle, companyName),
+        ].find((l) => l && looksLikeLocationString(l)) ||
+        null
         const names = splitName(card.full_name)
         const cand: Candidate = {
           first_name: names.first_name,
