@@ -166,6 +166,17 @@ function departmentKeywords(
   skills: string[],
   roles: string[],
 ): string[] {
+  const noise = new Set([
+    'large',
+    'medium',
+    'small',
+    'company',
+    'companies',
+    'startup',
+    'startups',
+    'preference',
+    'any',
+  ])
   const words = new Set<string>()
   const seeds = [
     ...industries,
@@ -185,7 +196,7 @@ function departmentKeywords(
   for (const s of seeds) {
     for (const tok of s.split(/[\s/|,]+/)) {
       const t = tok.trim()
-      if (t.length > 3) words.add(t)
+      if (t.length > 3 && !noise.has(t.toLowerCase())) words.add(t)
     }
   }
   return [...words].slice(0, 10)
@@ -1031,6 +1042,47 @@ function splitName(full: string | null): {
   }
 }
 
+type LinkedInQueryStat = {
+  query: string
+  organic: number
+  linkedin_urls: number
+  kept: number
+}
+
+type LinkedInSearchDiscovery = {
+  via: string | null
+  configured: boolean
+  queries: LinkedInQueryStat[]
+  dropped_not_linkedin: number
+  dropped_wrong_company: number
+  error?: string | null
+}
+
+function companySearchAliases(
+  companyName: string,
+  domain: string | null,
+): string[] {
+  const out: string[] = []
+  const push = (raw: string | null | undefined) => {
+    const s = (raw || '').trim()
+    if (!s) return
+    if (out.some((x) => x.toLowerCase() === s.toLowerCase())) return
+    out.push(s)
+  }
+  push(companyName)
+  // Comprendo.dev → Comprendo
+  if (/\.[a-z0-9]{2,}$/i.test(companyName)) {
+    push(companyName.replace(/\.[a-z0-9]{2,}$/i, ''))
+  }
+  if (domain) {
+    const host = domain.replace(/^www\./i, '')
+    push(host)
+    const brand = host.split('.')[0] || ''
+    if (brand.length >= 3) push(brand)
+  }
+  return out.slice(0, 3)
+}
+
 /**
  * Free-ish LinkedIn *discovery* via search APIs (not scraping linkedin.com).
  * Uses Bing (free Azure F0 tier) or Serper if configured.
@@ -1048,19 +1100,43 @@ async function searchWebLinkedIn(
     /** When true, skip legacy round title/recruiter broaden — aspect loosen already applied. */
     aspectLoosen?: boolean
   },
-): Promise<Candidate[]> {
+): Promise<{ people: Candidate[]; discovery: LinkedInSearchDiscovery }> {
+  const emptyDiscovery = (
+    patch?: Partial<LinkedInSearchDiscovery>,
+  ): LinkedInSearchDiscovery => ({
+    via: null,
+    configured: false,
+    queries: [],
+    dropped_not_linkedin: 0,
+    dropped_wrong_company: 0,
+    error: null,
+    ...patch,
+  })
+
   const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
   const serperKey = Deno.env.get('SERPER_API_KEY')
-  if (!bingKey && !serperKey) return []
+  if (!bingKey && !serperKey) {
+    return {
+      people: [],
+      discovery: emptyDiscovery({
+        error: 'No Bing/Serper API key — LinkedIn web search skipped',
+      }),
+    }
+  }
 
   stats.attempted += 1
-  let titleList = titles
+  const aliases = companySearchAliases(companyName, domain)
+  const primary = aliases[0] || companyName
+
+  let titleList = titles.filter(
+    (t) => t.trim().length > 0 && t.trim().length <= 60 && !t.includes(','),
+  )
   if (!opts?.aspectLoosen) {
     if (searchRound === 1) {
-      titleList = [...titles.slice(0, 4), ...BROAD_PEOPLE_TITLES.slice(0, 5)]
+      titleList = [...titleList.slice(0, 4), ...BROAD_PEOPLE_TITLES.slice(0, 5)]
     } else if (searchRound >= 2) {
       titleList = [
-        ...titles.slice(0, 3),
+        ...titleList.slice(0, 3),
         'Technical Recruiter',
         'Talent Acquisition',
         'Recruiting Manager',
@@ -1068,13 +1144,15 @@ async function searchWebLinkedIn(
       ]
     }
   }
+  // Keep title OR clauses short — long OR lists often return 0 for small companies
   const titleClause = titleList
-    .filter((t) => t.trim().length > 0 && t.trim().length <= 60 && !t.includes(','))
-    .slice(0, 8)
+    .slice(0, 4)
     .map((t) => `"${t}"`)
     .join(' OR ')
+  const leadershipClause =
+    '"Founder" OR CEO OR "Co-Founder" OR "Co Founder" OR Owner OR "Managing Director"'
   const deptClause = deptKeywords
-    .slice(0, 4)
+    .slice(0, 3)
     .map((k) => `"${k}"`)
     .join(' OR ')
   const locationHint = (opts?.locationHint || '').trim()
@@ -1083,42 +1161,53 @@ async function searchWebLinkedIn(
     .map((k) => `"${k}"`)
     .join(' OR ')
 
-  // People AT this company with role — company name is mandatory in every query.
-  // Prefer "current" / exact company phrasing so SERP hits aren't role-only.
-  const queries = [
-    titleClause && locationHint
-      ? `site:linkedin.com/in "${companyName}" (${titleClause}) "${locationHint}"`
-      : null,
-    titleClause
-      ? `site:linkedin.com/in "${companyName}" (${titleClause})`
-      : null,
-    titleClause
-      ? `site:linkedin.com/in "${companyName}" current (${titleClause})`
-      : null,
-    lightClause
-      ? `site:linkedin.com/in "${companyName}" (${lightClause})`
-      : null,
-    deptClause
-      ? `site:linkedin.com/in "${companyName}" (${deptClause})`
-      : null,
-  ].filter(Boolean) as string[]
-
-  if (queries.length === 0) {
-    queries.push(`site:linkedin.com/in "${companyName}"`)
+  // Simple company-first queries, then leadership, then titles.
+  // Complex title ORs alone often miss founders at small startups.
+  const queries: string[] = []
+  for (const alias of aliases.slice(0, 2)) {
+    queries.push(`site:linkedin.com/in "${alias}"`)
+    queries.push(`site:linkedin.com/in "${alias}" (${leadershipClause})`)
+  }
+  if (titleClause) {
+    queries.push(`site:linkedin.com/in "${primary}" (${titleClause})`)
+    queries.push(
+      `site:linkedin.com/in "${primary}" current (${titleClause})`,
+    )
+  }
+  if (locationHint && titleClause) {
+    queries.push(
+      `site:linkedin.com/in "${primary}" (${titleClause}) "${locationHint}"`,
+    )
+  }
+  if (lightClause) {
+    queries.push(`site:linkedin.com/in "${primary}" (${lightClause})`)
+  }
+  if (deptClause) {
+    queries.push(`site:linkedin.com/in "${primary}" (${deptClause})`)
   }
   if (!opts?.aspectLoosen) {
     if (searchRound >= 1) {
       queries.push(
-        locationHint
-          ? `site:linkedin.com/in "${companyName}" "${locationHint}" (manager OR director OR lead)`
-          : `site:linkedin.com/in "${companyName}" (manager OR director OR lead)`,
+        `site:linkedin.com/in "${primary}" (manager OR director OR lead)`,
       )
     }
     if (searchRound >= 2) {
       queries.push(
-        `site:linkedin.com/in "${companyName}" (recruiter OR "talent acquisition")`,
+        `site:linkedin.com/in "${primary}" (recruiter OR "talent acquisition")`,
       )
     }
+  }
+
+  // Dedupe identical queries
+  const uniqueQueries = [...new Set(queries.filter(Boolean))]
+
+  const discovery: LinkedInSearchDiscovery = {
+    via: bingKey ? 'bing' : 'serper',
+    configured: true,
+    queries: [],
+    dropped_not_linkedin: 0,
+    dropped_wrong_company: 0,
+    error: null,
   }
 
   try {
@@ -1126,19 +1215,31 @@ async function searchWebLinkedIn(
     const seen = new Set<string>()
     const preferBing = Boolean(bingKey)
     const via = preferBing ? 'bing' : 'serper'
-    const maxQueries =
-      searchRound >= 2 || opts?.aspectLoosen
-        ? 4
-        : locationHint || lightClause
-          ? 3
-          : 2
+    discovery.via = via
+    // Always run enough queries that company-only + leadership + titles execute
+    const maxQueries = Math.min(
+      uniqueQueries.length,
+      searchRound >= 1 || opts?.aspectLoosen ? 6 : 5,
+    )
 
-    for (const q of queries.slice(0, maxQueries)) {
-      const organic = await runWebSearch(q, 6, { preferBing })
+    for (const q of uniqueQueries.slice(0, maxQueries)) {
+      const qStat: LinkedInQueryStat = {
+        query: q,
+        organic: 0,
+        linkedin_urls: 0,
+        kept: 0,
+      }
+      const organic = await runWebSearch(q, 8, { preferBing })
+      qStat.organic = organic.length
       for (const item of organic) {
         const link = item.link || item.url || ''
         const li = extractLinkedInUrl(link)
-        if (!li || seen.has(li)) continue
+        if (!li) {
+          discovery.dropped_not_linkedin += 1
+          continue
+        }
+        qStat.linkedin_urls += 1
+        if (seen.has(li)) continue
         seen.add(li)
         const snippet = item.snippet || ''
         const serpTitle = item.title || ''
@@ -1154,14 +1255,14 @@ async function searchWebLinkedIn(
           companyName,
           heuristic: card,
         })
-      // Prefer SERP card location even if geo heuristic is unsure — store it for the UI
-      const location =
-        card.location ||
-        [
-          parseLocationFromLinkedInSnippet(snippet),
-          parseLocationFromLinkedInTitle(serpTitle, companyName),
-        ].find((l) => l && looksLikeLocationString(l)) ||
-        null
+        // Prefer SERP card location even if geo heuristic is unsure — store it for the UI
+        const location =
+          card.location ||
+          [
+            parseLocationFromLinkedInSnippet(snippet),
+            parseLocationFromLinkedInTitle(serpTitle, companyName),
+          ].find((l) => l && looksLikeLocationString(l)) ||
+          null
         const names = splitName(card.full_name)
         const cand: Candidate = {
           first_name: names.first_name,
@@ -1189,16 +1290,23 @@ async function searchWebLinkedIn(
         }
         // Drop role-only SERP noise before it enters the company people pipeline
         const aff = candidateMatchesEmployer(cand, companyName, domain)
-        if (!aff.ok) continue
+        if (!aff.ok) {
+          discovery.dropped_wrong_company += 1
+          continue
+        }
+        qStat.kept += 1
         out.push(cand)
       }
+      discovery.queries.push(qStat)
     }
 
     stats.people_found += out.length
-    return out
+    return { people: out, discovery }
   } catch (e) {
-    stats.errors.push(e instanceof Error ? e.message : 'Web search failed')
-    return []
+    const message = e instanceof Error ? e.message : 'Web search failed'
+    stats.errors.push(message)
+    discovery.error = message
+    return { people: [], discovery }
   }
 }
 
@@ -2404,6 +2512,7 @@ Deno.serve(async (req) => {
       let hunterPeople: Candidate[] = []
       let hunterOrg: string | null = null
       let webPeople: Candidate[] = []
+      let linkedInDiscovery: LinkedInSearchDiscovery | null = null
 
       const report: Record<string, unknown> = skipCompanySetup
         ? (pipeline!.company_reports[pipeline!.company_reports.length - 1] ?? {
@@ -2496,12 +2605,23 @@ Deno.serve(async (req) => {
               webSearchRound,
               linkedInOptsPass,
             )
-          : Promise.resolve([] as Candidate[]),
+          : Promise.resolve({
+              people: [] as Candidate[],
+              discovery: {
+                via: null,
+                configured: false,
+                queries: [],
+                dropped_not_linkedin: 0,
+                dropped_wrong_company: 0,
+                error: 'Web search not configured',
+              } as LinkedInSearchDiscovery,
+            }),
         hunterKey && hunterEnabled && !hunterState.quotaExhausted
           ? searchHunter(domain, source_stats.hunter, hunterState)
           : Promise.resolve({ people: [] as Candidate[], organization: null }),
       ])
-      webPeople = webHits
+      webPeople = webHits.people
+      linkedInDiscovery = webHits.discovery
       hunterPeople = hunterResult.people
       hunterOrg = hunterResult.organization
 
@@ -2593,17 +2713,21 @@ Deno.serve(async (req) => {
           companyProgress: 22,
           logLine: `${canonicalName}: retry ${webSearchRound} people search`,
         })
-        webPeople = webConfigured
-          ? await searchWebLinkedIn(
-              company.company_name,
-              domain,
-              peopleTitlesPass,
-              source_stats.websearch,
-              deptKeywordsPass,
-              webSearchRound,
-              linkedInOptsPass,
-            )
-          : []
+        if (webConfigured) {
+          const retryHit = await searchWebLinkedIn(
+            company.company_name,
+            domain,
+            peopleTitlesPass,
+            source_stats.websearch,
+            deptKeywordsPass,
+            webSearchRound,
+            linkedInOptsPass,
+          )
+          webPeople = retryHit.people
+          linkedInDiscovery = retryHit.discovery
+        } else {
+          webPeople = []
+        }
       }
 
       await syncProgress(admin, runId, progressMeta, {
@@ -2656,6 +2780,7 @@ Deno.serve(async (req) => {
           dept_keywords: deptKeywordsPass.slice(0, 6),
           min_score: minKeepScore,
         },
+        linkedin_search: linkedInDiscovery,
         rejects: [] as Array<{
           name: string | null
           title: string | null
@@ -3471,6 +3596,19 @@ function diagnose(
     passed?: number
     no_email?: number
     rejects?: Array<{ title?: string | null; reason?: string }>
+    linkedin_search?: {
+      via?: string | null
+      configured?: boolean
+      error?: string | null
+      dropped_not_linkedin?: number
+      dropped_wrong_company?: number
+      queries?: Array<{
+        query?: string
+        organic?: number
+        linkedin_urls?: number
+        kept?: number
+      }>
+    }
   }
   const funnels = companyReports
     .map((r) => r.filter as FilterSnap | undefined)
@@ -3486,11 +3624,37 @@ function diagnose(
   const sampleReject = funnels
     .flatMap((f) => f.rejects || [])
     .find((r) => r.title || r.reason)
+  const li = funnels.map((f) => f.linkedin_search).find(Boolean)
+  const liQueries = li?.queries || []
+  const organicTotal = liQueries.reduce((n, q) => n + (q.organic || 0), 0)
+  const liUrlTotal = liQueries.reduce((n, q) => n + (q.linkedin_urls || 0), 0)
+  const sampleQuery = liQueries.find((q) => q.query)?.query
 
   if (raw === 0) {
+    if (li && li.configured === false) {
+      return (
+        li.error ||
+        'LinkedIn people search was skipped — add SERPER_API_KEY or BING_SEARCH_API_KEY.'
+      )
+    }
+    if (li?.error) {
+      return `LinkedIn web search failed (${li.error}). Check Bing/Serper keys.`
+    }
+    if (liQueries.length > 0 && organicTotal === 0) {
+      return `Bing/Serper returned 0 results for ${liQueries.length} LinkedIn quer${
+        liQueries.length === 1 ? 'y' : 'ies'
+      } via ${li?.via || 'web search'}${
+        sampleQuery ? ` (e.g. ${sampleQuery})` : ''
+      }. Small companies are often poorly indexed — enable Hunter/Apollo, or retry with a simpler company name.`
+    }
+    if (liUrlTotal > 0 && (li?.dropped_wrong_company || 0) > 0) {
+      return `Found ${liUrlTotal} LinkedIn URL(s) but none had clear evidence they work at this company (${li?.dropped_wrong_company} dropped). Try the exact LinkedIn company name.`
+    }
     return searchMode === 'application'
       ? `No people found for application titles (${lookingFor}). Re-extract the job description or broaden the role.`
-      : `No LinkedIn people found for titles (${lookingFor}). Try different Filters include titles or another company.`
+      : `No LinkedIn people kept for titles (${lookingFor}).${
+          sampleQuery ? ` Last query style: ${sampleQuery}.` : ''
+        } Try Hunter/Apollo or a different company spelling.`
   }
   if (passed === 0) {
     const bits: string[] = []

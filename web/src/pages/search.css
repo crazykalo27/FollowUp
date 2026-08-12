@@ -486,6 +486,22 @@
   font-size: 0.85rem;
 }
 
+.search-report-linkedin {
+  margin-top: 0.45rem;
+}
+
+.search-report-queries {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  word-break: break-word;
+}
+
+.search-report-queries code {
+  font-size: 0.76rem;
+  color: var(--ink);
+}
+
 .search-report-reject-title {
   font-weight: 600;
 }

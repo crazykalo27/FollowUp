@@ -1,5 +1,6 @@
 # Agent change log
 
+- LinkedIn people search: company-first/founder queries + report shows actual queries/SERP hit counts
 - Search report: show looking-for titles, filter funnel, and sample reject reasons; clearer empty-run diagnosis
 - Company retries: temporary ~15% loosen on one random aspect per empty round (titles/dept/score/location) — not persisted
 - Search stats: Contacts chip is found / kept (same #/# style as emails sent / drafts)

@@ -143,6 +143,19 @@ type CompanyFilterFunnel = {
     dept_keywords?: string[]
     min_score?: number
   }
+  linkedin_search?: {
+    via?: string | null
+    configured?: boolean
+    error?: string | null
+    dropped_not_linkedin?: number
+    dropped_wrong_company?: number
+    queries?: Array<{
+      query: string
+      organic: number
+      linkedin_urls: number
+      kept: number
+    }>
+  }
   rejects?: FilterReject[]
 }
 
@@ -284,9 +297,11 @@ function ModeIcon({ mode }: { mode: SearchMode }) {
 function SourceCard({
   name,
   stats,
+  foundLabel = 'Found',
 }: {
   name: string
   stats: SourceStats
+  foundLabel?: string
 }) {
   return (
     <div className={`source-card ${stats.configured ? '' : 'dim'}`}>
@@ -296,7 +311,7 @@ function SourceCard({
       ) : (
         <ul className="report-list">
           <li>
-            Found <strong>{stats.people_found}</strong>
+            {foundLabel} <strong>{stats.people_found}</strong>
           </li>
           <li>
             Kept <strong>{stats.contacts_kept}</strong>
@@ -437,6 +452,50 @@ function SearchReportBody({
                     {rejectBits.length ? ` · ${rejectBits.join(', ')}` : ''}
                   </p>
                 )}
+                {f?.linkedin_search && (
+                  <div className="search-report-linkedin">
+                    <p className="muted small">
+                      LinkedIn via {f.linkedin_search.via || 'web'}
+                      {f.linkedin_search.queries?.length
+                        ? ` · ${f.linkedin_search.queries.length} quer${
+                            f.linkedin_search.queries.length === 1 ? 'y' : 'ies'
+                          }`
+                        : ''}
+                      {f.linkedin_search.queries
+                        ? ` · ${f.linkedin_search.queries.reduce(
+                            (n, q) => n + (q.organic || 0),
+                            0,
+                          )} SERP hits · ${f.linkedin_search.queries.reduce(
+                            (n, q) => n + (q.linkedin_urls || 0),
+                            0,
+                          )} profile URLs`
+                        : ''}
+                      {f.linkedin_search.dropped_wrong_company
+                        ? ` · ${f.linkedin_search.dropped_wrong_company} dropped (wrong company)`
+                        : ''}
+                    </p>
+                    {f.linkedin_search.error && (
+                      <p className="small flash error">
+                        {f.linkedin_search.error}
+                      </p>
+                    )}
+                    {f.linkedin_search.queries &&
+                      f.linkedin_search.queries.length > 0 && (
+                        <ul className="search-report-queries">
+                          {f.linkedin_search.queries.slice(0, 4).map((q, qi) => (
+                            <li key={qi}>
+                              <code>{q.query}</code>
+                              <span className="muted">
+                                {' '}
+                                — {q.organic} hit{q.organic === 1 ? '' : 's'},{' '}
+                                {q.kept} kept
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                  </div>
+                )}
                 {f?.rejects && f.rejects.length > 0 && (
                   <ul className="search-report-rejects">
                     {f.rejects.slice(0, 4).map((rej, ri) => (
@@ -489,10 +548,12 @@ function SearchReportBody({
                 errors: [],
               }
             }
+            foundLabel="Seed emails"
           />
           <SourceCard
             name="Web → LinkedIn"
             stats={summary.source_stats.websearch}
+            foundLabel="People"
           />
         </div>
       </details>
