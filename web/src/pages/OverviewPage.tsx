@@ -856,10 +856,11 @@ export function OverviewPage() {
       const [r, c, kept, d, sent, p, g] = await Promise.all([
         supabase.from('resumes').select('id', { count: 'exact', head: true }),
         supabase.from('contacts').select('id', { count: 'exact', head: true }),
+        // All-time keeps (not current Kept tab) — survives archive/delete
         supabase
-          .from('contacts')
+          .from('contact_decisions')
           .select('id', { count: 'exact', head: true })
-          .eq('review_status', 'kept'),
+          .eq('decision', 'keep'),
         supabase.from('outreach_drafts').select('id', { count: 'exact', head: true }),
         supabase
           .from('outreach_drafts')
