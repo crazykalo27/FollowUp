@@ -1131,26 +1131,21 @@ async function searchWebLinkedIn(
   let titleList = titles.filter(
     (t) => t.trim().length > 0 && t.trim().length <= 60 && !t.includes(','),
   )
-  if (!opts?.aspectLoosen) {
-    if (searchRound === 1) {
-      titleList = [...titleList.slice(0, 4), ...BROAD_PEOPLE_TITLES.slice(0, 5)]
-    } else if (searchRound >= 2) {
-      titleList = [
-        ...titleList.slice(0, 3),
-        'Technical Recruiter',
-        'Talent Acquisition',
-        'Recruiting Manager',
-        ...BROAD_PEOPLE_TITLES.slice(0, 4),
-      ]
-    }
+  // On retries without aspect-loosen, add a few generic seniority titles from the
+  // shared pool — never inject Founder/CEO/Recruiter unless they came from Filters.
+  if (!opts?.aspectLoosen && searchRound >= 1) {
+    const extras = BROAD_PEOPLE_TITLES.filter(
+      (t) => !titleList.some((x) => x.toLowerCase() === t.toLowerCase()),
+    ).slice(0, searchRound >= 2 ? 4 : 3)
+    titleList = [...titleList, ...extras]
   }
-  // Keep title OR clauses short — long OR lists often return 0 for small companies
-  const titleClause = titleList
-    .slice(0, 4)
-    .map((t) => `"${t}"`)
-    .join(' OR ')
-  const leadershipClause =
-    '"Founder" OR CEO OR "Co-Founder" OR "Co Founder" OR Owner OR "Managing Director"'
+
+  const quoteTitle = (t: string) => `"${t.trim()}"`
+  const titleBatches: string[] = []
+  for (let i = 0; i < Math.min(titleList.length, 8); i += 3) {
+    const batch = titleList.slice(i, i + 3).map(quoteTitle).join(' OR ')
+    if (batch) titleBatches.push(batch)
+  }
   const deptClause = deptKeywords
     .slice(0, 3)
     .map((k) => `"${k}"`)
@@ -1161,22 +1156,24 @@ async function searchWebLinkedIn(
     .map((k) => `"${k}"`)
     .join(' OR ')
 
-  // Simple company-first queries, then leadership, then titles.
-  // Complex title ORs alone often miss founders at small startups.
+  // General company queries + filter-driven title/niche queries.
+  // No hardcoded Founder/CEO/recruiter clauses — those only appear if in Filters.
   const queries: string[] = []
   for (const alias of aliases.slice(0, 2)) {
+    // Broad: anyone indexed at this employer (Filters score later)
     queries.push(`site:linkedin.com/in "${alias}"`)
-    queries.push(`site:linkedin.com/in "${alias}" (${leadershipClause})`)
   }
-  if (titleClause) {
-    queries.push(`site:linkedin.com/in "${primary}" (${titleClause})`)
+  for (const batch of titleBatches.slice(0, 3)) {
+    queries.push(`site:linkedin.com/in "${primary}" (${batch})`)
+  }
+  if (titleBatches[0]) {
     queries.push(
-      `site:linkedin.com/in "${primary}" current (${titleClause})`,
+      `site:linkedin.com/in "${primary}" current (${titleBatches[0]})`,
     )
   }
-  if (locationHint && titleClause) {
+  if (locationHint && titleBatches[0]) {
     queries.push(
-      `site:linkedin.com/in "${primary}" (${titleClause}) "${locationHint}"`,
+      `site:linkedin.com/in "${primary}" (${titleBatches[0]}) "${locationHint}"`,
     )
   }
   if (lightClause) {
@@ -1184,18 +1181,6 @@ async function searchWebLinkedIn(
   }
   if (deptClause) {
     queries.push(`site:linkedin.com/in "${primary}" (${deptClause})`)
-  }
-  if (!opts?.aspectLoosen) {
-    if (searchRound >= 1) {
-      queries.push(
-        `site:linkedin.com/in "${primary}" (manager OR director OR lead)`,
-      )
-    }
-    if (searchRound >= 2) {
-      queries.push(
-        `site:linkedin.com/in "${primary}" (recruiter OR "talent acquisition")`,
-      )
-    }
   }
 
   // Dedupe identical queries

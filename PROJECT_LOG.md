@@ -1,6 +1,12 @@
+## 2026-08-12 — No hardcoded Founder/CEO people queries
+
+- LinkedIn SERP queries are general company (`site:linkedin.com/in "Company"`) plus filter-driven title batches / niche / location.
+- Removed hardcoded Founder/CEO/leadership and recruiter OR clauses; those titles only appear if Filters include them.
+- Retry broaden still pulls from shared `BROAD_PEOPLE_TITLES` (eng/seniority pool), not leadership injects.
+
 ## 2026-08-12 — Explain empty LinkedIn people search
 
-- People search now tries simple company + Founder/CEO queries before long title ORs (helps small cos like Comprendo.dev).
+- People search leads with general company queries, then filter title ORs.
 - Report shows Bing/Serper queries, SERP hit counts, profile URLs kept/dropped.
 - Diagnosis distinguishes “0 SERP hits” vs “hits dropped as wrong company” vs missing API keys.
 - Niche keywords no longer include size words like “large/medium/company”.
