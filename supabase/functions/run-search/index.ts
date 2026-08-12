@@ -26,6 +26,10 @@ import {
   looksLikeLocationString,
 } from '../_shared/linkedin_location.ts'
 import {
+  enrichLinkedInSerpWithAi,
+  parseLinkedInSerp,
+} from '../_shared/linkedin_serp.ts'
+import {
   isServiceChainRequest,
   loadPipelineState,
   savePipelineState,
@@ -965,51 +969,17 @@ function parseLinkedInTitle(title: string, companyName: string): {
   person_title: string | null
   location: string | null
 } {
-  // Typical: "Jane Doe - Engineering Manager - Acme | LinkedIn"
-  // Or: "Jane Doe - Engineering Manager - Acme - San Francisco Bay Area | LinkedIn"
-  const cleaned = title
-    .replace(/\s*\|\s*LinkedIn.*$/i, '')
-    .replace(/\s*-\s*LinkedIn.*$/i, '')
-    .trim()
-  const parts = cleaned.split(/\s[-–—]\s/).map((p) => p.trim()).filter(Boolean)
-  if (parts.length === 0) {
-    return { full_name: null, person_title: null, location: null }
+  // Prefer shared SERP card parser (handles "Name - Title @ Company", etc.)
+  const card = parseLinkedInSerp({
+    serpTitle: title,
+    companyName,
+  })
+  return {
+    full_name: card.full_name,
+    person_title: card.person_title,
+    location:
+      card.location || parseLocationFromLinkedInTitle(title, companyName),
   }
-
-  const full_name = parts[0] || null
-  let person_title: string | null = null
-  const companyLower = companyName.toLowerCase()
-
-  for (let i = 1; i < parts.length; i++) {
-    const segment = parts[i]
-    const segKey = segment.toLowerCase().replace(/[^a-z0-9]+/g, '')
-    const companyKeyLocal = companyLower.replace(/[^a-z0-9]+/g, '')
-    if (
-      segment.toLowerCase() === companyLower ||
-      (companyKeyLocal.length >= 3 &&
-        (segKey === companyKeyLocal ||
-          segKey.includes(companyKeyLocal) ||
-          companyKeyLocal.includes(segKey)))
-    ) {
-      continue
-    }
-    if (!person_title) {
-      // Strip trailing " at TargetCompany" from role lines
-      person_title = segment
-        .replace(
-          new RegExp(
-            `\\s+at\\s+${companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`,
-            'i',
-          ),
-          '',
-        )
-        .trim() || segment
-      break
-    }
-  }
-
-  const location = parseLocationFromLinkedInTitle(title, companyName)
-  return { full_name, person_title, location }
 }
 
 function extractLinkedInUrl(url: string): string | null {
@@ -1136,18 +1106,34 @@ async function searchWebLinkedIn(
         const li = extractLinkedInUrl(link)
         if (!li || seen.has(li)) continue
         seen.add(li)
-        const parsed = parseLinkedInTitle(item.title || '', companyName)
         const snippet = item.snippet || ''
+        const serpTitle = item.title || ''
+        let card = parseLinkedInSerp({
+          serpTitle,
+          snippet,
+          companyName,
+        })
+        // Fill gaps (missing title/location/name, or title still has @Company)
+        card = await enrichLinkedInSerpWithAi({
+          serpTitle,
+          snippet,
+          companyName,
+          heuristic: card,
+        })
         const location =
-          [parsed.location, parseLocationFromLinkedInSnippet(snippet)].find(
-            (l) => l && looksLikeLocationString(l),
-          ) || null
-        const names = splitName(parsed.full_name)
+          [
+            card.location,
+            parseLocationFromLinkedInSnippet(snippet),
+            parseLocationFromLinkedInTitle(serpTitle, companyName),
+          ].find((l) => l && looksLikeLocationString(l)) ||
+          card.location ||
+          null
+        const names = splitName(card.full_name)
         const cand: Candidate = {
           first_name: names.first_name,
           last_name: names.last_name,
-          full_name: parsed.full_name,
-          title: parsed.person_title,
+          full_name: card.full_name,
+          title: card.person_title,
           email: null,
           linkedin_url: li,
           location,
@@ -1159,8 +1145,11 @@ async function searchWebLinkedIn(
               query: q,
               domain,
               snippet: snippet || null,
-              serp_title: item.title || null,
+              serp_title: serpTitle || null,
               location,
+              experience_company: card.experience_company,
+              education: card.education,
+              card_parse: card.source,
             },
           },
         }

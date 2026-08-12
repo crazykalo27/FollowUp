@@ -1,3 +1,10 @@
+## 2026-08-12 — LinkedIn SERP → contact card extraction
+
+- Card fields (name, title, location) parsed from LinkedIn *search result* titles/snippets — e.g. `Nate Hancock - ASIC/FPGA Design Engineer @ SpaceX` plus `Experience:` / `Location:` labels.
+- Strips `@ Company` / `at Company` from the role shown on the card.
+- When heuristics miss a field, OpenAI fills from the same SERP text (does not change who was found).
+- Fixture script: `node scripts/test-linkedin-serp.mjs`
+
 ## 2026-08-12 — Strict company→people pipeline
 
 - Invariant for every company loop: find people **at that company**, then match role — never keep role-only SERP hits.
