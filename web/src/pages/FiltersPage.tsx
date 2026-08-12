@@ -192,7 +192,7 @@ export function FiltersPage() {
     if (data?.filters) {
       const f = withoutLegacyRunLimits(
         data.filters as Record<string, unknown>,
-      ) as SearchFiltersData
+      )
       setFilters({ ...DEFAULT_FILTERS, ...f })
       setIncludeText(listToText(f.include_titles || DEFAULT_FILTERS.include_titles))
       setExcludeText(listToText(f.exclude_titles || DEFAULT_FILTERS.exclude_titles))

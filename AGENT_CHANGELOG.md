@@ -1,5 +1,6 @@
 # Agent change log
 
+- Fix TS casts for withoutLegacyRunLimits → SearchFiltersData
 - Contacts: search (name/title/location/company) + sort (recently added, recently kept, A–Z)
 - Simplify: drop dead 10/5 caps; one helper strips legacy filter run-limit keys
 - Filters: remove max companies/run and max contacts/company — Search sizing owns batch size
