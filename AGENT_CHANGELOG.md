@@ -1,5 +1,6 @@
 # Agent change log
 
+- Filters: "Looking for" chip row (role type, workplace, company size, level); removed from Settings
 - Profile chat: FollowUp-aware coach — answers app/profile questions; updates profile/filters only when asked; orientation can pause for off-topic Q&A
 - Profile chat: space below last AI bubble so it doesn't sit flush on the compose bar
 - Drafts: prefetch outbox in background while on other tabs; open Drafts from cache (no empty flash); don't block on delivery sync

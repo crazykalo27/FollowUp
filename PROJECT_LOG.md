@@ -1,3 +1,8 @@
+## 2026-08-12 — Looking for prefs on Filters
+
+- Moved employment / remote prefs from Settings into a compact “Looking for” chip section at the bottom of Filters.
+- Also surfaces company size and seniority from the profile interview; saved with the rest of search targets.
+
 ## 2026-08-12 — Profile chat: FollowUp-aware coach
 
 - After the orientation interview, chat answers FollowUp product questions and profile/filter questions without rewriting targets by default.

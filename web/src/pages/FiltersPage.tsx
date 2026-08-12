@@ -23,6 +23,33 @@ const EMPTY_SEARCH_PROFILE: SearchProfileData = {
   tone: '',
 }
 
+const EMPLOYMENT_OPTIONS = [
+  { id: 'full-time', label: 'Full-time' },
+  { id: 'part-time', label: 'Part-time' },
+  { id: 'contract', label: 'Contract' },
+  { id: 'internship', label: 'Internship' },
+] as const
+
+const REMOTE_OPTIONS = [
+  { id: 'remote', label: 'Remote' },
+  { id: 'hybrid', label: 'Hybrid' },
+  { id: 'in-person', label: 'In-person' },
+  { id: 'no preference', label: 'Any' },
+] as const
+
+const SIZE_OPTIONS = [
+  { id: 'large', label: 'Large' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'small', label: 'Small' },
+  { id: 'no preference', label: 'Any' },
+] as const
+
+const SENIORITY_OPTIONS = [
+  { id: 'entry', label: 'Entry' },
+  { id: 'mid', label: 'Mid' },
+  { id: 'experienced', label: 'Experienced' },
+] as const
+
 function listToText(list: string[]) {
   return list.join('\n')
 }
@@ -32,6 +59,74 @@ function textToList(text: string) {
     .split(/[\n,]/)
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+function normalizeEmployment(list: string[]): string[] {
+  const out: string[] = []
+  for (const raw of list) {
+    const s = raw.toLowerCase().trim()
+    if (s.includes('full')) out.push('full-time')
+    else if (s.includes('part')) out.push('part-time')
+    else if (s.includes('intern')) out.push('internship')
+    else if (s.includes('contract')) out.push('contract')
+  }
+  return Array.from(new Set(out))
+}
+
+function normalizeRemote(raw: string): string {
+  const s = raw.toLowerCase().trim()
+  if (!s) return ''
+  if (s.includes('remote')) return 'remote'
+  if (s.includes('hybrid')) return 'hybrid'
+  if (
+    s.includes('onsite') ||
+    s.includes('on-site') ||
+    s.includes('in-person') ||
+    s.includes('in person')
+  ) {
+    return 'in-person'
+  }
+  if (s.includes('flex') || s.includes('no preference') || s === 'any') {
+    return 'no preference'
+  }
+  return s
+}
+
+function normalizeSeniority(raw: string): string {
+  const s = raw.toLowerCase().trim()
+  if (!s) return ''
+  if (s.includes('entry') || s.includes('junior')) return 'entry'
+  if (s.includes('experienc') || s.includes('senior') || s.includes('lead')) {
+    return 'experienced'
+  }
+  if (s.includes('mid')) return 'mid'
+  return s
+}
+
+function parseCompanySizes(raw: string): string[] {
+  const s = raw.toLowerCase().trim()
+  if (!s) return []
+  if (s.includes('no preference') || s === 'any') return ['no preference']
+  const found: string[] = []
+  if (/\blarge\b/.test(s) || /\bbig\b/.test(s)) found.push('large')
+  if (/\bmedium\b/.test(s) || /\bmid[- ]?size/.test(s)) found.push('medium')
+  if (/\bsmall\b/.test(s) || /\bstartup\b/.test(s)) found.push('small')
+  return found
+}
+
+function serializeCompanySizes(sizes: string[]): string {
+  if (sizes.length === 0) return ''
+  if (sizes.includes('no preference')) return 'no preference'
+  return sizes.join(', ')
+}
+
+function toggleInList(list: string[], id: string, exclusiveAny = false): string[] {
+  if (exclusiveAny && id === 'no preference') {
+    return list.includes('no preference') ? [] : ['no preference']
+  }
+  const withoutAny = list.filter((x) => x !== 'no preference')
+  if (withoutAny.includes(id)) return withoutAny.filter((x) => x !== id)
+  return [...withoutAny, id]
 }
 
 type PrefDocs = {
@@ -52,7 +147,10 @@ export function FiltersPage() {
   const [rolesText, setRolesText] = useState('')
   const [industriesText, setIndustriesText] = useState('')
   const [companyTypesText, setCompanyTypesText] = useState('')
-  const [companySize, setCompanySize] = useState('')
+  const [companySizes, setCompanySizes] = useState<string[]>([])
+  const [employmentTypes, setEmploymentTypes] = useState<string[]>([])
+  const [remotePreference, setRemotePreference] = useState('')
+  const [seniority, setSeniority] = useState('')
   const [outreachText, setOutreachText] = useState('')
   const [notesText, setNotesText] = useState('')
   const [status, setStatus] = useState<string | null>(null)
@@ -75,7 +173,10 @@ export function FiltersPage() {
     setRolesText(listToText(p.roles || []))
     setIndustriesText(listToText(p.industries || []))
     setCompanyTypesText(listToText(p.company_types || []))
-    setCompanySize(p.company_size || '')
+    setCompanySizes(parseCompanySizes(p.company_size || ''))
+    setEmploymentTypes(normalizeEmployment(p.employment_types || []))
+    setRemotePreference(normalizeRemote(p.remote_preference || ''))
+    setSeniority(normalizeSeniority(p.seniority || ''))
     setOutreachText(listToText(p.outreach_targets || []))
     setNotesText(p.notes || '')
     setLocationsText(listToText(p.locations || []))
@@ -148,7 +249,10 @@ export function FiltersPage() {
       roles,
       industries: textToList(industriesText),
       company_types: textToList(companyTypesText),
-      company_size: companySize.trim() || undefined,
+      company_size: serializeCompanySizes(companySizes) || undefined,
+      employment_types: employmentTypes,
+      remote_preference: remotePreference || undefined,
+      seniority: seniority || base.seniority || '',
       outreach_targets: textToList(outreachText),
       locations: textToList(locationsText),
       notes: notesText.trim() || undefined,
@@ -305,7 +409,9 @@ export function FiltersPage() {
           <span className="filters-flow-num">01</span>
           <span>Find companies</span>
         </div>
-        <span className="filters-flow-arrow" aria-hidden>→</span>
+        <span className="filters-flow-arrow" aria-hidden>
+          →
+        </span>
         <div className="filters-flow-step active">
           <span className="filters-flow-num">02</span>
           <span>Find people</span>
@@ -313,10 +419,13 @@ export function FiltersPage() {
       </div>
 
       <div className="filters-flow-grid">
-        <section className="filters-flow-card companies" aria-labelledby="filters-companies">
+        <section
+          className="filters-flow-card companies"
+          aria-labelledby="filters-companies"
+        >
           <h2 id="filters-companies">Company targets</h2>
           <p className="filters-card-kicker">
-            Jobs, industries, company type and size, and locations — what we search the web for first.
+            Jobs, industries, and locations — what we search the web for first.
           </p>
           <div className="form-grid">
             <label>
@@ -344,15 +453,6 @@ export function FiltersPage() {
               />
             </label>
             <label>
-              Company size
-              <input
-                type="text"
-                value={companySize}
-                onChange={(e) => setCompanySize(e.target.value)}
-                placeholder="large / medium / small"
-              />
-            </label>
-            <label>
               Locations
               <textarea
                 rows={3}
@@ -373,10 +473,13 @@ export function FiltersPage() {
           </div>
         </section>
 
-        <section className="filters-flow-card people" aria-labelledby="filters-people">
+        <section
+          className="filters-flow-card people"
+          aria-labelledby="filters-people"
+        >
           <h2 id="filters-people">Contact targets</h2>
           <p className="filters-card-kicker">
-            At each company, who to find and which titles count — hiring managers, peers, and keyword rules.
+            At each company, who to find and which titles count.
           </p>
           <label>
             People to find
@@ -443,6 +546,116 @@ export function FiltersPage() {
         </section>
       </div>
 
+      <section className="filters-looking" aria-labelledby="filters-looking-title">
+        <div className="filters-looking-head">
+          <h2 id="filters-looking-title">Looking for</h2>
+        </div>
+        <div className="filters-pref-list">
+          <div className="filters-pref-row">
+            <span className="filters-pref-label">Role type</span>
+            <div
+              className="filters-pref-chips"
+              role="group"
+              aria-label="Employment type"
+            >
+              {EMPLOYMENT_OPTIONS.map((opt) => {
+                const on = employmentTypes.includes(opt.id)
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`filters-pref-chip${on ? ' is-on' : ''}`}
+                    aria-pressed={on}
+                    onClick={() =>
+                      setEmploymentTypes((prev) => toggleInList(prev, opt.id))
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="filters-pref-row">
+            <span className="filters-pref-label">Workplace</span>
+            <div
+              className="filters-pref-chips"
+              role="radiogroup"
+              aria-label="Remote preference"
+            >
+              {REMOTE_OPTIONS.map((opt) => {
+                const on = remotePreference === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`filters-pref-chip${on ? ' is-on' : ''}`}
+                    aria-pressed={on}
+                    onClick={() =>
+                      setRemotePreference((prev) =>
+                        prev === opt.id ? '' : opt.id,
+                      )
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="filters-pref-row">
+            <span className="filters-pref-label">Company</span>
+            <div
+              className="filters-pref-chips"
+              role="group"
+              aria-label="Company size"
+            >
+              {SIZE_OPTIONS.map((opt) => {
+                const on = companySizes.includes(opt.id)
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`filters-pref-chip${on ? ' is-on' : ''}`}
+                    aria-pressed={on}
+                    onClick={() =>
+                      setCompanySizes((prev) => toggleInList(prev, opt.id, true))
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="filters-pref-row">
+            <span className="filters-pref-label">Level</span>
+            <div
+              className="filters-pref-chips"
+              role="radiogroup"
+              aria-label="Seniority"
+            >
+              {SENIORITY_OPTIONS.map((opt) => {
+                const on = seniority === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`filters-pref-chip${on ? ' is-on' : ''}`}
+                    aria-pressed={on}
+                    onClick={() =>
+                      setSeniority((prev) => (prev === opt.id ? '' : opt.id))
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="actions">
         {inOrientation ? (
           <button
@@ -477,10 +690,14 @@ export function FiltersPage() {
       {status && <p className="flash">{status}</p>}
 
       {inOrientation && (
-        <section className="filters-learning" aria-labelledby="filters-learning-title">
+        <section
+          className="filters-learning"
+          aria-labelledby="filters-learning-title"
+        >
           <h2 id="filters-learning-title">What the AI is learning</h2>
           <p className="muted small filters-learning-lede">
-            Your feedback on each contact teaches the AI how to find people you want.
+            Your feedback on each contact teaches the AI how to find people you
+            want.
           </p>
           {prefs?.ai_summary && (
             <div className="pref-summary">
@@ -492,7 +709,8 @@ export function FiltersPage() {
             <div>
               <h3>Positive feedback</h3>
               <pre className="pref-log">
-                {prefs?.likes_doc?.trim() || '(empty — keep contacts with feedback)'}
+                {prefs?.likes_doc?.trim() ||
+                  '(empty — keep contacts with feedback)'}
               </pre>
             </div>
             <div>
