@@ -1,3 +1,9 @@
+## 2026-08-12 — Domain resolve via AI (visible + hardened)
+
+- Progress logs now say “resolving domain through AI” and show the chosen domain source (AI / slug / web).
+- Web-search and prior hint domains must match the company name — lookalikes like spacecrew.com for SpaceX are rejected; slug `spacex.com` wins if AI is unavailable.
+- Note: edge-function deploy workflow is disabled / missing `SUPABASE_ACCESS_TOKEN`, so production still ran the old web-only path until functions are redeployed.
+
 ## 2026-08-12 — OpenAI company domain resolution
 
 - Resolve employer domains via OpenAI (“official website + common @email”) instead of trusting web-search lookalikes (e.g. SpaceX → spacex.com, not spacecrew).

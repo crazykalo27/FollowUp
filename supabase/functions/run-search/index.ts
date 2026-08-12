@@ -49,7 +49,10 @@ import {
   isEmployerCorporateHost,
   looksLikeEmployerName,
 } from '../_shared/company_discovery.ts'
-import { pickCompanyDomain } from '../_shared/companyDomain.ts'
+import {
+  domainLooksLikeCompany,
+  pickCompanyDomain,
+} from '../_shared/companyDomain.ts'
 import {
   extractCoreJobTitle,
   formatApplicationJobDescription,
@@ -96,6 +99,7 @@ type CompanyHit = {
   domain: string | null
   url: string
   source: string
+  domain_source?: string
   hiring_signal?: string | null
   relevance?: number
 }
@@ -627,33 +631,45 @@ async function resolveUserTargetCompany(
   const picked = await pickCompanyDomain({ companyName: company_name })
   let domain: string | null = picked.domain
   let url = picked.url || (domain ? `https://${domain}` : '')
+  let domainSource = picked.source || 'none'
 
-  // Fallback: web search only if OpenAI did not resolve a corporate domain
-  if (!domain && webConfigured) {
-    domain = slugDomainGuess(company_name)
-    url = domain ? `https://${domain}` : ''
-    try {
-      const hits = await runWebSearch(
-        `"${company_name}" company official site OR careers`,
-        6,
-        { preferBing: true },
-      )
-      for (const item of hits) {
-        const link = item.link || item.url
-        if (!link) continue
-        if (/linkedin\.com\/company\//i.test(link)) {
-          if (!url) url = link
-          continue
+  // Fallback: slug guess, then web — never accept lookalike hosts (e.g. spacecrew for SpaceX)
+  if (!domain) {
+    const slug = slugDomainGuess(company_name)
+    if (slug && domainLooksLikeCompany(company_name, slug)) {
+      domain = slug
+      url = `https://${slug}`
+      domainSource = 'slug'
+    }
+    if (webConfigured) {
+      try {
+        const hits = await runWebSearch(
+          `"${company_name}" company official site OR careers`,
+          6,
+          { preferBing: true },
+        )
+        for (const item of hits) {
+          const link = item.link || item.url
+          if (!link) continue
+          if (/linkedin\.com\/company\//i.test(link)) {
+            if (!url) url = link
+            continue
+          }
+          const d = extractDomain(link)
+          if (
+            d &&
+            isEmployerCorporateHost(d) &&
+            domainLooksLikeCompany(company_name, d)
+          ) {
+            domain = d
+            url = link
+            domainSource = 'web'
+            break
+          }
         }
-        const d = extractDomain(link)
-        if (d && isEmployerCorporateHost(d)) {
-          domain = d
-          url = link
-          break
-        }
+      } catch {
+        // keep slug / AI miss
       }
-    } catch {
-      // keep slug guess
     }
   }
 
@@ -665,6 +681,7 @@ async function resolveUserTargetCompany(
     domain,
     url,
     source: 'user_target',
+    domain_source: domainSource,
     hiring_signal: 'You chose this employer to follow up after applying.',
     relevance: 12,
   }
@@ -1613,6 +1630,12 @@ Deno.serve(async (req) => {
             : `Specific company search: ${targetCompanyName}`,
       })
 
+      pushProgressLog(
+        progressMeta,
+        `${targetCompanyName}: resolving domain through AI`,
+      )
+      await saveProgressMeta(admin, runId!, progressMeta)
+
       const targetHit = await resolveUserTargetCompany(
         targetCompanyName,
         webConfigured,
@@ -1633,10 +1656,16 @@ Deno.serve(async (req) => {
             }`
           : `Specific company: ${targetCompanyName}`,
       ]
+      const domainVia =
+        targetHit.domain_source === 'openai'
+          ? 'AI'
+          : targetHit.domain_source || 'unknown'
       pushProgressLog(
         progressMeta,
         `Resolved target employer ${targetHit.company_name}${
-          targetHit.domain ? ` (${targetHit.domain})` : ''
+          targetHit.domain
+            ? ` (${targetHit.domain} · ${domainVia})`
+            : ' (no domain)'
         }`,
       )
       await saveProgressMeta(admin, runId!, progressMeta)
@@ -2150,11 +2179,11 @@ Deno.serve(async (req) => {
         companyStatus: 'active',
         companyStep: skipCompanySetup
           ? 'Broader people search (retry)'
-          : 'Resolving domain & employer check',
+          : 'Resolving domain through AI',
         companyProgress: 8,
         logLine: skipCompanySetup
           ? `${company.company_name}: retry ${webSearchRound} — ${companyKeptSoFar}/${peopleGoal} new so far`
-          : `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain`,
+          : `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain through AI`,
       })
 
       const triedKeys = new Set(pipeline!.tried_candidate_keys ?? [])
@@ -2196,10 +2225,15 @@ Deno.serve(async (req) => {
         report.domain = domain
         report.name = canonicalName
       } else {
-      const hinted =
+      const hintedRaw =
         company.domain ||
         extractDomain(company.url) ||
         null
+      // Ignore lookalike hints (e.g. spacecrew.com for SpaceX) so AI/slug can win
+      const hinted =
+        hintedRaw && domainLooksLikeCompany(company.company_name, hintedRaw)
+          ? hintedRaw
+          : null
 
       const picked = await pickCompanyDomain({
         companyName: company.company_name,
@@ -2207,10 +2241,13 @@ Deno.serve(async (req) => {
         currentUrl: company.url || null,
       })
 
+      const slug = slugDomainGuess(company.company_name)
       domain =
         picked.domain ||
         hinted ||
-        slugDomainGuess(company.company_name)
+        (slug && domainLooksLikeCompany(company.company_name, slug)
+          ? slug
+          : null)
 
       if (picked.url) {
         company.url = picked.url
@@ -2219,10 +2256,17 @@ Deno.serve(async (req) => {
       }
 
       report.domain = domain
+      report.domain_source = picked.source || (hinted ? 'existing' : 'slug')
       if (picked.source === 'openai') {
-        report.domain_source = 'openai'
         if (picked.email_domain) report.email_domain = picked.email_domain
       }
+
+      pushProgressLog(
+        progressMeta,
+        `${company.company_name}: domain ${domain || 'none'} · ${
+          report.domain_source === 'openai' ? 'AI' : report.domain_source
+        }`,
+      )
 
       if (!domain) {
         report.outcome = 'Skipped — could not resolve domain'

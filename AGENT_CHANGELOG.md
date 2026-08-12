@@ -1,5 +1,6 @@
 # Agent change log
 
+- Domain resolve: log "resolving domain through AI"; reject web/hint lookalikes (spacecrew≠SpaceX); prefer slug when AI misses
 - Company domain: ask OpenAI for official website / @email domain (e.g. SpaceX → spacex.com, not lookalikes)
 - Application role fill: force one short “I applied…because I’m interested in…” sentence; ban “I will be working/developing” certainty language
 - Application drafts: [job description] is one sentence — "I applied for [role] because I am interested in [detail related to the person]"

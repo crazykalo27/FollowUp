@@ -216,17 +216,29 @@ export async function pickCompanyDomain(opts: {
 
   if (ai.domain && isEmployerCorporateHost(ai.domain)) {
     const aiOk = domainLooksLikeCompany(opts.companyName, ai.domain)
+    // Prefer OpenAI when confident, when it matches the name, or when
+    // the existing candidate is a lookalike / missing.
     if (
       ai.confidence === 'high' ||
       ai.confidence === 'medium' ||
       (aiOk && !currentOk) ||
       !currentOk
     ) {
-      return {
-        domain: ai.domain,
-        email_domain: ai.email_domain || ai.domain,
-        url: ai.url || `https://${ai.domain}`,
-        source: 'openai',
+      // Reject low-confidence lookalike AI answers when we already have a name match
+      if (
+        ai.confidence === 'low' &&
+        !aiOk &&
+        currentOk &&
+        current
+      ) {
+        // fall through to currentOk
+      } else {
+        return {
+          domain: ai.domain,
+          email_domain: ai.email_domain || ai.domain,
+          url: ai.url || `https://${ai.domain}`,
+          source: 'openai',
+        }
       }
     }
   }
