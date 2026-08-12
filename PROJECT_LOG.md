@@ -1,3 +1,8 @@
+## 2026-08-12 — Looking for prefs on Filters
+
+- Moved employment / remote prefs from Settings into a compact “Looking for” chip section at the bottom of Filters.
+- Also surfaces company size and seniority from the profile interview; saved with the rest of search targets.
+
 ## 2026-08-11 — Drafts tab: instant switch via background prefetch
 
 - Shared drafts cache warms while browsing other app pages; Drafts hydrates from cache on mount.
