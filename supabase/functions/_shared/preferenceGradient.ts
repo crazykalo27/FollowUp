@@ -337,6 +337,11 @@ export function applyDecisionGradient(
         bump(next.include_titles, title, -lr * 0.5)
         bump(next.exclude_titles, title, lr * 0.4)
       }
+      if (reasons.has('doesnt_match_job_filters') && title) {
+        // At the company but doesn't fit the user's job/people filters
+        bump(next.include_titles, title, -lr * 0.55)
+        bump(next.exclude_titles, title, lr * 0.45)
+      }
       // wrong_company: do not treat as industry miss — company avoid is handled
       // via preference dislikes.companies / avoid flags in review-contact.
     }

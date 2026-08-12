@@ -1,3 +1,8 @@
+## 2026-08-12 — Discard: doesn't match job filters
+
+- New discard chip: **Doesn't match job filters** — person may be at the company but isn't a fit for the user's job/people targeting.
+- Gradient refine downranks that title in people-to-find when this reason is used.
+
 ## 2026-08-12 — Contacts kept = all-time
 
 - Search chip “Contacts found / kept” counts `contact_decisions` with decision=keep (lifetime), not current `review_status=kept`.
