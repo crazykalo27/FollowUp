@@ -1,3 +1,9 @@
+## 2026-08-13 — Contacts Drafted tab
+
+- Renamed the Archived contacts tab to **Drafted**.
+- Creating an outreach draft (or already having one) moves the contact out of Kept into Drafted.
+- Move to Kept returns them to the Kept list.
+
 ## 2026-08-13 — Orientation chips match the current question
 
 - Experience/seniority shows Entry / Mid-level / Experienced (not Large / Medium / Small).
