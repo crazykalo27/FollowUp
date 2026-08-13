@@ -7,93 +7,17 @@ import { useOrientation } from '../lib/orientationContext'
 import { FollowUpLogo } from '../components/FollowUpLogo'
 import { ProfileCoachAvatar } from '../components/ProfileCoachAvatar'
 import type { SearchProfileData } from '../types/database'
+import {
+  QUICK_ANSWER_HINT,
+  orientationQuickOptions,
+} from '../lib/orientationQuickAnswers'
 import './profile.css'
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
-/** Closed-ended orientation steps get click-to-send options; open-ended stay text-only. */
-const ORIENTATION_QUICK_OPTIONS: Record<string, string[]> = {
-  locations: ['No preference'],
-  employment_types: ['Full-time', 'Part-time', 'Contract', 'Internship'],
-  remote_preference: ['Remote', 'In-person', 'Hybrid', 'No preference'],
-  company_size: ['Large', 'Medium', 'Small', 'No preference'],
-  seniority: ['Entry', 'Mid-level', 'Experienced'],
-  industries: ['Confirm'],
-  roles: ['Confirm'],
-}
-
 /** Sent when user taps Confirm on industries / job titles */
 const CONFIRM_SUGGESTED_LIST =
   'Confirm — use the list above as-is.'
-
-const QUICK_ANSWER_HINT = 'Type or press the buttons below to respond.'
-
-const ORIENTATION_QUESTION_KEYS = [
-  'locations',
-  'employment_types',
-  'remote_preference',
-  'company_size',
-  'seniority',
-  'industries',
-  'roles',
-] as const
-
-type OrientationQuestionKey = (typeof ORIENTATION_QUESTION_KEYS)[number]
-
-/** Infer which closed-ended question the latest assistant turn is asking. */
-function detectOrientationQuestionKey(
-  profile: SearchProfileData | null,
-  lastAssistantText: string | undefined,
-): OrientationQuestionKey | null {
-  const text = lastAssistantText || ''
-  if (text.includes(QUICK_ANSWER_HINT) || /when you'?re ready:/i.test(text)) {
-    const t = text.toLowerCase()
-    if (t.includes('location priorit')) return 'locations'
-    if (
-      t.includes('full-time') &&
-      (t.includes('internship') || t.includes('part-time'))
-    ) {
-      return 'employment_types'
-    }
-    if (t.includes('remote') && (t.includes('hybrid') || t.includes('in-person'))) {
-      return 'remote_preference'
-    }
-    if (t.includes('company size') || t.includes('large, medium, or small')) {
-      return 'company_size'
-    }
-    if (t.includes('entry') && t.includes('mid-level')) return 'seniority'
-    if (t.includes('industr')) return 'industries'
-    if (
-      t.includes('job title') ||
-      t.includes('target roles') ||
-      t.includes('roles to search')
-    ) {
-      return 'roles'
-    }
-  }
-
-  if (!profile) return null
-  const q = Number(profile.orientation_q ?? 0)
-  if (!Number.isFinite(q) || q < 0 || q >= ORIENTATION_QUESTION_KEYS.length) {
-    return null
-  }
-  return ORIENTATION_QUESTION_KEYS[q]
-}
-
-function orientationQuickOptions(
-  profile: SearchProfileData | null,
-  seriesComplete: boolean,
-  lastAssistantText: string | undefined,
-): string[] | null {
-  // Interview-complete: no quick chips. Do NOT gate on app-level
-  // orientation.complete — leftover drafts/complete flags were hiding buttons
-  // during a fresh profile interview.
-  if (seriesComplete) return null
-  const key = detectOrientationQuestionKey(profile, lastAssistantText)
-  if (!key) return null
-  const options = ORIENTATION_QUICK_OPTIONS[key]
-  return options?.length ? options : null
-}
 
 function ChatMessage({ role, content }: Msg) {
   if (role === 'user') {

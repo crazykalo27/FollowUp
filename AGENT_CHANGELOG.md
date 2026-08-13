@@ -1,5 +1,6 @@
 # Agent change log
 
+- Orientation chips: match current question (experience ≠ company size Large/Medium/Small)
 - Orientation: fix missing quick-answer buttons (don’t hide on leftover complete/drafts)
 - Discard reason: “Doesn't match job filters” (downranks that title in people-to-find)
 - Search stats: Contacts kept is all-time keep decisions (not current Kept tab; survives archive/delete)
