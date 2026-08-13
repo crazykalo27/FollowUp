@@ -1,3 +1,9 @@
+## 2026-08-13 — Orientation quick-answer buttons back
+
+- Stopped gating chips on app-level `orientation.complete` (leftover drafts/complete hid them mid-interview).
+- Detect current closed-ended question from latest AI message + `orientation_q`.
+- Off-topic pauses re-attach the “press the buttons” hint so chips stay available.
+
 ## 2026-08-12 — Discard: doesn't match job filters
 
 - New discard chip: **Doesn't match job filters** — person may be at the company but isn't a fit for the user's job/people targeting.

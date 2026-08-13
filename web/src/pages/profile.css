@@ -279,6 +279,8 @@
 
 .profile-quick-panel {
   flex-shrink: 0;
+  position: relative;
+  z-index: 2;
   padding: 0.85rem 1.15rem 1rem;
   border-top: 1px solid rgba(196, 240, 76, 0.12);
   background: linear-gradient(

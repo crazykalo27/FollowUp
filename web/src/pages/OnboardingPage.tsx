@@ -38,15 +38,59 @@ const ORIENTATION_QUESTION_KEYS = [
   'roles',
 ] as const
 
+type OrientationQuestionKey = (typeof ORIENTATION_QUESTION_KEYS)[number]
+
+/** Infer which closed-ended question the latest assistant turn is asking. */
+function detectOrientationQuestionKey(
+  profile: SearchProfileData | null,
+  lastAssistantText: string | undefined,
+): OrientationQuestionKey | null {
+  const text = lastAssistantText || ''
+  if (text.includes(QUICK_ANSWER_HINT) || /when you'?re ready:/i.test(text)) {
+    const t = text.toLowerCase()
+    if (t.includes('location priorit')) return 'locations'
+    if (
+      t.includes('full-time') &&
+      (t.includes('internship') || t.includes('part-time'))
+    ) {
+      return 'employment_types'
+    }
+    if (t.includes('remote') && (t.includes('hybrid') || t.includes('in-person'))) {
+      return 'remote_preference'
+    }
+    if (t.includes('company size') || t.includes('large, medium, or small')) {
+      return 'company_size'
+    }
+    if (t.includes('entry') && t.includes('mid-level')) return 'seniority'
+    if (t.includes('industr')) return 'industries'
+    if (
+      t.includes('job title') ||
+      t.includes('target roles') ||
+      t.includes('roles to search')
+    ) {
+      return 'roles'
+    }
+  }
+
+  if (!profile) return null
+  const q = Number(profile.orientation_q ?? 0)
+  if (!Number.isFinite(q) || q < 0 || q >= ORIENTATION_QUESTION_KEYS.length) {
+    return null
+  }
+  return ORIENTATION_QUESTION_KEYS[q]
+}
+
 function orientationQuickOptions(
   profile: SearchProfileData | null,
   seriesComplete: boolean,
-  orientationComplete: boolean,
+  lastAssistantText: string | undefined,
 ): string[] | null {
-  if (orientationComplete || seriesComplete || !profile) return null
-  const q = profile.orientation_q ?? 0
-  if (q < 0 || q >= ORIENTATION_QUESTION_KEYS.length) return null
-  const key = ORIENTATION_QUESTION_KEYS[q]
+  // Interview-complete: no quick chips. Do NOT gate on app-level
+  // orientation.complete — leftover drafts/complete flags were hiding buttons
+  // during a fresh profile interview.
+  if (seriesComplete) return null
+  const key = detectOrientationQuestionKey(profile, lastAssistantText)
+  if (!key) return null
   const options = ORIENTATION_QUICK_OPTIONS[key]
   return options?.length ? options : null
 }
@@ -105,8 +149,10 @@ export function OnboardingPage() {
         ...(resumeId ? { resume_id: resumeId } : {}),
       })
       if (res.profile) setProfile(res.profile)
+      if (typeof res.series_complete === 'boolean') {
+        setSeriesComplete(res.series_complete)
+      }
       if (res.ready) setReady(true)
-      if (res.series_complete) setSeriesComplete(true)
       if (res.reply) {
         setMessages((m) =>
           m.length === 0 ? [{ role: 'assistant', content: res.reply! }] : m,
@@ -155,12 +201,17 @@ export function OnboardingPage() {
       if (resume) setFileName(resume.file_name)
       if (sp?.profile) {
         const p = sp.profile as SearchProfileData
-        setProfile(p)
-        if ((p.orientation_q ?? 0) >= 7) setSeriesComplete(true)
+        const q = Number(p.orientation_q ?? 0)
+        setProfile({
+          ...p,
+          orientation_q: Number.isFinite(q) ? q : 0,
+        })
+        // Only mark interview done from the profile counter — not from
+        // leftover onboarding_complete / drafts on the account.
+        if (Number.isFinite(q) && q >= 7) setSeriesComplete(true)
       }
       if (prof?.onboarding_complete) {
         setReady(true)
-        setSeriesComplete(true)
       }
 
       const loaded: Msg[] = (chat || [])
@@ -270,8 +321,16 @@ export function OnboardingPage() {
         finalize,
       })
       setMessages((m) => [...m, { role: 'assistant', content: res.reply }])
-      if (res.profile) setProfile(res.profile)
-      if (res.series_complete) setSeriesComplete(true)
+      if (res.profile) {
+        const q = Number(res.profile.orientation_q ?? 0)
+        setProfile({
+          ...res.profile,
+          orientation_q: Number.isFinite(q) ? q : res.profile.orientation_q,
+        })
+      }
+      if (typeof res.series_complete === 'boolean') {
+        setSeriesComplete(res.series_complete)
+      }
       if (res.ready) {
         setReady(true)
         await orientation.advanceTo('filters')
@@ -279,7 +338,9 @@ export function OnboardingPage() {
         navigate('/app/filters')
       } else if (res.filters_updated) {
         setStatus('Search filters updated to match your profile.')
-      } else if (res.intent === 'update_profile') {
+      } else if (res.intent === 'update_profile' && orientation.complete) {
+        // After orientation, surface freeform profile edits. During the
+        // interview every advance also returns update_profile — skip noise.
         setStatus('Profile updated.')
       }
     } catch (e) {
@@ -289,14 +350,14 @@ export function OnboardingPage() {
     }
   }
 
-  const quickOptions = orientationQuickOptions(
-    profile,
-    seriesComplete,
-    orientation.complete,
-  )
   const lastAssistantText = [...messages]
     .reverse()
     .find((m) => m.role === 'assistant')?.content
+  const quickOptions = orientationQuickOptions(
+    profile,
+    seriesComplete,
+    lastAssistantText,
+  )
   const showQuickHint =
     Boolean(quickOptions) &&
     !lastAssistantText?.includes(QUICK_ANSWER_HINT)
