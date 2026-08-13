@@ -914,9 +914,15 @@ Return JSON only:
         typeof parsed.reply === 'string' && parsed.reply.trim()
           ? parsed.reply.trim()
           : `Happy to help. When you're ready, answer the current question about ${currentKey.replace(/_/g, ' ')}.`
-      const topicHint = QUESTIONS[qIndex].ask(state.profile).split('\n')[0]
+      const topicAsk = QUESTIONS[qIndex].ask(state.profile)
+      const topicHint = topicAsk.split('\n')[0]
       if (!/when you'?re ready/i.test(reply) && !reply.includes(topicHint.slice(0, 24))) {
         reply = `${reply}\n\nWhen you're ready: ${topicHint}`
+      }
+      // Re-attach quick-answer hint so the Profile UI keeps showing buttons
+      // after an off-topic pause.
+      if (QUICK_ANSWER_KEYS.has(currentKey) && !reply.includes(QUICK_ANSWER_HINT)) {
+        reply = `${reply}\n\n${QUICK_ANSWER_HINT}`
       }
 
       await admin.from('profile_chat_messages').insert({

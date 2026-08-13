@@ -1,5 +1,6 @@
 # Agent change log
 
+- Orientation: fix missing quick-answer buttons (don’t hide on leftover complete/drafts)
 - Discard reason: “Doesn't match job filters” (downranks that title in people-to-find)
 - Search stats: Contacts kept is all-time keep decisions (not current Kept tab; survives archive/delete)
 - Profile/filters tuning: general remove_terms/add_terms (any niche) — not Founder/CEO-only hardcode
