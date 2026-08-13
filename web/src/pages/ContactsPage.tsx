@@ -494,7 +494,7 @@ export function ContactsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [discardCompanyOpen, setDiscardCompanyOpen] = useState(false)
   const [swipeDir, setSwipeDir] = useState<'left' | 'right' | null>(null)
-  const [tab, setTab] = useState<'review' | 'kept' | 'archived'>('review')
+  const [tab, setTab] = useState<'review' | 'kept' | 'drafted'>('review')
   const [listQuery, setListQuery] = useState('')
   const [listSort, setListSort] = useState<ContactSort>('recent_added')
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -608,12 +608,19 @@ export function ContactsPage() {
     [rows],
   )
   const kept = useMemo(
-    () => rows.filter((r) => r.review_status === 'kept'),
-    [rows],
+    () =>
+      rows.filter(
+        (r) => r.review_status === 'kept' && !draftedContactIds.has(r.id),
+      ),
+    [rows, draftedContactIds],
   )
-  const archived = useMemo(
-    () => rows.filter((r) => r.review_status === 'archived'),
-    [rows],
+  const drafted = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          draftedContactIds.has(r.id) || r.review_status === 'archived',
+      ),
+    [rows, draftedContactIds],
   )
 
   const searchExtras = useCallback(
@@ -632,12 +639,12 @@ export function ContactsPage() {
     () => filterAndSortContacts(kept, listQuery, listSort, searchExtras),
     [kept, listQuery, listSort, searchExtras],
   )
-  const archivedList = useMemo(
-    () => filterAndSortContacts(archived, listQuery, listSort, searchExtras),
-    [archived, listQuery, listSort, searchExtras],
+  const draftedList = useMemo(
+    () => filterAndSortContacts(drafted, listQuery, listSort, searchExtras),
+    [drafted, listQuery, listSort, searchExtras],
   )
 
-  /** Hide Kept/Archived while a full keep/discard queue is still in progress. */
+  /** Hide Kept/Drafted while a full keep/discard queue is still in progress. */
   const reviewingQueue =
     calibrationReview || (secondPassReview && pending.length > 0)
   const showKeptPicker = pickKeptForDraft || (secondPassReview && pending.length === 0)
@@ -992,22 +999,20 @@ export function ContactsPage() {
     setSelectedIds(new Set())
   }
 
-  function archiveContact(row: ContactRow) {
-    if (busy) return
-    const snapshot = row
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === row.id ? { ...r, review_status: 'archived' } : r,
-      ),
-    )
-    setSelectedIds((prev) => {
-      if (!prev.has(row.id)) return prev
+  function markContactsDrafted(ids: string[]) {
+    if (ids.length === 0) return
+    setDraftedContactIds((prev) => {
       const next = new Set(prev)
-      next.delete(row.id)
+      for (const id of ids) next.add(id)
       return next
     })
-    setMsg(`Archived ${row.full_name || 'contact'} (no negative signal).`)
-    enqueueContactAction('archive', row.id, snapshot)
+    setRows((prev) =>
+      prev.map((r) =>
+        ids.includes(r.id) && r.review_status !== 'archived'
+          ? { ...r, review_status: 'archived' }
+          : r,
+      ),
+    )
   }
 
   function restoreContact(row: ContactRow) {
@@ -1024,13 +1029,19 @@ export function ContactsPage() {
           : r,
       ),
     )
+    setDraftedContactIds((prev) => {
+      if (!prev.has(row.id)) return prev
+      const next = new Set(prev)
+      next.delete(row.id)
+      return next
+    })
     setSelectedIds((prev) => {
       if (!prev.has(row.id)) return prev
       const next = new Set(prev)
       next.delete(row.id)
       return next
     })
-    setMsg(`Restored ${row.full_name || 'contact'} to Kept.`)
+    setMsg(`Moved ${row.full_name || 'contact'} back to Kept.`)
     enqueueContactAction('restore', row.id, snapshot)
   }
 
@@ -1057,16 +1068,6 @@ export function ContactsPage() {
     return list.filter((r) => selectedIds.has(r.id))
   }
 
-  function archiveSelected(list: ContactRow[]) {
-    const targets = selectedFrom(list)
-    if (busy || targets.length === 0) return
-    for (const row of targets) {
-      archiveContact(row)
-    }
-    clearSelection()
-    setMsg(`Archived ${targets.length} contact(s).`)
-  }
-
   function restoreSelected(list: ContactRow[]) {
     const targets = selectedFrom(list)
     if (busy || targets.length === 0) return
@@ -1074,7 +1075,7 @@ export function ContactsPage() {
       restoreContact(row)
     }
     clearSelection()
-    setMsg(`Restored ${targets.length} contact(s) to Kept.`)
+    setMsg(`Moved ${targets.length} contact(s) back to Kept.`)
   }
 
   function confirmBulkDelete() {
@@ -1112,11 +1113,11 @@ export function ContactsPage() {
       })
       const skipped = res.skipped_already_sent?.length ?? 0
       const created = res.drafts.length
-      for (const r of targets) {
-        if (!res.skipped_already_sent?.some((s) => s.contact_id === r.id)) {
-          setDraftedContactIds((prev) => new Set(prev).add(r.id))
-        }
-      }
+      const draftedIds = targets
+        .filter((r) => !res.skipped_already_sent?.some((s) => s.contact_id === r.id))
+        .map((r) => r.id)
+      markContactsDrafted(draftedIds)
+      if (created > 0) setTab('drafted')
       if (created === 0 && skipped > 0) {
         setMsg(
           'No new drafts — selected contacts already have outreach sent. Follow up in Gmail.',
@@ -1294,12 +1295,14 @@ export function ContactsPage() {
         return
       }
       setDraftedContactIds((prev) => new Set(prev).add(id))
+      markContactsDrafted([id])
       if (user) void prefetchDrafts(user.id)
       if (pickKeptForDraft) {
         setMsg('Draft ready — opening outbox…')
         navigate(`/app/drafts?contact=${id}`)
       } else {
-        setMsg('Draft ready — press Go to drafts to review it.')
+        setTab('drafted')
+        setMsg('Draft ready — moved to Drafted. Press Go to drafts to review it.')
       }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Drafting failed')
@@ -1330,6 +1333,11 @@ export function ContactsPage() {
       })
       const skipped = res.skipped_already_sent?.length ?? 0
       const created = res.drafts.length
+      const draftedIds = ids.filter(
+        (id) => !res.skipped_already_sent?.some((s) => s.contact_id === id),
+      )
+      markContactsDrafted(draftedIds)
+      if (created > 0) setTab('drafted')
       if (created === 0 && skipped > 0) {
         setMsg(
           'No new drafts — everyone selected already has outreach sent. Follow up in Gmail.',
@@ -1413,10 +1421,10 @@ export function ContactsPage() {
             {!showKeptPicker && (
               <button
                 type="button"
-                className={`tab ${tab === 'archived' ? 'active' : ''}`}
-                onClick={() => setTab('archived')}
+                className={`tab ${tab === 'drafted' ? 'active' : ''}`}
+                onClick={() => setTab('drafted')}
               >
-                Archived ({archived.length})
+                Drafted ({drafted.length})
               </button>
             )}
             {!showKeptPicker && (
@@ -1453,7 +1461,7 @@ export function ContactsPage() {
                 {rows.length === 0
                   ? 'No contacts yet. Run a people search from Search.'
                   : pending.length === 0
-                    ? 'You’re caught up — no pending contacts. Check Kept, or run another search.'
+                    ? 'You’re caught up — no pending contacts. Check Kept or Drafted, or run another search.'
                     : 'No pending contacts match your search.'}
               </p>
             )}
@@ -1693,16 +1701,8 @@ export function ContactsPage() {
                     >
                       Draft for selected
                     </button>
-                    {!pickKeptForDraft && (
+                    {!pickKeptForDraft && selectedIds.size > 0 && (
                       <>
-                        <button
-                          type="button"
-                          className="btn ghost small"
-                          disabled={busy}
-                          onClick={() => archiveSelected(keptList)}
-                        >
-                          Archive selected
-                        </button>
                         <button
                           type="button"
                           className="btn ghost small swipe-discard"
@@ -1736,14 +1736,6 @@ export function ContactsPage() {
                     <p className="small outreach-sent-note">
                       ✓ Outreach sent — follow up in Gmail
                     </p>
-                  ) : draftedContactIds.has(r.id) ? (
-                    <button
-                      type="button"
-                      className="btn primary"
-                      onClick={() => goToDraft(r.id)}
-                    >
-                      Go to drafts
-                    </button>
                   ) : (
                     <button
                       type="button"
@@ -1758,14 +1750,6 @@ export function ContactsPage() {
                     <>
                       <button
                         type="button"
-                        className="btn ghost"
-                        disabled={busy}
-                        onClick={() => archiveContact(r)}
-                      >
-                        Archive
-                      </button>
-                      <button
-                        type="button"
                         className="btn ghost swipe-discard"
                         disabled={busy}
                         onClick={() => openDiscard(r)}
@@ -1777,7 +1761,7 @@ export function ContactsPage() {
                         className="btn ghost"
                         disabled={busy}
                         onClick={() => setDeleteTarget(r)}
-                      >
+ mar                      >
                         Delete
                       </button>
                     </>
@@ -1795,36 +1779,35 @@ export function ContactsPage() {
         </div>
       )}
 
-      {tab === 'archived' && (
+      {tab === 'drafted' && (
         <div>
           <p className="muted small">
-            Archived contacts are hidden from your active list. Archiving does not
-            teach the AI to avoid them.
+            Contacts with an outreach draft. Drafting moves them here from Kept.
           </p>
-          {archived.length > 0 && (
+          {drafted.length > 0 && (
             <>
               <ContactsListControls
                 query={listQuery}
                 sort={listSort}
                 onQueryChange={setListQuery}
                 onSortChange={setListSort}
-                resultCount={archivedList.length}
-                totalCount={archived.length}
+                resultCount={draftedList.length}
+                totalCount={drafted.length}
               />
               <div className="selection-toolbar">
                 <button
                   type="button"
                   className="btn ghost small"
-                  disabled={busy || archivedList.length === 0}
+                  disabled={busy || draftedList.length === 0}
                   onClick={() =>
-                    selectedIds.size === archivedList.length &&
-                    archivedList.length > 0
+                    selectedIds.size === draftedList.length &&
+                    draftedList.length > 0
                       ? clearSelection()
-                      : selectAllFrom(archivedList)
+                      : selectAllFrom(draftedList)
                   }
                 >
-                  {selectedIds.size === archivedList.length &&
-                  archivedList.length > 0
+                  {selectedIds.size === draftedList.length &&
+                  draftedList.length > 0
                     ? 'Clear selection'
                     : 'Select all'}
                 </button>
@@ -1837,9 +1820,9 @@ export function ContactsPage() {
                       type="button"
                       className="btn ghost small"
                       disabled={busy}
-                      onClick={() => restoreSelected(archivedList)}
+                      onClick={() => restoreSelected(draftedList)}
                     >
-                      Restore selected
+                      Move to Kept
                     </button>
                     <button
                       type="button"
@@ -1855,7 +1838,7 @@ export function ContactsPage() {
             </>
           )}
           <div className="contact-grid">
-            {archivedList.map((r) => (
+            {draftedList.map((r) => (
               <article
                 key={r.id}
                 className={`contact-card ${selectedIds.has(r.id) ? 'is-selected' : ''}`}
@@ -1868,13 +1851,26 @@ export function ContactsPage() {
                 />
                 <ContactDetail contact={r} />
                 <div className="actions contact-manage">
+                  {sentOutreachIds.has(r.id) ? (
+                    <p className="small outreach-sent-note">
+                      ✓ Outreach sent — follow up in Gmail
+                    </p>
+                  ) : draftedContactIds.has(r.id) ? (
+                    <button
+                      type="button"
+                      className="btn primary"
+                      onClick={() => goToDraft(r.id)}
+                    >
+                      Go to drafts
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="btn ghost"
                     disabled={busy}
                     onClick={() => restoreContact(r)}
                   >
-                    Restore
+                    Move to Kept
                   </button>
                   <button
                     type="button"
@@ -1888,11 +1884,11 @@ export function ContactsPage() {
               </article>
             ))}
           </div>
-          {archived.length === 0 && (
-            <p className="muted">No archived contacts yet.</p>
+          {drafted.length === 0 && (
+            <p className="muted">No drafted contacts yet — draft from Kept.</p>
           )}
-          {archived.length > 0 && archivedList.length === 0 && (
-            <p className="muted">No archived contacts match your search.</p>
+          {drafted.length > 0 && draftedList.length === 0 && (
+            <p className="muted">No drafted contacts match your search.</p>
           )}
         </div>
       )}

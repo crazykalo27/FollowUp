@@ -278,7 +278,15 @@ Deno.serve(async (req) => {
         .select('*')
         .single()
 
-      if (!draftErr && draft) drafts.push(draft)
+      if (!draftErr && draft) {
+        drafts.push(draft)
+        await admin
+          .from('contacts')
+          .update({ review_status: 'archived' })
+          .eq('id', contact.id)
+          .eq('user_id', user.id)
+          .eq('review_status', 'kept')
+      }
     }
 
     return jsonResponse({ drafts, skipped_already_sent: skippedAlreadySent })

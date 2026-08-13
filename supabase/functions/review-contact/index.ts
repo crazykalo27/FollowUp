@@ -377,7 +377,7 @@ Deno.serve(async (req) => {
           return errorResponse(restoreErr.message, 500)
         }
         if (!restored) {
-          return errorResponse('Archived contact not found', 404)
+          return errorResponse('Drafted contact not found', 404)
         }
       } else {
         await admin
