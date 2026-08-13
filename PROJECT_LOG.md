@@ -1,3 +1,8 @@
+## 2026-08-13 — Orientation chips match the current question
+
+- Experience/seniority shows Entry / Mid-level / Experienced (not Large / Medium / Small).
+- Chip set is chosen from the latest AI question text first, then `orientation_q`.
+
 ## 2026-08-13 — Orientation quick-answer buttons back
 
 - Stopped gating chips on app-level `orientation.complete` (leftover drafts/complete hid them mid-interview).
