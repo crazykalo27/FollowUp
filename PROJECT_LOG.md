@@ -3,6 +3,7 @@
 - Optional Tomba provider in Settings (off by default), same pattern as Apollo/Hunter.
 - Search pipeline: Apollo → Tomba → Hunter → OSINT. Tomba does domain-search (up to 10 people/company) plus per-contact email-finder.
 - Supabase Edge secrets need **both** `TOMBA_API_KEY` (API key / `X-Tomba-Key`) and `TOMBA_SECRET` (secret / `X-Tomba-Secret`; `TOMBA_API_SECRET` also works). Neither key goes in the database; the Settings toggle only turns the feature on.
+- Reads `TOMBA_SECRET` (the name already set in the project) as well as `TOMBA_API_SECRET`.
 
 ## 2026-08-13 — Contacts Drafted tab
 
