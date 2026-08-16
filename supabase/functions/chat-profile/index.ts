@@ -429,13 +429,13 @@ App tabs (sidebar):
 3. Search — discover companies and people (General / Specific company / Application-from-JD modes). Live progress; depth choices affect breadth.
 4. Contacts — review found people (keep/discard). Feedback trains future picks. Kept contacts can be drafted.
 5. Drafts — template-filled outreach emails; edit, regenerate, copy, or send via connected Gmail (one send per contact).
-6. Settings — sender name/signature/links, optional Hunter/Apollo/email-verify toggles, Gmail OAuth, account delete.
+6. Settings — sender name/signature/links, optional Tomba/Hunter/Apollo/email-verify toggles, Gmail OAuth, account delete.
 
 First-run orientation (locked nav until done): Welcome → Profile interview → Filters → Search → keep a Contact → first Draft. After the first draft, the full app unlocks.
 
 What this chat can do: explain FollowUp, summarize/answer questions about the user's saved search profile and filters, and apply profile changes the user requests (add or remove targets). It cannot run searches, swipe contacts, or send email from here — point users to the right tab.
 
-Sends use the user's Gmail API (not a bulk mailer). No LinkedIn scraping; public discovery via search APIs + optional Hunter/Apollo/OSINT email paths.`
+Sends use the user's Gmail API (not a bulk mailer). No LinkedIn scraping; public discovery via search APIs + optional Tomba/Hunter/Apollo/OSINT email paths.`
 
 type CoachIntent = 'inform' | 'update_profile' | 'update_filters'
 

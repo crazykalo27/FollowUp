@@ -46,9 +46,9 @@ Until you finish, later steps stay **locked** in the nav so you’re never dropp
 | **Search**   | AI-driven employer discovery on the open web, then people at those companies; Quick / Standard / Deep depth; live stage bars and activity log |
 | **Contacts** | One-card review (keep/discard), feedback chips that train future picks, kept/archive/sent states                                              |
 | **Drafts**   | LLM outreach per contact, templates with placeholders, regenerate, one send per contact (duplicate protection)                                |
-| **Settings** | Signature fields, optional Hunter.io and verified-email toggles, Gmail OAuth for send, delete-account reset                                   |
+| **Settings** | Signature fields, optional Tomba/Hunter/Apollo and verified-email toggles, Gmail OAuth for send, delete-account reset                                   |
 
-**Under the hood (user-facing outcome):** Google sign-in, resume in secure storage, email discovery via optional Hunter or a **free OSINT path** (site crawl, patterns, MX checks), job boards as **hiring signals**—not the whole story. **No LinkedIn scraping**; public URLs via search APIs. Sends go through **Gmail API** from the user’s account, not a bulk mailer.
+**Under the hood (user-facing outcome):** Google sign-in, resume in secure storage, email discovery via optional Tomba, Hunter, Apollo, or a **free OSINT path** (site crawl, patterns, MX checks), job boards as **hiring signals**—not the whole story. **No LinkedIn scraping**; public URLs via search APIs. Sends go through **Gmail API** from the user’s account, not a bulk mailer.
 
 ---
 

@@ -54,6 +54,8 @@ type ContactRow = {
       detail?: string
     }
     hunter_email?: { via?: string; domain?: string }
+    tomba_email?: { via?: string; domain?: string; score?: number; location?: string }
+    tomba?: { via?: string; domain?: string; organization?: string | null; location?: string }
     pattern?: { inferred?: string | null; candidates?: string[] }
     application?: {
       company?: string
@@ -140,6 +142,7 @@ function formatSourceLabel(source: string) {
   const labels: Record<string, string> = {
     hunter: 'Hunter.io',
     apollo: 'Apollo.io',
+    tomba: 'Tomba.io',
     websearch: 'Web search',
     site_crawl: 'Company site',
     pattern: 'Email pattern',
@@ -169,6 +172,10 @@ function contactLocation(contact: ContactRow): string | null {
   const apolloLoc = sd?.apollo?.location
   if (typeof apolloLoc === 'string' && apolloLoc.trim()) {
     return cleanDisplayLocation(apolloLoc)
+  }
+  const tombaLoc = sd?.tomba?.location
+  if (typeof tombaLoc === 'string' && tombaLoc.trim()) {
+    return cleanDisplayLocation(tombaLoc)
   }
 
   const pipelineCandidates = [

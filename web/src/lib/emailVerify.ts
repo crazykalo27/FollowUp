@@ -4,7 +4,7 @@ export type LiveVerifyResponse = {
   ok: boolean
   email: string
   verification_status: string
-  method_used: 'mx' | 'smtp' | 'hunter'
+  method_used: 'mx' | 'smtp' | 'hunter' | 'tomba'
   deliverable: boolean | null
   label: string
   detail: Record<string, unknown>

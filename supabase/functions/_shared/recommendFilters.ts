@@ -221,6 +221,7 @@ ${JSON.stringify(pref?.discard_reason_counts || {})}`,
   const preservedToggles = {
     enable_hunter: prev.enable_hunter === true,
     enable_apollo: prev.enable_apollo === true,
+    enable_tomba: prev.enable_tomba === true,
     enable_smtp_verify: prev.enable_smtp_verify === true,
     require_verified_email: prev.require_verified_email === true,
     ...(prev.accept_accept_all !== undefined

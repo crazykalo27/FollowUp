@@ -11,6 +11,13 @@ import {
 } from '../_shared/cors.ts'
 import { apolloEnrichPerson } from '../_shared/apollo.ts'
 import {
+  tombaConfigured,
+  tombaDomainSearch,
+  tombaEmailFinder,
+  tombaEmailVerifier,
+  type TombaRunState,
+} from '../_shared/tomba.ts'
+import {
   discoverPersonEmailOsint,
   enrichCompanyOsint,
   finalizeOsintEmail,
@@ -78,6 +85,8 @@ type Filters = {
   enable_hunter?: boolean
   /** When true, Apollo people/match runs before Hunter/OSINT for email lookup. */
   enable_apollo?: boolean
+  /** When true, Tomba domain-search + email-finder run with Hunter/OSINT. */
+  enable_tomba?: boolean
   company_size_min?: number | null
   company_size_max?: number | null
   seniority?: string[]
@@ -128,8 +137,9 @@ function pickCanonicalCompanyName(
   guessed: string,
   domain: string | null,
   hunterOrg: string | null,
+  tombaOrg?: string | null,
 ): string {
-  const candidates = [hunterOrg, guessed].filter(Boolean) as string[]
+  const candidates = [hunterOrg, tombaOrg, guessed].filter(Boolean) as string[]
   for (const c of candidates) {
     if (looksLikeEmployerName(c)) return c.trim()
   }
@@ -720,6 +730,13 @@ function candidateMatchesEmployer(
           (cand.source_details.hunter as { organization?: string }).organization,
         )
       : ''
+  const tombaOrg =
+    typeof (cand.source_details?.tomba as { organization?: string } | undefined)
+      ?.organization === 'string'
+      ? String(
+          (cand.source_details.tomba as { organization?: string }).organization,
+        )
+      : ''
   const title = cand.title || ''
   const snippet = ws.snippet || ''
   const serpTitle = ws.serp_title || ''
@@ -729,13 +746,14 @@ function candidateMatchesEmployer(
     : ''
 
   // Prefer title / SERP headline over noisy snippets for positive evidence
-  const strongText = `${title} ${serpTitle} ${hunterOrg}`
+  const strongText = `${title} ${serpTitle} ${hunterOrg} ${tombaOrg}`
   const strongKey = companyKey(strongText)
   const weakKey = companyKey(snippet)
   const mentionsInStrong =
     (target.length >= 3 && strongKey.includes(target)) ||
     (brand.length >= 3 && strongKey.includes(brand)) ||
-    (hunterOrg && companyNameMatchesTarget(hunterOrg, companyName))
+    (hunterOrg && companyNameMatchesTarget(hunterOrg, companyName)) ||
+    (tombaOrg && companyNameMatchesTarget(tombaOrg, companyName))
   const mentionsInSnippetOnly =
     !mentionsInStrong &&
     ((target.length >= 3 && weakKey.includes(target)) ||
@@ -796,6 +814,18 @@ function candidateMatchesEmployer(
       }
     }
     return { ok: true, reason: 'hunter domain match' }
+  }
+
+  const tombaOnly =
+    cand.sources.includes('tomba') && !cand.sources.includes('websearch')
+  if (tombaOnly) {
+    if (tombaOrg && !companyNameMatchesTarget(tombaOrg, companyName)) {
+      return {
+        ok: false,
+        reason: `Tomba org mismatch (“${tombaOrg}”)`,
+      }
+    }
+    return { ok: true, reason: 'tomba domain match' }
   }
 
   // Web hits must show the company in the headline/title (snippet alone is too weak)
@@ -995,6 +1025,65 @@ async function apolloEmailLookup(
     return result
   } catch (e) {
     stats.errors.push(e instanceof Error ? e.message : 'Apollo failed')
+    return null
+  }
+}
+
+async function searchTomba(
+  domain: string,
+  companyName: string,
+  stats: SourceStats,
+  state: TombaRunState,
+): Promise<{ people: Candidate[]; organization: string | null }> {
+  const result = await tombaDomainSearch(domain, stats, state, {
+    company_name: companyName,
+  })
+  const people = result.people.map(
+    (p) =>
+      ({
+        first_name: p.first_name,
+        last_name: p.last_name,
+        full_name: p.full_name,
+        title: p.title,
+        email: sanitizeOutreachEmail(p.email),
+        linkedin_url: p.linkedin_url,
+        location: p.location,
+        verification_status: p.verification_status,
+        sources: ['tomba'],
+        source_details: {
+          tomba: {
+            via: 'domain-search',
+            domain,
+            organization: result.organization,
+          },
+        },
+      }) satisfies Candidate,
+  )
+  return { people, organization: result.organization }
+}
+
+async function tombaEmailLookup(
+  domain: string,
+  first_name: string,
+  last_name: string,
+  stats: SourceStats,
+  state: TombaRunState,
+  opts?: { company_name?: string | null },
+): Promise<Awaited<ReturnType<typeof tombaEmailFinder>> | null> {
+  if (!tombaConfigured() || state.quotaExhausted) return null
+  try {
+    stats.attempted += 1
+    const result = await tombaEmailFinder(
+      domain,
+      first_name,
+      last_name,
+      state,
+      opts,
+    )
+    if (result?.email) stats.people_found += 1
+    return result
+  } catch (e) {
+    stats.errors.push(e instanceof Error ? e.message : 'Tomba failed')
     return null
   }
 }
@@ -1566,13 +1655,19 @@ Deno.serve(async (req) => {
 
     const hunterKey = Deno.env.get('HUNTER_API_KEY')
     const apolloKey = Deno.env.get('APOLLO_API_KEY')
+    const tombaReady = tombaConfigured()
     const bingKey = Deno.env.get('BING_SEARCH_API_KEY')
     const serperKey = Deno.env.get('SERPER_API_KEY')
     const webConfigured = Boolean(bingKey || serperKey)
     const hunterEnabled = filters.enable_hunter === true
     const apolloEnabled = filters.enable_apollo === true
+    const tombaEnabled = filters.enable_tomba === true
     const osintWorkerConfigured = Boolean(Deno.env.get('OSINT_WORKER_URL'))
     const hunterState: HunterRunState = {
+      quotaExhausted: false,
+      quotaNote: null,
+    }
+    const tombaState: TombaRunState = {
       quotaExhausted: false,
       quotaNote: null,
     }
@@ -1581,16 +1676,23 @@ Deno.serve(async (req) => {
       ? 'HUNTER_API_KEY missing'
       : !hunterEnabled
         ? 'Disabled in Settings — skipped unless enabled'
-        : 'Domain search (10/domain); email-finder when Apollo/OSINT miss'
+        : 'Domain search (10/domain); email-finder when Apollo/Tomba/OSINT miss'
 
     const apolloNote = !apolloKey
       ? 'APOLLO_API_KEY missing'
       : !apolloEnabled
         ? 'Disabled in Settings — skipped unless enabled'
-        : 'People/match enrichment before Hunter/OSINT email lookup'
+        : 'People/match enrichment before Tomba/Hunter/OSINT email lookup'
+
+    const tombaNote = !tombaReady
+      ? 'TOMBA_API_KEY and TOMBA_API_SECRET both required'
+      : !tombaEnabled
+        ? 'Disabled in Settings — skipped unless enabled'
+        : 'Domain search (10/domain); email-finder after Apollo, before Hunter/OSINT'
 
     const source_stats: Record<string, SourceStats> = {
       apollo: emptyStats(Boolean(apolloKey) && apolloEnabled, apolloNote),
+      tomba: emptyStats(tombaReady && tombaEnabled, tombaNote),
       hunter: emptyStats(Boolean(hunterKey) && hunterEnabled, hunterNote),
       osint: emptyStats(
         true,
@@ -1666,6 +1768,10 @@ Deno.serve(async (req) => {
       errors.push(...pipeline.errors)
       hunterState.quotaExhausted = pipeline.hunterState.quotaExhausted
       hunterState.quotaNote = pipeline.hunterState.quotaNote
+      if (pipeline.tombaState) {
+        tombaState.quotaExhausted = pipeline.tombaState.quotaExhausted
+        tombaState.quotaNote = pipeline.tombaState.quotaNote
+      }
       for (const [k, v] of Object.entries(pipeline.source_stats)) {
         source_stats[k] = { ...source_stats[k], ...v } as SourceStats
       }
@@ -2257,6 +2363,7 @@ Deno.serve(async (req) => {
       errors: [],
       source_stats: source_stats as SearchPipelineState['source_stats'],
       hunterState: { ...hunterState },
+      tombaState: { ...tombaState },
       plan_meta: {
         webCompanies: webCompaniesLen,
         allJobs: allJobsLen,
@@ -2294,6 +2401,7 @@ Deno.serve(async (req) => {
         webConfigured,
         hunterEnabled,
         apolloEnabled,
+        tombaEnabled,
         include: includeForRun,
         exclude:
           searchMode === 'application'
@@ -2496,6 +2604,8 @@ Deno.serve(async (req) => {
       let canonicalName = company.company_name
       let hunterPeople: Candidate[] = []
       let hunterOrg: string | null = null
+      let tombaPeople: Candidate[] = []
+      let tombaOrg: string | null = null
       let webPeople: Candidate[] = []
       let linkedInDiscovery: LinkedInSearchDiscovery | null = null
 
@@ -2506,7 +2616,7 @@ Deno.serve(async (req) => {
             hiring_signal: company.hiring_signal || null,
             relevance: company.relevance || 0,
             source: company.source,
-            by_provider: { websearch: 0, hunter: 0 },
+            by_provider: { websearch: 0, hunter: 0, tomba: 0 },
             kept: 0,
             outcome: '',
           })
@@ -2516,7 +2626,7 @@ Deno.serve(async (req) => {
             hiring_signal: company.hiring_signal || null,
             relevance: company.relevance || 0,
             source: company.source,
-            by_provider: { websearch: 0, hunter: 0 },
+            by_provider: { websearch: 0, hunter: 0, tomba: 0 },
             kept: 0,
             outcome: '',
           }
@@ -2574,12 +2684,12 @@ Deno.serve(async (req) => {
 
       await syncProgress(admin, runId, progressMeta, {
         companyName: company.company_name,
-        companyStep: 'LinkedIn web search + optional Hunter domain search',
+        companyStep: 'LinkedIn web search + optional Hunter/Tomba domain search',
         companyProgress: 22,
         logLine: `${company.company_name}: searching people on ${domain}`,
       })
 
-      const [webHits, hunterResult] = await Promise.all([
+      const [webHits, hunterResult, tombaResult] = await Promise.all([
         webConfigured
           ? searchWebLinkedIn(
               company.company_name,
@@ -2604,16 +2714,22 @@ Deno.serve(async (req) => {
         hunterKey && hunterEnabled && !hunterState.quotaExhausted
           ? searchHunter(domain, source_stats.hunter, hunterState)
           : Promise.resolve({ people: [] as Candidate[], organization: null }),
+        tombaReady && tombaEnabled && !tombaState.quotaExhausted
+          ? searchTomba(domain, company.company_name, source_stats.tomba, tombaState)
+          : Promise.resolve({ people: [] as Candidate[], organization: null }),
       ])
       webPeople = webHits.people
       linkedInDiscovery = webHits.discovery
       hunterPeople = hunterResult.people
       hunterOrg = hunterResult.organization
+      tombaPeople = tombaResult.people
+      tombaOrg = tombaResult.organization
 
       canonicalName = pickCanonicalCompanyName(
         company.company_name,
         domain,
         hunterOrg,
+        tombaOrg,
       )
 
       if (!looksLikeEmployerName(canonicalName)) {
@@ -2716,24 +2832,27 @@ Deno.serve(async (req) => {
       }
 
       await syncProgress(admin, runId, progressMeta, {
-        message: `Scored ${canonicalName}: Web${webPeople.length} / H${hunterPeople.length}`,
+        message: `Scored ${canonicalName}: Web${webPeople.length} / H${hunterPeople.length} / T${tombaPeople.length}`,
         detail: `Domain ${domain}`,
         current_company: canonicalName,
         companyName: company.company_name,
-        companyStep: `Merged ${webPeople.length + hunterPeople.length} raw hits — ranking titles`,
+        companyStep: `Merged ${webPeople.length + hunterPeople.length + tombaPeople.length} raw hits — ranking titles`,
         companyProgress: 38,
         progress: computeRunProgress(progressMeta, i, 25),
-        logLine: `${canonicalName}: Web${webPeople.length} LinkedIn · H${hunterPeople.length} Hunter`,
+        logLine: `${canonicalName}: Web${webPeople.length} LinkedIn · H${hunterPeople.length} Hunter · T${tombaPeople.length} Tomba`,
       })
 
       ;(report.by_provider as Record<string, number>).websearch = webPeople.length
       ;(report.by_provider as Record<string, number>).hunter = hunterPeople.length
+      ;(report.by_provider as Record<string, number>).tomba = tombaPeople.length
 
       await syncProgress(admin, runId, progressMeta, {
         message: `${canonicalName}: scoring & emails…`,
         detail:
           apolloEnabled && apolloKey
-            ? 'Apollo → Hunter → OSINT email lookup'
+            ? 'Apollo → Tomba → Hunter → OSINT email lookup'
+            : tombaEnabled && tombaReady && !tombaState.quotaExhausted
+              ? 'Tomba → Hunter → OSINT emails'
             : hunterEnabled && !hunterState.quotaExhausted
               ? 'Hunter → OSINT emails'
               : 'OSINT email pipeline',
@@ -2744,7 +2863,7 @@ Deno.serve(async (req) => {
       })
 
       const merged = new Map<string, Candidate>()
-      for (const c of [...webPeople, ...hunterPeople]) {
+      for (const c of [...webPeople, ...hunterPeople, ...tombaPeople]) {
         const key = dedupeKey(c, domain)
         const prev = merged.get(key)
         merged.set(key, prev ? mergeCandidate(prev, c) : c)
@@ -3010,6 +3129,48 @@ Deno.serve(async (req) => {
 
           if (
             !cand.email &&
+            tombaReady &&
+            tombaEnabled &&
+            !tombaState.quotaExhausted
+          ) {
+            const tomba = await tombaEmailLookup(
+              domain,
+              cand.first_name,
+              cand.last_name,
+              source_stats.tomba,
+              tombaState,
+              { company_name: canonicalName },
+            )
+            if (tomba) {
+              if (tomba.title && !cand.title) cand.title = tomba.title
+              if (tomba.linkedin_url && !cand.linkedin_url) {
+                cand.linkedin_url = tomba.linkedin_url
+              }
+              if (tomba.location && !cand.location) {
+                cand.location = tomba.location
+              }
+              if (tomba.email) {
+                const em = sanitizeOutreachEmail(tomba.email)
+                if (em) {
+                  cand.email = em
+                  cand.verification_status =
+                    tomba.verification_status || cand.verification_status
+                  if (!cand.sources.includes('tomba')) {
+                    cand.sources.push('tomba')
+                  }
+                  cand.source_details.tomba_email = {
+                    via: 'email-finder',
+                    domain,
+                    ...(tomba.score != null ? { score: tomba.score } : {}),
+                    ...(tomba.location ? { location: tomba.location } : {}),
+                  }
+                }
+              }
+            }
+          }
+
+          if (
+            !cand.email &&
             hunterKey &&
             hunterEnabled &&
             !hunterState.quotaExhausted
@@ -3127,8 +3288,21 @@ Deno.serve(async (req) => {
               meta.accept_accept_all,
             )
 
+          const tombaPrimary =
+            !apolloVerified &&
+            tombaEnabled &&
+            !tombaState.quotaExhausted &&
+            cand.sources.includes('tomba') &&
+            tombaReady
+
+          if (tombaPrimary) {
+            const verified = await tombaEmailVerifier(cand.email, tombaState)
+            if (verified) cand.verification_status = verified
+          }
+
           const hunterPrimary =
             !apolloVerified &&
+            !tombaPrimary &&
             hunterEnabled &&
             !hunterState.quotaExhausted &&
             cand.sources.includes('hunter') &&
@@ -3142,6 +3316,12 @@ Deno.serve(async (req) => {
             cand.first_name &&
             cand.last_name &&
             (!hunterPrimary ||
+              !passesEmailVerification(
+                cand.verification_status,
+                true,
+                meta.accept_accept_all,
+              )) &&
+            (!tombaPrimary ||
               !passesEmailVerification(
                 cand.verification_status,
                 true,
@@ -3350,6 +3530,10 @@ Deno.serve(async (req) => {
       quotaExhausted: hunterState.quotaExhausted,
       quotaNote: hunterState.quotaNote,
     }
+    pipeline!.tombaState = {
+      quotaExhausted: tombaState.quotaExhausted,
+      quotaNote: tombaState.quotaNote,
+    }
 
     // Orientation calibration: stop once we have ~4 people
     if (
@@ -3395,6 +3579,9 @@ Deno.serve(async (req) => {
     if (hunterState.quotaExhausted && hunterState.quotaNote) {
       source_stats.hunter.note = hunterState.quotaNote
     }
+    if (tombaState.quotaExhausted && tombaState.quotaNote) {
+      source_stats.tomba.note = tombaState.quotaNote
+    }
 
     const how = {
       method:
@@ -3405,8 +3592,8 @@ Deno.serve(async (req) => {
                 : ''
             }. Parses the pasted job description, then finds technical people on that team/project (exact or more senior nearby roles) for a referral follow-up.`
           : meta.search_mode === 'company'
-            ? `Specific-company search for "${meta.target_company || '—'}". Skips industry discovery; finds people at that employer in roles similar to yours (LinkedIn via Bing/Serper → OSINT → optional Hunter).`
-            : 'Queued search (one company per step). AI reads your profile + filters, runs live web search for employers, then finds people in similar roles at those companies (LinkedIn via Bing/Serper → OSINT → optional Hunter).',
+            ? `Specific-company search for "${meta.target_company || '—'}". Skips industry discovery; finds people at that employer in roles similar to yours (LinkedIn via Bing/Serper → OSINT → optional Apollo/Tomba/Hunter).`
+            : 'Queued search (one company per step). AI reads your profile + filters, runs live web search for employers, then finds people in similar roles at those companies (LinkedIn via Bing/Serper → OSINT → optional Apollo/Tomba/Hunter).',
       search_mode: meta.search_mode || 'general',
       target_company: meta.target_company || null,
       application: meta.application || null,
@@ -3436,7 +3623,9 @@ Deno.serve(async (req) => {
       require_verified_email: meta.require_verified_email,
       enable_hunter: meta.hunterEnabled,
       enable_apollo: meta.apolloEnabled,
+      enable_tomba: meta.tombaEnabled === true,
       hunter_quota_exhausted: hunterState.quotaExhausted,
+      tomba_quota_exhausted: tombaState.quotaExhausted,
       max_companies_per_run: meta.maxCompanies,
       max_contacts_per_company: meta.maxPerCompany,
       profile_roles: meta.targetRoles,
@@ -3630,7 +3819,7 @@ function diagnose(
         liQueries.length === 1 ? 'y' : 'ies'
       } via ${li?.via || 'web search'}${
         sampleQuery ? ` (e.g. ${sampleQuery})` : ''
-      }. Small companies are often poorly indexed — enable Hunter/Apollo, or retry with a simpler company name.`
+      }. Small companies are often poorly indexed — enable Tomba/Hunter/Apollo, or retry with a simpler company name.`
     }
     if (liUrlTotal > 0 && (li?.dropped_wrong_company || 0) > 0) {
       return `Found ${liUrlTotal} LinkedIn URL(s) but none had clear evidence they work at this company (${li?.dropped_wrong_company} dropped). Try the exact LinkedIn company name.`
@@ -3639,7 +3828,7 @@ function diagnose(
       ? `No people found for application titles (${lookingFor}). Re-extract the job description or broaden the role.`
       : `No LinkedIn people kept for titles (${lookingFor}).${
           sampleQuery ? ` Last query style: ${sampleQuery}.` : ''
-        } Try Hunter/Apollo or a different company spelling.`
+        } Try Tomba/Hunter/Apollo or a different company spelling.`
   }
   if (passed === 0) {
     const bits: string[] = []
@@ -3654,14 +3843,15 @@ function diagnose(
   }
   if (noEmail > 0 && passed > 0) {
     return searchMode === 'application'
-      ? `Found people who matched the role, but emails failed find/verify (${noEmail}). Try disabling “Require verified email” or enable Apollo/Hunter in Settings.`
-      : `Found ${passed} people who passed Filters, but emails failed find/verify (${noEmail}). Try disabling “Require verified email” or enable Apollo/Hunter in Settings.`
+      ? `Found people who matched the role, but emails failed find/verify (${noEmail}). Try disabling “Require verified email” or enable Tomba/Apollo/Hunter in Settings.`
+      : `Found ${passed} people who passed Filters, but emails failed find/verify (${noEmail}). Try disabling “Require verified email” or enable Tomba/Apollo/Hunter in Settings.`
   }
 
   const after =
     (stats.hunter?.after_title_filter || 0) +
     (stats.websearch?.after_title_filter || 0) +
     (stats.apollo?.after_title_filter || 0) +
+    (stats.tomba?.after_title_filter || 0) +
     (stats.osint?.after_title_filter || 0)
   if (after === 0) {
     return `Found ${raw} people, but none were kept after Filters / email checks. Looking for: ${lookingFor}.`

@@ -1,4 +1,9 @@
-## 2026-08-13 — Contacts Drafted tab
+## 2026-08-16 — Tomba.io email discovery
+
+- Optional Tomba provider in Settings (off by default), same pattern as Apollo/Hunter.
+- Search pipeline: Apollo → Tomba → Hunter → OSINT. Tomba does domain-search (up to 10 people/company) plus per-contact email-finder.
+- Supabase Edge secrets need **both** `TOMBA_API_KEY` (API key / `X-Tomba-Key`) and `TOMBA_API_SECRET` (secret / `X-Tomba-Secret`). Neither key goes in the database; the Settings toggle only turns the feature on.
+
 
 - Renamed the Archived contacts tab to **Drafted**.
 - Creating an outreach draft (or already having one) moves the contact out of Kept into Drafted.

@@ -37,6 +37,7 @@ export type SearchPipelineState = {
   errors: string[]
   source_stats: Record<string, SourceStatsQueued>
   hunterState: HunterRunStateQueued
+  tombaState?: HunterRunStateQueued
   /** Specific-company search: reuse employer row across retry rounds */
   company_ctx?: {
     domain: string
@@ -75,6 +76,7 @@ export type SearchPipelineState = {
     webConfigured: boolean
     hunterEnabled: boolean
     apolloEnabled: boolean
+    tombaEnabled?: boolean
     include: string[]
     exclude: string[]
     maxCompanies: number

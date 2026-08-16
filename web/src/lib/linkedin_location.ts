@@ -190,6 +190,7 @@ export function parseLocationFromLinkedInSnippet(snippet: string): string | null
 
 export function locationSourceRank(sources: string[]): number {
   if (sources.includes('apollo')) return 4
+  if (sources.includes('tomba')) return 3
   if (sources.includes('proxycurl')) return 3
   if (sources.includes('hunter')) return 2
   if (sources.includes('websearch')) return 1

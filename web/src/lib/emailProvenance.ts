@@ -5,6 +5,7 @@ export type EmailProvenance = {
   origin:
     | 'apollo'
     | 'hunter'
+    | 'tomba'
     | 'site_crawl'
     | 'web_snippet'
     | 'osint_worker'
@@ -109,6 +110,10 @@ export function buildEmailProvenance(opts: {
     sources.includes('hunter') ||
     Boolean(details.hunter_email) ||
     Boolean(details.hunter)
+  const hasTomba =
+    sources.includes('tomba') ||
+    Boolean(details.tomba_email) ||
+    Boolean(details.tomba)
   const hasSite = sources.includes('site_crawl')
   const hasSnippet = sources.includes('web_snippet')
   const hasWorker = sources.includes('osint_worker')
@@ -126,6 +131,9 @@ export function buildEmailProvenance(opts: {
   } else if (hasApollo || details.apollo) {
     method = 'found'
     origin = 'apollo'
+  } else if (hasTomba || details.tomba_email) {
+    method = 'found'
+    origin = 'tomba'
   } else if (hasHunter || details.hunter_email) {
     method = 'found'
     origin = 'hunter'
@@ -152,6 +160,7 @@ export function buildEmailProvenance(opts: {
     const originLabel: Record<EmailProvenance['origin'], string> = {
       apollo: 'Apollo.io',
       hunter: 'Hunter.io',
+      tomba: 'Tomba.io',
       site_crawl: 'company site',
       web_snippet: 'web results',
       osint_worker: 'OSINT',

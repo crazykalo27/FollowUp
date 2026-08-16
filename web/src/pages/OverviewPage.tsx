@@ -164,7 +164,7 @@ type CompanyReport = {
   domain: string | null
   hiring_signal: string
   source: string
-  by_provider?: { websearch: number; hunter: number }
+  by_provider?: { websearch: number; hunter: number; tomba?: number }
   kept: number
   outcome: string
   filter?: CompanyFilterFunnel
@@ -181,6 +181,7 @@ type SearchSummary = {
   company_reports: CompanyReport[]
   source_stats: {
     apollo: SourceStats
+    tomba?: SourceStats
     hunter: SourceStats
     osint: SourceStats
     websearch: SourceStats
@@ -219,6 +220,7 @@ type SearchSummary = {
     require_verified_email: boolean
     enable_hunter?: boolean
     enable_apollo?: boolean
+    enable_tomba?: boolean
     max_companies_per_run: number
     max_contacts_per_company: number
   }
@@ -441,7 +443,11 @@ function SearchReportBody({
                   <span className="muted small">
                     {r.domain || 'no domain'} · kept {r.kept}
                     {r.by_provider
-                      ? ` · web ${r.by_provider.websearch}/H ${r.by_provider.hunter}`
+                      ? ` · web ${r.by_provider.websearch}/H ${r.by_provider.hunter}${
+                          r.by_provider.tomba
+                            ? `/T ${r.by_provider.tomba}`
+                            : ''
+                        }`
                       : ''}
                   </span>
                 </header>
@@ -521,6 +527,20 @@ function SearchReportBody({
         <summary>Source stats</summary>
         <div className="source-grid">
           <SourceCard name="Hunter" stats={summary.source_stats.hunter} />
+          <SourceCard
+            name="Tomba"
+            stats={
+              summary.source_stats.tomba ?? {
+                configured: false,
+                attempted: 0,
+                people_found: 0,
+                after_title_filter: 0,
+                with_email: 0,
+                contacts_kept: 0,
+                errors: [],
+              }
+            }
+          />
           <SourceCard
             name="Apollo"
             stats={

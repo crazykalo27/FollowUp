@@ -34,6 +34,7 @@ export function isGuessedContactEmail(opts: {
   const hasFound =
     sources.includes('apollo') ||
     sources.includes('hunter') ||
+    sources.includes('tomba') ||
     sources.includes('site_crawl') ||
     sources.includes('web_snippet') ||
     sources.includes('osint_worker')

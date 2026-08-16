@@ -24,7 +24,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({})) as {
       email?: string
       contact_id?: string
-      method?: 'auto' | 'mx' | 'smtp' | 'hunter'
+      method?: 'auto' | 'mx' | 'smtp' | 'hunter' | 'tomba'
     }
 
     const email = (body.email || '').trim().toLowerCase()
@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
     const result = await verifyEmailLive(email, {
       preferSmtp: settings.enable_smtp_verify === true,
       hunterEnabled: settings.enable_hunter === true,
+      tombaEnabled: settings.enable_tomba === true,
       mailFrom: probeFrom,
       method: body.method || 'auto',
     })

@@ -235,7 +235,7 @@ export function SettingsPage() {
         <p className="settings-card-kicker">
           Controls how FollowUp finds and keeps contact emails during{' '}
           <Link to="/app/search">Search</Link>. Web search + OSINT is the default.
-          Apollo and Hunter are optional (off by default). Saved to your account.
+          Apollo, Tomba, and Hunter are optional (off by default). Saved to your account.
         </p>
         <label className="check">
           <input
@@ -251,8 +251,27 @@ export function SettingsPage() {
           Use Apollo.io for email lookup (uses API credits)
         </label>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          When enabled, Apollo runs first per contact; Hunter and OSINT are skipped
-          if Apollo finds an email.
+          When enabled, Apollo runs first per contact; Tomba, Hunter, and OSINT are
+          skipped if Apollo finds an email.
+        </p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={emailSettings.enable_tomba === true}
+            onChange={(e) =>
+              setEmailSettings((s) => ({
+                ...s,
+                enable_tomba: e.target.checked,
+              }))
+            }
+          />
+          Use Tomba.io for email lookup (uses API credits)
+        </label>
+        <p className="muted small" style={{ marginTop: '0.5rem' }}>
+          When enabled, Tomba runs after Apollo (if Apollo is on) and before Hunter
+          and OSINT. Domain search also finds up to 10 people per company.
+          Requires both <code>TOMBA_API_KEY</code> and <code>TOMBA_API_SECRET</code>{' '}
+          as Supabase Edge Function secrets.
         </p>
         <label className="check">
           <input
@@ -268,11 +287,11 @@ export function SettingsPage() {
           Use Hunter.io for email lookup (uses monthly API credits)
         </label>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          When enabled, Hunter runs after Apollo (if Apollo is on) and before OSINT.
-          Domain search also finds up to 10 people per company when enabled.
+          When enabled, Hunter runs after Apollo/Tomba (if those are on) and before
+          OSINT. Domain search also finds up to 10 people per company when enabled.
         </p>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          When both are off or credits are exhausted, FollowUp uses the free OSINT
+          When these are off or credits are exhausted, FollowUp uses the free OSINT
           pipeline (site crawl, email patterns, MX checks, optional OSINT worker).
         </p>
         <label className="check">

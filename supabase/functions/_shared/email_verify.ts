@@ -5,10 +5,11 @@
 
 import { hunterGet } from './cors.ts'
 import { sanitizeOutreachEmail, verifyEmailMx } from './email_discovery.ts'
+import { tombaConfigured, tombaEmailVerifier } from './tomba.ts'
 
 export type LiveVerifyResult = {
   verification_status: string
-  method_used: 'mx' | 'smtp' | 'hunter'
+  method_used: 'mx' | 'smtp' | 'hunter' | 'tomba'
   deliverable: boolean | null
   label: string
   detail: Record<string, unknown>
@@ -87,6 +88,30 @@ async function verifyEmailSmtpWorker(
   }
 }
 
+async function verifyEmailTomba(
+  email: string,
+  state: { quotaExhausted: boolean; quotaNote: string | null },
+): Promise<{ status: string; detail: Record<string, unknown> } | null> {
+  if (state.quotaExhausted || !tombaConfigured()) return null
+  try {
+    const status = await tombaEmailVerifier(email, state)
+    if (!status) return null
+    return {
+      status:
+        status === 'valid' || status === 'accept_all' || status === 'invalid'
+          ? status
+          : 'unknown',
+      detail: { tomba: { status } },
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : ''
+    if (/credit|quota|limit|monthly|429/i.test(msg)) {
+      state.quotaExhausted = true
+    }
+    return null
+  }
+}
+
 async function verifyEmailHunter(
   email: string,
   state: { quotaExhausted: boolean },
@@ -117,10 +142,12 @@ export async function verifyEmailLive(
     preferSmtp?: boolean
     /** Use Hunter verifier when enabled and credits available. */
     hunterEnabled?: boolean
+    /** Use Tomba verifier when enabled and credits available. */
+    tombaEnabled?: boolean
     /** Gmail address for SMTP MAIL FROM (more realistic probe; no message sent). */
     mailFrom?: string | null
-    /** Force method: mx | smtp | hunter | auto */
-    method?: 'mx' | 'smtp' | 'hunter' | 'auto'
+    /** Force method: mx | smtp | hunter | tomba | auto */
+    method?: 'mx' | 'smtp' | 'hunter' | 'tomba' | 'auto'
   },
 ): Promise<LiveVerifyResult> {
   const email = sanitizeOutreachEmail(emailInput)
@@ -137,7 +164,35 @@ export async function verifyEmailLive(
 
   const method = opts?.method || 'auto'
   const hunterState = { quotaExhausted: false }
+  const tombaState = { quotaExhausted: false, quotaNote: null as string | null }
   const probeFrom = opts?.mailFrom?.trim() || null
+
+  if (method === 'tomba' || (method === 'auto' && opts?.tombaEnabled)) {
+    const tomba = await verifyEmailTomba(email, tombaState)
+    if (tomba && tomba.status !== 'unknown') {
+      return {
+        verification_status: tomba.status,
+        method_used: 'tomba',
+        deliverable: deliverableFromStatus(tomba.status),
+        label: labelForResult(tomba.status, 'tomba'),
+        detail: tomba.detail,
+        probe_from: probeFrom,
+      }
+    }
+    if (method === 'tomba') {
+      const mx = await verifyEmailMx(email)
+      return {
+        verification_status: mx.status,
+        method_used: 'mx',
+        deliverable: deliverableFromStatus(mx.status),
+        label: tombaState.quotaExhausted
+          ? 'Tomba credits exhausted — MX check only'
+          : 'Tomba unavailable — MX check only',
+        detail: mx.detail,
+        probe_from: probeFrom,
+      }
+    }
+  }
 
   if (method === 'hunter' || (method === 'auto' && opts?.hunterEnabled)) {
     const hunter = await verifyEmailHunter(email, hunterState)
