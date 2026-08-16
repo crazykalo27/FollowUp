@@ -38,9 +38,8 @@ export type SearchPipelineState = {
   source_stats: Record<string, SourceStatsQueued>
   hunterState: HunterRunStateQueued
     tombaState?: HunterRunStateQueued
-  /** Tomba-first people search: empty evaluations this company (web fallback at 5× goal). */
+  /** Tomba email-finder misses this company (stop calling Tomba after 5× people goal). */
   tomba_empty_count?: number
-  tomba_dump_done?: boolean
   /** Specific-company search: reuse employer row across retry rounds */
   company_ctx?: {
     domain: string

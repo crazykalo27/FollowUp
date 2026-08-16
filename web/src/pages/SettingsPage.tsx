@@ -234,9 +234,9 @@ export function SettingsPage() {
         <h2>Email discovery (search)</h2>
         <p className="settings-card-kicker">
           Controls how FollowUp finds and keeps contact emails during{' '}
-          <Link to="/app/search">Search</Link>. Web search + OSINT is the default.
-          Tomba, when on, is the people-search path. Apollo and Hunter stay optional
-          email lookup. Off by default. Saved to your account.
+          <Link to="/app/search">Search</Link>. Web search finds people. Optional
+          Tomba/Apollo/Hunter look up that person&apos;s email instead of guessing.
+          Off by default. Saved to your account.
         </p>
         <label className="check">
           <input
@@ -252,9 +252,8 @@ export function SettingsPage() {
           Use Apollo.io for email lookup (uses API credits)
         </label>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          When enabled, Apollo enriches people found by web search. If Tomba is
-          also on, Tomba people (and their emails) take priority and Apollo is
-          skipped for those contacts.
+          When enabled, Apollo looks up email for people found by web search.
+          If Tomba is also on, Tomba runs first for that person.
         </p>
         <label className="check">
           <input
@@ -267,15 +266,15 @@ export function SettingsPage() {
               }))
             }
           />
-          Use Tomba.io people search (uses API credits)
+          Use Tomba.io to find each person&apos;s email (uses API credits)
         </label>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          When enabled, Tomba is the people search: it finds named contacts at
-          the company (with emails) first. LinkedIn web search only runs if Tomba
-          returns nothing, or after 5× your target come back empty (for example
-          3 contacts → 15 empty). Domain-search emails are used as-is so extra
-          finder credits stay low. Requires both <code>TOMBA_API_KEY</code> and{' '}
-          <code>TOMBA_SECRET</code> as Supabase Edge Function secrets.
+          LinkedIn web search still finds the people. Tomba then looks up that
+          specific person&apos;s email (name + company) before we guess a pattern.
+          After 5× your target come back empty (3 people → 15 misses), later
+          contacts fall back to Hunter/OSINT. Requires both{' '}
+          <code>TOMBA_API_KEY</code> and <code>TOMBA_SECRET</code> as Supabase
+          Edge Function secrets.
         </p>
         <label className="check">
           <input

@@ -1,3 +1,8 @@
+## 2026-08-16 — Tomba email-finder first (web still finds people)
+
+- Web/LinkedIn search finds people. Tomba looks up that specific person's email (name + domain) before pattern guessing.
+- Cap Tomba misses at 5× the people target (3 wanted → 15 empty), then Hunter/OSINT. No Tomba domain-search dump.
+
 ## 2026-08-16 — Tomba-first people search (credit-light)
 
 - With Tomba on, people come from Tomba domain-search first (emails included). LinkedIn web search is held until Tomba returns 0 people or {target × 5} Tomba candidates are empty (e.g. 3 wanted → 15 empty).
