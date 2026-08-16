@@ -37,7 +37,10 @@ export type SearchPipelineState = {
   errors: string[]
   source_stats: Record<string, SourceStatsQueued>
   hunterState: HunterRunStateQueued
-  tombaState?: HunterRunStateQueued
+    tombaState?: HunterRunStateQueued
+  /** Tomba-first people search: empty evaluations this company (web fallback at 5× goal). */
+  tomba_empty_count?: number
+  tomba_dump_done?: boolean
   /** Specific-company search: reuse employer row across retry rounds */
   company_ctx?: {
     domain: string

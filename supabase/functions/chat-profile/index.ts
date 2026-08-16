@@ -435,7 +435,7 @@ First-run orientation (locked nav until done): Welcome → Profile interview →
 
 What this chat can do: explain FollowUp, summarize/answer questions about the user's saved search profile and filters, and apply profile changes the user requests (add or remove targets). It cannot run searches, swipe contacts, or send email from here — point users to the right tab.
 
-Sends use the user's Gmail API (not a bulk mailer). No LinkedIn scraping; public discovery via search APIs + optional Tomba/Hunter/Apollo/OSINT email paths.`
+Sends use the user's Gmail API (not a bulk mailer). No LinkedIn scraping; public discovery via search APIs + optional Tomba/Hunter/Apollo/OSINT email paths. When Tomba is enabled it is the people-search: Tomba domain contacts first, LinkedIn web search only after Tomba misses (5× the people target empty, or zero Tomba hits).`
 
 type CoachIntent = 'inform' | 'update_profile' | 'update_filters'
 

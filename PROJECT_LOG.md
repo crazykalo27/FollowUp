@@ -1,3 +1,8 @@
+## 2026-08-16 — Tomba-first people search (credit-light)
+
+- With Tomba on, people come from Tomba domain-search first (emails included). LinkedIn web search is held until Tomba returns 0 people or {target × 5} Tomba candidates are empty (e.g. 3 wanted → 15 empty).
+- Skip parallel Hunter/web dumps, skip Apollo/OSINT/email-finder when Tomba already has an address. Finder/verifier only if a candidate still lacks a usable email.
+
 ## 2026-08-16 — Fix GitHub Pages `npm run build`
 
 - Pages has been failing since Aug 13: a node test file was compiled by `tsc -b`, and Contacts had a stray `mar` attribute on Delete.

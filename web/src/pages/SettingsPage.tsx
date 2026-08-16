@@ -235,7 +235,8 @@ export function SettingsPage() {
         <p className="settings-card-kicker">
           Controls how FollowUp finds and keeps contact emails during{' '}
           <Link to="/app/search">Search</Link>. Web search + OSINT is the default.
-          Apollo, Tomba, and Hunter are optional (off by default). Saved to your account.
+          Tomba, when on, is the people-search path. Apollo and Hunter stay optional
+          email lookup. Off by default. Saved to your account.
         </p>
         <label className="check">
           <input
@@ -251,8 +252,9 @@ export function SettingsPage() {
           Use Apollo.io for email lookup (uses API credits)
         </label>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          When enabled, Apollo runs first per contact; Tomba, Hunter, and OSINT are
-          skipped if Apollo finds an email.
+          When enabled, Apollo enriches people found by web search. If Tomba is
+          also on, Tomba people (and their emails) take priority and Apollo is
+          skipped for those contacts.
         </p>
         <label className="check">
           <input
@@ -265,13 +267,15 @@ export function SettingsPage() {
               }))
             }
           />
-          Use Tomba.io for email lookup (uses API credits)
+          Use Tomba.io people search (uses API credits)
         </label>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          When enabled, Tomba runs after Apollo (if Apollo is on) and before Hunter
-          and OSINT. Domain search also finds up to 10 people per company.
-          Requires both <code>TOMBA_API_KEY</code> and <code>TOMBA_SECRET</code>{' '}
-          as Supabase Edge Function secrets.
+          When enabled, Tomba is the people search: it finds named contacts at
+          the company (with emails) first. LinkedIn web search only runs if Tomba
+          returns nothing, or after 5× your target come back empty (for example
+          3 contacts → 15 empty). Domain-search emails are used as-is so extra
+          finder credits stay low. Requires both <code>TOMBA_API_KEY</code> and{' '}
+          <code>TOMBA_SECRET</code> as Supabase Edge Function secrets.
         </p>
         <label className="check">
           <input

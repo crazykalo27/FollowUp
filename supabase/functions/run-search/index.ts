@@ -97,6 +97,13 @@ type HunterRunState = {
   quotaNote: string | null
 }
 
+/** Tomba people-search: try up to 5× the people goal before LinkedIn web fallback. */
+const TOMBA_WEB_FALLBACK_MULT = 5
+
+function candidateFromTomba(c: { sources: string[] }): boolean {
+  return c.sources.includes('tomba')
+}
+
 type JobHit = {
   company_name: string
   title: string
@@ -1688,7 +1695,7 @@ Deno.serve(async (req) => {
       ? 'TOMBA_API_KEY and TOMBA_SECRET both required'
       : !tombaEnabled
         ? 'Disabled in Settings — skipped unless enabled'
-        : 'Domain search (10/domain); email-finder after Apollo, before Hunter/OSINT'
+        : 'Domain search people first; email-finder only when a kept candidate has no address'
 
     const source_stats: Record<string, SourceStats> = {
       apollo: emptyStats(Boolean(apolloKey) && apolloEnabled, apolloNote),
@@ -2521,6 +2528,8 @@ Deno.serve(async (req) => {
         pipeline!.tried_candidate_keys = []
         pipeline!.company_loosen_aspects = []
         pipeline!.company_ctx = null
+        pipeline!.tomba_empty_count = 0
+        pipeline!.tomba_dump_done = false
       }
 
       // Temporary ~15% loosen on one random aspect per retry (not persisted niches)
@@ -2595,6 +2604,15 @@ Deno.serve(async (req) => {
             }`
           : `${company.company_name}: company ${i + 1}/${selected.length} — resolving domain via AI web search`,
       })
+
+      const tombaPriority =
+        tombaReady && tombaEnabled && !tombaState.quotaExhausted
+      const tombaEmptyBudget = peopleGoal * TOMBA_WEB_FALLBACK_MULT
+      let tombaEmptyCount = pipeline!.tomba_empty_count ?? 0
+      let tombaDumpDone = pipeline!.tomba_dump_done === true
+      const countTombaEmpty = (cand: Candidate) => {
+        if (candidateFromTomba(cand)) tombaEmptyCount += 1
+      }
 
       const triedKeys = new Set(pipeline!.tried_candidate_keys ?? [])
       let skippedDup = 0
@@ -2684,46 +2702,75 @@ Deno.serve(async (req) => {
 
       await syncProgress(admin, runId, progressMeta, {
         companyName: company.company_name,
-        companyStep: 'LinkedIn web search + optional Hunter/Tomba domain search',
+        companyStep: tombaPriority
+          ? 'Tomba people search (web search held until 5× empty)'
+          : 'LinkedIn web search + optional Hunter domain search',
         companyProgress: 22,
-        logLine: `${company.company_name}: searching people on ${domain}`,
+        logLine: tombaPriority
+          ? `${company.company_name}: Tomba people search on ${domain}`
+          : `${company.company_name}: searching people on ${domain}`,
       })
 
-      const [webHits, hunterResult, tombaResult] = await Promise.all([
-        webConfigured
-          ? searchWebLinkedIn(
-              company.company_name,
-              domain,
-              peopleTitlesPass,
-              source_stats.websearch,
-              deptKeywordsPass,
-              webSearchRound,
-              linkedInOptsPass,
-            )
-          : Promise.resolve({
-              people: [] as Candidate[],
-              discovery: {
-                via: null,
-                configured: false,
-                queries: [],
-                dropped_not_linkedin: 0,
-                dropped_wrong_company: 0,
-                error: 'Web search not configured',
-              } as LinkedInSearchDiscovery,
-            }),
-        hunterKey && hunterEnabled && !hunterState.quotaExhausted
-          ? searchHunter(domain, source_stats.hunter, hunterState)
-          : Promise.resolve({ people: [] as Candidate[], organization: null }),
-        tombaReady && tombaEnabled && !tombaState.quotaExhausted
-          ? searchTomba(domain, company.company_name, source_stats.tomba, tombaState)
-          : Promise.resolve({ people: [] as Candidate[], organization: null }),
-      ])
-      webPeople = webHits.people
-      linkedInDiscovery = webHits.discovery
-      hunterPeople = hunterResult.people
-      hunterOrg = hunterResult.organization
-      tombaPeople = tombaResult.people
-      tombaOrg = tombaResult.organization
+      if (tombaPriority) {
+        const tombaResult = await searchTomba(
+          domain,
+          company.company_name,
+          source_stats.tomba,
+          tombaState,
+        )
+        tombaPeople = tombaResult.people
+        tombaOrg = tombaResult.organization
+        tombaDumpDone = true
+        pipeline!.tomba_dump_done = true
+        if (tombaPeople.length === 0 && webConfigured) {
+          pushProgressLog(
+            progressMeta,
+            `${company.company_name}: Tomba returned 0 people — LinkedIn web fallback`,
+          )
+          const webHits = await searchWebLinkedIn(
+            company.company_name,
+            domain,
+            peopleTitlesPass,
+            source_stats.websearch,
+            deptKeywordsPass,
+            webSearchRound,
+            linkedInOptsPass,
+          )
+          webPeople = webHits.people
+          linkedInDiscovery = webHits.discovery
+        }
+      } else {
+        const [webHits, hunterResult] = await Promise.all([
+          webConfigured
+            ? searchWebLinkedIn(
+                company.company_name,
+                domain,
+                peopleTitlesPass,
+                source_stats.websearch,
+                deptKeywordsPass,
+                webSearchRound,
+                linkedInOptsPass,
+              )
+            : Promise.resolve({
+                people: [] as Candidate[],
+                discovery: {
+                  via: null,
+                  configured: false,
+                  queries: [],
+                  dropped_not_linkedin: 0,
+                  dropped_wrong_company: 0,
+                  error: 'Web search not configured',
+                } as LinkedInSearchDiscovery,
+              }),
+          hunterKey && hunterEnabled && !hunterState.quotaExhausted
+            ? searchHunter(domain, source_stats.hunter, hunterState)
+            : Promise.resolve({ people: [] as Candidate[], organization: null }),
+        ])
+        webPeople = webHits.people
+        linkedInDiscovery = webHits.discovery
+        hunterPeople = hunterResult.people
+        hunterOrg = hunterResult.organization
+      }
 
       canonicalName = pickCanonicalCompanyName(
         company.company_name,
@@ -2808,13 +2855,21 @@ Deno.serve(async (req) => {
       }
 
       if (skipCompanySetup) {
+        const allowWeb =
+          !tombaPriority ||
+          tombaDumpDone ||
+          tombaEmptyCount >= tombaEmptyBudget
         await syncProgress(admin, runId, progressMeta, {
           companyName: company.company_name,
-          companyStep: 'LinkedIn web search (retry)',
+          companyStep: allowWeb
+            ? 'LinkedIn web search (Tomba fallback / retry)'
+            : 'Holding LinkedIn until Tomba 5× empty',
           companyProgress: 22,
-          logLine: `${canonicalName}: retry ${webSearchRound} people search`,
+          logLine: allowWeb
+            ? `${canonicalName}: retry ${webSearchRound} people search`
+            : `${canonicalName}: retry held — Tomba empty ${tombaEmptyCount}/${tombaEmptyBudget}`,
         })
-        if (webConfigured) {
+        if (webConfigured && allowWeb) {
           const retryHit = await searchWebLinkedIn(
             company.company_name,
             domain,
@@ -2849,7 +2904,9 @@ Deno.serve(async (req) => {
       await syncProgress(admin, runId, progressMeta, {
         message: `${canonicalName}: scoring & emails…`,
         detail:
-          apolloEnabled && apolloKey
+          tombaPriority
+            ? 'Tomba people + emails first (credits conserved)'
+            : apolloEnabled && apolloKey
             ? 'Apollo → Tomba → Hunter → OSINT email lookup'
             : tombaEnabled && tombaReady && !tombaState.quotaExhausted
               ? 'Tomba → Hunter → OSINT emails'
@@ -2863,7 +2920,7 @@ Deno.serve(async (req) => {
       })
 
       const merged = new Map<string, Candidate>()
-      for (const c of [...webPeople, ...hunterPeople, ...tombaPeople]) {
+      for (const c of [...tombaPeople, ...hunterPeople, ...webPeople]) {
         const key = dedupeKey(c, domain)
         const prev = merged.get(key)
         merged.set(key, prev ? mergeCandidate(prev, c) : c)
@@ -2914,6 +2971,7 @@ Deno.serve(async (req) => {
         if (!aff.ok) {
           merged.delete(key)
           skippedWrongCompany += 1
+          countTombaEmpty(cand)
           pushReject(cand, aff.reason || 'wrong company')
         }
       }
@@ -2942,9 +3000,32 @@ Deno.serve(async (req) => {
           last_name: c.last_name!,
         }))
 
-      source_stats.osint.attempted += 1
+      const tombaEmailsOnHand = [...merged.values()].filter(
+        (c) => candidateFromTomba(c) && c.email,
+      ).length
+      const skipOsintCrawl =
+        tombaPriority &&
+        webPeople.length === 0 &&
+        tombaEmailsOnHand >= Math.max(1, peopleGoal - companyKeptSoFar)
+
+      source_stats.osint.attempted += skipOsintCrawl ? 0 : 1
       const osintFast =
         overRunBudget() || Date.now() - runStartedMs > RUN_BUDGET_MS - 45_000
+      let osintBundle: Awaited<ReturnType<typeof enrichCompanyOsint>>
+      if (skipOsintCrawl) {
+        osintBundle = {
+          seedEmails: [],
+          hits: [],
+          workerPeople: [],
+          pattern: null,
+          errors: [],
+          mxStatusCache: new Map(),
+        }
+        pushProgressLog(
+          progressMeta,
+          `${canonicalName}: skipping OSINT — Tomba already has ${tombaEmailsOnHand} emails`,
+        )
+      } else {
       await syncProgress(admin, runId, progressMeta, {
         message: `${canonicalName}: finding emails (OSINT)…`,
         detail: 'Site crawl + patterns (about 20s max)',
@@ -2954,7 +3035,7 @@ Deno.serve(async (req) => {
         companyProgress: 52,
         logLine: `${canonicalName}: OSINT email discovery (≤20s)`,
       })
-      const osintBundle = await enrichCompanyOsint(domain, peopleForOsint, {
+      osintBundle = await enrichCompanyOsint(domain, peopleForOsint, {
         fast: osintFast,
         budgetMs: 20_000,
         useWorker: Boolean(Deno.env.get('OSINT_WORKER_URL')),
@@ -2962,6 +3043,7 @@ Deno.serve(async (req) => {
       source_stats.osint.people_found += osintBundle.seedEmails.length
       for (const err of osintBundle.errors) {
         if (err) source_stats.osint.errors.push(err)
+      }
       }
 
       const rankedPeople: Array<{
@@ -2976,6 +3058,7 @@ Deno.serve(async (req) => {
         if (!aff.ok) {
           skippedWrongCompany += 1
           filterFunnel.wrong_company = skippedWrongCompany
+          countTombaEmpty(cand)
           pushReject(cand, aff.reason || 'wrong company')
           continue
         }
@@ -2983,6 +3066,7 @@ Deno.serve(async (req) => {
         const match = titleMatchesFilters(cand.title, includePass, excludeRun)
         if (!match.ok && match.reason.startsWith('excluded')) {
           filterFunnel.excluded += 1
+          countTombaEmpty(cand)
           pushReject(cand, match.reason)
           continue
         }
@@ -3022,14 +3106,17 @@ Deno.serve(async (req) => {
         }
         // Employer already verified — bonus so company-anchored hits rank above role-only noise
         const employerBonus = 8
+        const tombaBonus = candidateFromTomba(cand) ? 6 : 0
         const totalScore =
           outreachScore +
           includeBonus +
           locationBonus +
           lightBonus +
-          employerBonus
+          employerBonus +
+          tombaBonus
         if (totalScore < minKeepScore && !match.ok) {
           filterFunnel.below_score += 1
+          countTombaEmpty(cand)
           pushReject(
             cand,
             `score ${totalScore} < ${minKeepScore} (outreach ${outreachScore}${
@@ -3047,7 +3134,12 @@ Deno.serve(async (req) => {
         })
       }
 
-      rankedPeople.sort((a, b) => b.score - a.score)
+      rankedPeople.sort((a, b) => {
+        const at = candidateFromTomba(a.cand) ? 1 : 0
+        const bt = candidateFromTomba(b.cand) ? 1 : 0
+        if (at !== bt) return bt - at
+        return b.score - a.score
+      })
       filterFunnel.passed = rankedPeople.length
 
       await syncProgress(admin, runId, progressMeta, {
@@ -3065,6 +3157,13 @@ Deno.serve(async (req) => {
       for (const { cand, score, match } of rankedPeople) {
         const keptAtCompany = (pipeline!.company_kept_total ?? 0) + kept
         if (keptAtCompany >= peopleGoal) break
+        if (
+          tombaPriority &&
+          candidateFromTomba(cand) &&
+          tombaEmptyCount >= tombaEmptyBudget
+        ) {
+          continue
+        }
 
         const candKey = dedupeKey(cand, domain)
         if (triedKeys.has(candKey)) continue
@@ -3081,7 +3180,14 @@ Deno.serve(async (req) => {
         }
 
         if (cand.first_name && cand.last_name) {
-          if (apolloKey && apolloEnabled) {
+          const alreadyHasEmail = Boolean(sanitizeOutreachEmail(cand.email))
+
+          if (
+            !alreadyHasEmail &&
+            apolloKey &&
+            apolloEnabled &&
+            !tombaPriority
+          ) {
             const apollo = await apolloEmailLookup(
               domain,
               cand.first_name,
@@ -3131,7 +3237,8 @@ Deno.serve(async (req) => {
             !cand.email &&
             tombaReady &&
             tombaEnabled &&
-            !tombaState.quotaExhausted
+            !tombaState.quotaExhausted &&
+            tombaEmptyCount < tombaEmptyBudget
           ) {
             const tomba = await tombaEmailLookup(
               domain,
@@ -3173,7 +3280,8 @@ Deno.serve(async (req) => {
             !cand.email &&
             hunterKey &&
             hunterEnabled &&
-            !hunterState.quotaExhausted
+            !hunterState.quotaExhausted &&
+            !(tombaPriority && webPeople.length === 0)
           ) {
             const found = await hunterEmailFinder(
               domain,
@@ -3273,6 +3381,7 @@ Deno.serve(async (req) => {
 
         if (!cand.email) {
           filterFunnel.no_email += 1
+          countTombaEmpty(cand)
           pushReject(cand, 'no email found')
           continue
         }
@@ -3295,7 +3404,11 @@ Deno.serve(async (req) => {
             cand.sources.includes('tomba') &&
             tombaReady
 
-          if (tombaPrimary) {
+          if (tombaPrimary && !passesEmailVerification(
+            cand.verification_status,
+            true,
+            meta.accept_accept_all,
+          )) {
             const verified = await tombaEmailVerifier(cand.email, tombaState)
             if (verified) cand.verification_status = verified
           }
@@ -3350,6 +3463,7 @@ Deno.serve(async (req) => {
             )
           ) {
             filterFunnel.no_email += 1
+            countTombaEmpty(cand)
             pushReject(
               cand,
               `email not verified (${cand.verification_status || 'unknown'})`,
@@ -3460,6 +3574,8 @@ Deno.serve(async (req) => {
       }
       pipeline!.tried_candidate_keys = [...triedKeys]
       pipeline!.company_kept_total = (pipeline!.company_kept_total ?? 0) + kept
+      pipeline!.tomba_empty_count = tombaEmptyCount
+      pipeline!.tomba_dump_done = tombaDumpDone
       const companyKept = pipeline!.company_kept_total
 
       report.kept = companyKept
@@ -3484,7 +3600,11 @@ Deno.serve(async (req) => {
           pipeline!.company_attempt = (pipeline!.company_attempt ?? 0) + 1
           pushProgressLog(
             progressMeta,
-            `${canonicalName}: ${companyKept}/${peopleGoal} new — attempt ${pipeline!.company_attempt} (${pipeline!.company_find_failures}/3 empty rounds${skippedDup ? ` · ${skippedDup} dupes skipped` : ''})`,
+            `${canonicalName}: ${companyKept}/${peopleGoal} new — attempt ${pipeline!.company_attempt} (${pipeline!.company_find_failures}/3 empty rounds${skippedDup ? ` · ${skippedDup} dupes skipped` : ''}${
+              tombaPriority
+                ? ` · Tomba empty ${tombaEmptyCount}/${tombaEmptyBudget}`
+                : ''
+            })`,
           )
           report.outcome = `Found ${companyKept}/${peopleGoal} new — scheduling another pass…`
         } else if (companyKept < peopleGoal) {
@@ -3496,7 +3616,7 @@ Deno.serve(async (req) => {
         report.outcome =
           companyKept > 0
             ? `Kept ${companyKept}/${peopleGoal} new contact(s)${skippedDup ? ` · ${skippedDup} already on file` : ''}`
-            : `No new contacts kept (Web${webPeople.length}/H${hunterPeople.length}${skippedDup ? ` · ${skippedDup} dup` : ''})`
+            : `No new contacts kept (Web${webPeople.length}/H${hunterPeople.length}/T${tombaPeople.length}${skippedDup ? ` · ${skippedDup} dup` : ''})`
         company_reports.push(report)
         markCompanyDone(progressMeta, company.company_name, report.outcome as string)
         pipeline!.company_ctx = null
@@ -3504,6 +3624,8 @@ Deno.serve(async (req) => {
         pipeline!.company_attempt = 0
         pipeline!.company_find_failures = 0
         pipeline!.company_loosen_aspects = []
+        pipeline!.tomba_empty_count = 0
+        pipeline!.tomba_dump_done = false
       }
 
       await syncProgress(admin, runId, progressMeta, {
@@ -3592,8 +3714,8 @@ Deno.serve(async (req) => {
                 : ''
             }. Parses the pasted job description, then finds technical people on that team/project (exact or more senior nearby roles) for a referral follow-up.`
           : meta.search_mode === 'company'
-            ? `Specific-company search for "${meta.target_company || '—'}". Skips industry discovery; finds people at that employer in roles similar to yours (LinkedIn via Bing/Serper → OSINT → optional Apollo/Tomba/Hunter).`
-            : 'Queued search (one company per step). AI reads your profile + filters, runs live web search for employers, then finds people in similar roles at those companies (LinkedIn via Bing/Serper → OSINT → optional Apollo/Tomba/Hunter).',
+            ? `Specific-company search for "${meta.target_company || '—'}". Skips industry discovery; finds people at that employer in roles similar to yours (Tomba people-search when enabled, else LinkedIn via Bing/Serper → OSINT → optional Hunter).`
+            : 'Queued search (one company per step). AI reads your profile + filters, runs live web search for employers, then finds people in similar roles (Tomba people-search when enabled, else LinkedIn via Bing/Serper → OSINT → optional Hunter).',
       search_mode: meta.search_mode || 'general',
       target_company: meta.target_company || null,
       application: meta.application || null,
