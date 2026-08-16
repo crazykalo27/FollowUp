@@ -1,3 +1,9 @@
+## 2026-08-16 — Tomba email lookup before guessing
+
+- Web/LinkedIn search finds people. Tomba email-finder is the first lookup for that specific person (name + domain).
+- Do not run OSINT pattern guessing or Hunter domain-search dumps first when Tomba is on.
+- Hunter finder / OSINT only if Tomba misses. Cap Tomba misses at 5× people target.
+
 ## 2026-08-16 — Tomba email-finder first (web still finds people)
 
 - Web/LinkedIn search finds people. Tomba looks up that specific person's email (name + domain) before pattern guessing.

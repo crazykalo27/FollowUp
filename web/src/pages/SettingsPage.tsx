@@ -269,10 +269,11 @@ export function SettingsPage() {
           Use Tomba.io to find each person&apos;s email (uses API credits)
         </label>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          LinkedIn web search still finds the people. Tomba then looks up that
-          specific person&apos;s email (name + company) before we guess a pattern.
-          After 5× your target come back empty (3 people → 15 misses), later
-          contacts fall back to Hunter/OSINT. Requires both{' '}
+          LinkedIn web search still finds the people. For each person, Tomba
+          is the first email lookup (name + company) — we do not guess a
+          pattern first. Hunter/OSINT only run if Tomba misses. After 5× your
+          target come back empty (3 people → 15 misses), later contacts skip
+          Tomba. Requires both{' '}
           <code>TOMBA_API_KEY</code> and <code>TOMBA_SECRET</code> as Supabase
           Edge Function secrets.
         </p>
@@ -290,8 +291,9 @@ export function SettingsPage() {
           Use Hunter.io for email lookup (uses monthly API credits)
         </label>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
-          When enabled, Hunter runs after Apollo/Tomba (if those are on) and before
-          OSINT. Domain search also finds up to 10 people per company when enabled.
+          When enabled, Hunter looks up email after Tomba/Apollo (if those are
+          on). When Tomba is on, Hunter does not dump a domain list of people
+          — web search finds people, then Tomba tries that person first.
         </p>
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
           When these are off or credits are exhausted, FollowUp uses the free OSINT

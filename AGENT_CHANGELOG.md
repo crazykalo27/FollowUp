@@ -1,5 +1,6 @@
 # Agent change log
 
+- Search: web finds people; Tomba is first email lookup (before OSINT guess / Hunter dump)
 - Contacts: rename Archived → Drafted; drafting a contact moves them there automatically
 - Orientation chips: match current question (experience ≠ company size Large/Medium/Small)
 - Orientation: fix missing quick-answer buttons (don’t hide on leftover complete/drafts)

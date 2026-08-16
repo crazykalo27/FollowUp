@@ -47,7 +47,7 @@ export interface SearchFiltersData {
   enable_hunter?: boolean
   /** Use Apollo people/match for email enrichment before Hunter/OSINT. */
   enable_apollo?: boolean
-  /** Use Tomba.io domain search + email finder (needs TOMBA_API_KEY + TOMBA_SECRET). */
+  /** Use Tomba.io email-finder for each web-found person (needs TOMBA_API_KEY + TOMBA_SECRET). */
   enable_tomba?: boolean
   /** SMTP RCPT probe via OSINT worker for live deliverability checks (no email sent). */
   enable_smtp_verify?: boolean

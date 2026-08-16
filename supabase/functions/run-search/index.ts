@@ -25,6 +25,7 @@ import {
   passesEmailVerification,
   sanitizeOutreachEmail,
   buildEmailProvenance,
+  type CompanyOsintBundle,
 } from '../_shared/email_discovery.ts'
 import {
   parseLocationFromLinkedInSnippet,
@@ -1679,19 +1680,23 @@ Deno.serve(async (req) => {
       ? 'HUNTER_API_KEY missing'
       : !hunterEnabled
         ? 'Disabled in Settings — skipped unless enabled'
-        : 'Domain search (10/domain); email-finder when Apollo/Tomba/OSINT miss'
+        : tombaEnabled
+          ? 'Email-finder after Tomba miss (web search finds people)'
+          : 'Domain search (10/domain); email-finder when Apollo/OSINT miss'
 
     const apolloNote = !apolloKey
       ? 'APOLLO_API_KEY missing'
       : !apolloEnabled
         ? 'Disabled in Settings — skipped unless enabled'
-        : 'People/match enrichment before Tomba/Hunter/OSINT email lookup'
+        : tombaEnabled
+          ? 'Skipped while Tomba is on — Tomba looks up each person first'
+          : 'People/match enrichment before Hunter/OSINT email lookup'
 
     const tombaNote = !tombaReady
       ? 'TOMBA_API_KEY and TOMBA_SECRET both required'
       : !tombaEnabled
         ? 'Disabled in Settings — skipped unless enabled'
-        : 'Email-finder for each web-found person; guessing only after a miss'
+        : 'First email lookup for each web-found person (before pattern guessing)'
 
     const source_stats: Record<string, SourceStats> = {
       apollo: emptyStats(Boolean(apolloKey) && apolloEnabled, apolloNote),
@@ -1699,9 +1704,11 @@ Deno.serve(async (req) => {
       hunter: emptyStats(Boolean(hunterKey) && hunterEnabled, hunterNote),
       osint: emptyStats(
         true,
-        osintWorkerConfigured
-          ? 'Site crawl + pattern + OSINT worker'
-          : 'Site crawl, sitemap hints, ≤1 Bing/Serper email query/company, patterns',
+        tombaEnabled
+          ? 'Fallback after Tomba miss — site crawl + patterns'
+          : osintWorkerConfigured
+            ? 'Site crawl + pattern + OSINT worker'
+            : 'Site crawl, sitemap hints, ≤1 Bing/Serper email query/company, patterns',
       ),
       websearch: emptyStats(
         webConfigured,
@@ -2691,7 +2698,9 @@ Deno.serve(async (req) => {
 
       await syncProgress(admin, runId, progressMeta, {
         companyName: company.company_name,
-        companyStep: 'LinkedIn web search + optional Hunter domain search',
+        companyStep: tombaFinderOn
+          ? 'LinkedIn web search (Tomba looks up emails next)'
+          : 'LinkedIn web search + optional Hunter domain search',
         companyProgress: 22,
         logLine: `${company.company_name}: searching people on ${domain}`,
       })
@@ -2718,7 +2727,10 @@ Deno.serve(async (req) => {
                 error: 'Web search not configured',
               } as LinkedInSearchDiscovery,
             }),
-        hunterKey && hunterEnabled && !hunterState.quotaExhausted
+        // When Tomba is on, web search finds people; Hunter domain-search
+        // would attach guessed-style dump emails before Tomba can look up
+        // that specific person.
+        hunterKey && hunterEnabled && !hunterState.quotaExhausted && !tombaFinderOn
           ? searchHunter(domain, source_stats.hunter, hunterState)
           : Promise.resolve({ people: [] as Candidate[], organization: null }),
       ])
@@ -2925,45 +2937,6 @@ Deno.serve(async (req) => {
         )
       }
 
-      const peopleForOsint = [...merged.values()]
-        .filter((c) => {
-          if (!c.first_name || !c.last_name) return false
-          if (contactAlreadyKnown(c, companyId, contactIndex)) {
-            skippedDup += 1
-            contactsSkippedDuplicate += 1
-            triedKeys.add(dedupeKey(c, domain))
-            return false
-          }
-          return true
-        })
-        .slice(0, 20)
-        .map((c) => ({
-          first_name: c.first_name!,
-          last_name: c.last_name!,
-        }))
-
-      source_stats.osint.attempted += 1
-      const osintFast =
-        overRunBudget() || Date.now() - runStartedMs > RUN_BUDGET_MS - 45_000
-      await syncProgress(admin, runId, progressMeta, {
-        message: `${canonicalName}: finding emails (OSINT)…`,
-        detail: 'Site crawl + patterns (about 20s max)',
-        current_company: canonicalName,
-        companyName: company.company_name,
-        companyStep: 'OSINT — site crawl, sitemap, patterns',
-        companyProgress: 52,
-        logLine: `${canonicalName}: OSINT email discovery (≤20s)`,
-      })
-      const osintBundle = await enrichCompanyOsint(domain, peopleForOsint, {
-        fast: osintFast,
-        budgetMs: 20_000,
-        useWorker: Boolean(Deno.env.get('OSINT_WORKER_URL')),
-      })
-      source_stats.osint.people_found += osintBundle.seedEmails.length
-      for (const err of osintBundle.errors) {
-        if (err) source_stats.osint.errors.push(err)
-      }
-
       const rankedPeople: Array<{
         cand: Candidate
         score: number
@@ -3052,14 +3025,57 @@ Deno.serve(async (req) => {
 
       await syncProgress(admin, runId, progressMeta, {
         companyName: company.company_name,
-        companyStep: 'Matching emails to contacts & verification',
+        companyStep: tombaFinderOn
+          ? 'Tomba email-finder for each person (before guessing)'
+          : 'Matching emails to contacts & verification',
         companyProgress: 68,
-        logLine: `${canonicalName}: OSINT ${osintBundle.seedEmails.length} seed emails · ${rankedPeople.length} people at company${
+        logLine: `${canonicalName}: ${rankedPeople.length} people at company${
           skippedWrongCompany
             ? ` · ${skippedWrongCompany} wrong-company filtered`
             : ''
-        }`,
+        }${tombaFinderOn ? ' — Tomba email-finder first' : ''}`,
       })
+
+      // OSINT crawl/guess only after Tomba (and Hunter finder) miss — not first.
+      let osintBundle: CompanyOsintBundle | null = null
+      const osintFast =
+        overRunBudget() || Date.now() - runStartedMs > RUN_BUDGET_MS - 45_000
+      const loadOsintBundle = async (): Promise<CompanyOsintBundle> => {
+        if (osintBundle) return osintBundle
+        source_stats.osint.attempted += 1
+        await syncProgress(admin, runId, progressMeta, {
+          message: `${canonicalName}: OSINT fallback…`,
+          detail: tombaFinderOn
+            ? 'Tomba missed — site crawl + patterns'
+            : 'Site crawl + patterns (about 20s max)',
+          current_company: canonicalName,
+          companyName: company.company_name,
+          companyStep: 'OSINT — site crawl, sitemap, patterns',
+          companyProgress: 72,
+          logLine: `${canonicalName}: OSINT email discovery (≤20s)`,
+        })
+        const peopleForOsint = rankedPeople
+          .filter(
+            ({ cand }) =>
+              Boolean(cand.first_name && cand.last_name) &&
+              !sanitizeOutreachEmail(cand.email),
+          )
+          .slice(0, 20)
+          .map(({ cand }) => ({
+            first_name: cand.first_name!,
+            last_name: cand.last_name!,
+          }))
+        osintBundle = await enrichCompanyOsint(domain, peopleForOsint, {
+          fast: osintFast,
+          budgetMs: 20_000,
+          useWorker: Boolean(Deno.env.get('OSINT_WORKER_URL')),
+        })
+        source_stats.osint.people_found += osintBundle.seedEmails.length
+        for (const err of osintBundle.errors) {
+          if (err) source_stats.osint.errors.push(err)
+        }
+        return osintBundle
+      }
 
       let kept = 0
       for (const { cand, score, match } of rankedPeople) {
@@ -3134,6 +3150,7 @@ Deno.serve(async (req) => {
             }
           }
 
+          // Tomba first for this specific person — not pattern guessing.
           if (
             !cand.email &&
             tombaFinderOn &&
@@ -3214,12 +3231,13 @@ Deno.serve(async (req) => {
               source_details: {} as Record<string, unknown>,
             }
             try {
+              const bundle = await loadOsintBundle()
               osint = await Promise.race([
                 discoverPersonEmailOsint(
                   domain,
                   cand.first_name,
                   cand.last_name,
-                  osintBundle,
+                  bundle,
                 ),
                 new Promise<Awaited<ReturnType<typeof discoverPersonEmailOsint>>>(
                   (resolve) =>
@@ -3324,6 +3342,7 @@ Deno.serve(async (req) => {
             if (verified) cand.verification_status = verified
           }
           if (
+            osintBundle &&
             cand.first_name &&
             cand.last_name &&
             (!hunterPrimary ||
