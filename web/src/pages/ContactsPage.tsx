@@ -1768,7 +1768,7 @@ export function ContactsPage() {
                         className="btn ghost"
                         disabled={busy}
                         onClick={() => setDeleteTarget(r)}
- mar                      >
+                      >
                         Delete
                       </button>
                     </>

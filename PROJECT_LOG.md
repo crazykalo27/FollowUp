@@ -1,3 +1,8 @@
+## 2026-08-16 — Fix GitHub Pages `npm run build`
+
+- Pages has been failing since Aug 13: a node test file was compiled by `tsc -b`, and Contacts had a stray `mar` attribute on Delete.
+- Exclude `*.test.ts` from the app tsconfig; remove the typo. GitHub Pages is the deploy in this repo; Cloudflare is not configured here.
+
 ## 2026-08-16 — Tomba.io email discovery
 
 - Optional Tomba provider in Settings (off by default), same pattern as Apollo/Hunter.
