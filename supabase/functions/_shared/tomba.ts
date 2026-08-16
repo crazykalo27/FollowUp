@@ -36,13 +36,26 @@ function asString(v: unknown): string | null {
   return null
 }
 
+function tombaApiKey(): string | undefined {
+  return Deno.env.get('TOMBA_API_KEY')?.trim() || undefined
+}
+
+/** Prefer TOMBA_SECRET (the name Tomba's dashboard uses); TOMBA_API_SECRET also works. */
+function tombaApiSecret(): string | undefined {
+  return (
+    Deno.env.get('TOMBA_SECRET')?.trim() ||
+    Deno.env.get('TOMBA_API_SECRET')?.trim() ||
+    undefined
+  )
+}
+
 export function tombaConfigured(): boolean {
-  return Boolean(Deno.env.get('TOMBA_API_KEY') && Deno.env.get('TOMBA_API_SECRET'))
+  return Boolean(tombaApiKey() && tombaApiSecret())
 }
 
 export function tombaAuthHeaders(): HeadersInit | null {
-  const key = Deno.env.get('TOMBA_API_KEY')
-  const secret = Deno.env.get('TOMBA_API_SECRET')
+  const key = tombaApiKey()
+  const secret = tombaApiSecret()
   if (!key || !secret) return null
   return {
     'X-Tomba-Key': key,
@@ -101,7 +114,7 @@ async function tombaGet(
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
   const headers = tombaAuthHeaders()
   if (!headers) {
-    throw new Error('TOMBA_API_KEY and TOMBA_API_SECRET are not both configured')
+    throw new Error('TOMBA_API_KEY and TOMBA_SECRET are not both configured')
   }
 
   const url = new URL(`https://api.tomba.io/v1/${path}`)

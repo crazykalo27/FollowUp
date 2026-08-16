@@ -1685,7 +1685,7 @@ Deno.serve(async (req) => {
         : 'People/match enrichment before Tomba/Hunter/OSINT email lookup'
 
     const tombaNote = !tombaReady
-      ? 'TOMBA_API_KEY and TOMBA_API_SECRET both required'
+      ? 'TOMBA_API_KEY and TOMBA_SECRET both required'
       : !tombaEnabled
         ? 'Disabled in Settings — skipped unless enabled'
         : 'Domain search (10/domain); email-finder after Apollo, before Hunter/OSINT'

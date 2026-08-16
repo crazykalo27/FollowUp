@@ -270,7 +270,7 @@ export function SettingsPage() {
         <p className="muted small" style={{ marginTop: '0.5rem' }}>
           When enabled, Tomba runs after Apollo (if Apollo is on) and before Hunter
           and OSINT. Domain search also finds up to 10 people per company.
-          Requires both <code>TOMBA_API_KEY</code> and <code>TOMBA_API_SECRET</code>{' '}
+          Requires both <code>TOMBA_API_KEY</code> and <code>TOMBA_SECRET</code>{' '}
           as Supabase Edge Function secrets.
         </p>
         <label className="check">
