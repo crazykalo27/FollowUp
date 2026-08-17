@@ -63,6 +63,9 @@ import {
 } from '../_shared/company_discovery.ts'
 import { pickCompanyDomain } from '../_shared/companyDomain.ts'
 import {
+  ensureActiveSearchProfile,
+} from '../_shared/searchProfile.ts'
+import {
   applyLoosenAspect,
   pickLoosenAspect,
 } from '../_shared/retryLoosen.ts'
@@ -1599,19 +1602,22 @@ Deno.serve(async (req) => {
       logLine: 'Reading profile, filters, and API keys',
     })
 
-    const { data: profileRow } = await admin
-      .from('search_profiles')
-      .select('profile')
-      .eq('user_id', user.id)
-      .maybeSingle()
-
+    const spActive = await ensureActiveSearchProfile(admin, user.id)
     const { data: filterRow } = await admin
       .from('search_filters')
       .select('filters')
-      .eq('user_id', user.id)
+      .eq('search_profile_id', spActive.id)
       .maybeSingle()
 
-    const profile = (profileRow?.profile || {}) as {
+    await admin
+      .from('search_runs')
+      .update({
+        search_profile_id: spActive.id,
+        search_profile_name: spActive.name,
+      })
+      .eq('id', runId)
+
+    const profile = (spActive.profile || {}) as {
       roles?: string[]
       skills?: string[]
       industries?: string[]
@@ -3438,6 +3444,8 @@ Deno.serve(async (req) => {
           discovery_source: primary,
           sources: cand.sources,
           review_status: 'pending',
+          search_profile_id: spActive.id,
+          search_profile_name: spActive.name,
           application_context: appCtx
             ? {
                 company: meta.target_company || company.company_name,

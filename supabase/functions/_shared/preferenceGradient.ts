@@ -9,6 +9,10 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 import { openaiChat } from './cors.ts'
 import { recommendFiltersForUser } from './recommendFilters.ts'
+import {
+  ensureActiveSearchProfile,
+  loadResumeForProfile,
+} from './searchProfile.ts'
 
 export const EXPLORATION_RATE = 0.1
 export const LEARNING_RATE = 0.35
@@ -492,25 +496,16 @@ export async function runPreferenceGradientRefine(
   userId: string,
   decisions: RefineDecision[],
 ): Promise<RefineResult> {
-  const [{ data: sp }, { data: pref }, { data: resume }] = await Promise.all([
-    admin
-      .from('search_profiles')
-      .select('profile, chat_summary')
-      .eq('user_id', userId)
-      .maybeSingle(),
+  const spActive = await ensureActiveSearchProfile(admin, userId)
+  const [{ data: pref }, resume] = await Promise.all([
     admin
       .from('preference_documents')
       .select('gradient_state, likes_doc, dislikes_doc, ai_summary')
-      .eq('user_id', userId)
+      .eq('search_profile_id', spActive.id)
       .maybeSingle(),
-    admin
-      .from('resumes')
-      .select('extracted_text')
-      .eq('user_id', userId)
-      .order('uploaded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    loadResumeForProfile(admin, userId, spActive.resume_id),
   ])
+  const sp = { profile: spActive.profile, chat_summary: spActive.chat_summary }
 
   const profile = (sp?.profile || {}) as {
     industries?: string[]
@@ -574,34 +569,34 @@ export async function runPreferenceGradientRefine(
       : profile.outreach_targets || [],
   }
 
-  await admin.from('search_profiles').upsert(
-    {
-      user_id: userId,
+  await admin
+    .from('search_profiles')
+    .update({
       profile: nextProfile,
       chat_summary: steps.join(' '),
       updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' },
-  )
+    })
+    .eq('id', spActive.id)
 
-  await admin.from('preference_documents').upsert(
-    {
-      user_id: userId,
+  await admin
+    .from('preference_documents')
+    .update({
       gradient_state: gradient,
       last_refine_steps: steps,
       last_refined_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' },
-  )
+    })
+    .eq('search_profile_id', spActive.id)
 
   // Rewrite filters from refined profile; then pin specific title lists from gradient
-  const filters = await recommendFiltersForUser(admin, userId)
+  const filters = await recommendFiltersForUser(admin, userId, {
+    searchProfileId: spActive.id,
+  })
   if (filters) {
     const { data: existingRow } = await admin
       .from('search_filters')
-      .select('filters')
-      .eq('user_id', userId)
+      .select('id, filters')
+      .eq('search_profile_id', spActive.id)
       .maybeSingle()
     const prev = (existingRow?.filters || {}) as Record<string, unknown>
     const merged = {
@@ -617,14 +612,15 @@ export async function runPreferenceGradientRefine(
         ]),
       ).slice(0, 16),
     }
-    await admin.from('search_filters').upsert(
-      {
-        user_id: userId,
-        filters: merged,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    )
+    if (existingRow?.id) {
+      await admin
+        .from('search_filters')
+        .update({
+          filters: merged,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingRow.id)
+    }
   }
 
   return {

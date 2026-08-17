@@ -5,6 +5,10 @@ import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { emailSettingsFromFilters, withoutLegacyRunLimits } from '../lib/searchEmailSettings'
 import { useOrientation } from '../lib/orientationContext'
+import {
+  activeResumeName,
+  useSearchProfiles,
+} from '../lib/searchProfileContext'
 import { DEFAULT_FILTERS, type SearchFiltersData, type SearchProfileData } from '../types/database'
 import './filters.css'
 
@@ -140,6 +144,8 @@ export function FiltersPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const orientation = useOrientation()
+  const searchProfiles = useSearchProfiles()
+  const activeResume = activeResumeName(searchProfiles.active)
   const [filters, setFilters] = useState<SearchFiltersData>(DEFAULT_FILTERS)
   const [includeText, setIncludeText] = useState(listToText(DEFAULT_FILTERS.include_titles))
   const [excludeText, setExcludeText] = useState(listToText(DEFAULT_FILTERS.exclude_titles))
@@ -167,6 +173,7 @@ export function FiltersPage() {
       .from('search_profiles')
       .select('profile')
       .eq('user_id', user.id)
+      .eq('is_active', true)
       .maybeSingle()
     const p =
       (data?.profile as SearchProfileData | undefined) || EMPTY_SEARCH_PROFILE
@@ -184,11 +191,15 @@ export function FiltersPage() {
 
   async function loadFilters() {
     if (!user) return
-    const { data } = await supabase
-      .from('search_filters')
-      .select('filters')
+    const { data: active } = await supabase
+      .from('search_profiles')
+      .select('id')
       .eq('user_id', user.id)
+      .eq('is_active', true)
       .maybeSingle()
+    let q = supabase.from('search_filters').select('filters').eq('user_id', user.id)
+    if (active?.id) q = q.eq('search_profile_id', active.id)
+    const { data } = await q.maybeSingle()
     if (data?.filters) {
       const f = withoutLegacyRunLimits(
         data.filters as Record<string, unknown>,
@@ -204,11 +215,18 @@ export function FiltersPage() {
 
   async function loadPrefs() {
     if (!user) return
-    const { data } = await supabase
+    const { data: active } = await supabase
+      .from('search_profiles')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+    let q = supabase
       .from('preference_documents')
       .select('likes_doc, dislikes_doc, ai_summary, discard_reason_counts')
       .eq('user_id', user.id)
-      .maybeSingle()
+    if (active?.id) q = q.eq('search_profile_id', active.id)
+    const { data } = await q.maybeSingle()
     if (data) {
       setPrefs({
         likes_doc: data.likes_doc || '',
@@ -226,7 +244,7 @@ export function FiltersPage() {
     if (!orientation.complete) {
       void loadPrefs()
     }
-  }, [user, orientation.complete])
+  }, [user, orientation.complete, searchProfiles.active?.id])
 
   // Profile chat may rewrite outreach_targets ("People to find"); refresh when
   // returning to this tab so the textarea isn't stale.
@@ -276,14 +294,14 @@ export function FiltersPage() {
       notes: notesText.trim() || undefined,
       roles_confirmed: true,
     }
-    const { error } = await supabase.from('search_profiles').upsert(
-      {
-        user_id: user.id,
+    const { error } = await supabase
+      .from('search_profiles')
+      .update({
         profile: next,
         updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    )
+      })
+      .eq('user_id', user.id)
+      .eq('is_active', true)
     if (error) {
       setSavingTargets(false)
       setStatus(error.message)
@@ -316,23 +334,40 @@ export function FiltersPage() {
     opts?: { message?: string },
   ) {
     if (!user) return false
-    const { data: row } = await supabase
-      .from('search_filters')
-      .select('filters')
+    const { data: active } = await supabase
+      .from('search_profiles')
+      .select('id')
       .eq('user_id', user.id)
+      .eq('is_active', true)
       .maybeSingle()
+    const { data: row } = active?.id
+      ? await supabase
+          .from('search_filters')
+          .select('id, filters')
+          .eq('search_profile_id', active.id)
+          .maybeSingle()
+      : await supabase
+          .from('search_filters')
+          .select('id, filters')
+          .eq('user_id', user.id)
+          .maybeSingle()
     const email = emailSettingsFromFilters(
       row?.filters as Record<string, unknown> | undefined,
     )
     const merged: SearchFiltersData = { ...next, ...email }
-    const { error } = await supabase.from('search_filters').upsert(
-      {
-        user_id: user.id,
-        filters: merged,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    )
+    const { error } = row?.id
+      ? await supabase
+          .from('search_filters')
+          .update({
+            filters: merged,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', row.id)
+      : await supabase.from('search_filters').insert({
+          user_id: user.id,
+          search_profile_id: active?.id,
+          filters: merged,
+        })
     if (error) {
       setStatus(error.message)
       return false
@@ -414,6 +449,15 @@ export function FiltersPage() {
             ? 'Next we will search for 4 people to calibrate your profile. You can provide feedback for what to keep / discard.'
             : 'Company targets drive which employers we hunt. Contact targets narrow who qualifies at each company.'}
         </p>
+        {searchProfiles.active && (
+          <p className="filters-active-profile">
+            Editing{' '}
+            <span className="search-profile-chip" title="Active search profile">
+              {searchProfiles.active.name}
+            </span>
+            {activeResume ? ` · ${activeResume}` : ''}
+          </p>
+        )}
       </header>
 
       <div className="filters-flow-rail" aria-label="Search flow">

@@ -24,7 +24,7 @@ Deno.serve(async (req) => {
 
     const { data: draft, error: draftErr } = await admin
       .from('outreach_drafts')
-      .select('*, contacts(email, full_name)')
+      .select('*, contacts(email, full_name, search_profile_id)')
       .eq('id', draft_id)
       .eq('user_id', user.id)
       .single()
@@ -59,6 +59,18 @@ Deno.serve(async (req) => {
     const to = contact?.email
     if (!to) return errorResponse('Contact has no email')
 
+    let resumeId: string | null = null
+    const spId = (contact as { search_profile_id?: string | null })
+      ?.search_profile_id
+    if (spId) {
+      const { data: sp } = await admin
+        .from('search_profiles')
+        .select('resume_id')
+        .eq('id', spId)
+        .maybeSingle()
+      resumeId = sp?.resume_id || null
+    }
+
     const { data: tokenRow } = await admin
       .from('gmail_tokens')
       .select('user_id')
@@ -77,6 +89,7 @@ Deno.serve(async (req) => {
         to,
         subject: draft.subject,
         body: draft.body,
+        resumeId,
       })
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Gmail send failed'

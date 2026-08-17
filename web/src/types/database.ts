@@ -164,6 +164,9 @@ export interface Database {
         Row: {
           id: string
           user_id: string
+          name: string
+          resume_id: string | null
+          is_active: boolean
           profile: SearchProfileData
           chat_summary: string | null
           updated_at: string
@@ -171,11 +174,17 @@ export interface Database {
         Insert: {
           id?: string
           user_id: string
+          name?: string
+          resume_id?: string | null
+          is_active?: boolean
           profile?: SearchProfileData
           chat_summary?: string | null
           updated_at?: string
         }
         Update: {
+          name?: string
+          resume_id?: string | null
+          is_active?: boolean
           profile?: SearchProfileData
           chat_summary?: string | null
           updated_at?: string
@@ -185,16 +194,19 @@ export interface Database {
         Row: {
           id: string
           user_id: string
+          search_profile_id: string | null
           filters: SearchFiltersData
           updated_at: string
         }
         Insert: {
           id?: string
           user_id: string
+          search_profile_id?: string | null
           filters?: SearchFiltersData
           updated_at?: string
         }
         Update: {
+          search_profile_id?: string | null
           filters?: SearchFiltersData
           updated_at?: string
         }
@@ -241,6 +253,8 @@ export interface Database {
           verification_status: string | null
           filter_match_reason: string | null
           application_context: Json | null
+          search_profile_id: string | null
+          search_profile_name: string | null
           created_at: string
         }
         Insert: {
@@ -255,6 +269,8 @@ export interface Database {
           verification_status?: string | null
           filter_match_reason?: string | null
           application_context?: Json | null
+          search_profile_id?: string | null
+          search_profile_name?: string | null
           created_at?: string
         }
         Update: {
@@ -266,6 +282,8 @@ export interface Database {
           verification_status?: string | null
           filter_match_reason?: string | null
           application_context?: Json | null
+          search_profile_id?: string | null
+          search_profile_name?: string | null
         }
       }
       outreach_drafts: {
@@ -335,6 +353,7 @@ export interface Database {
         Row: {
           id: string
           user_id: string
+          search_profile_id: string | null
           role: 'user' | 'assistant' | 'system'
           content: string
           created_at: string
@@ -342,11 +361,13 @@ export interface Database {
         Insert: {
           id?: string
           user_id: string
+          search_profile_id?: string | null
           role: 'user' | 'assistant' | 'system'
           content: string
           created_at?: string
         }
         Update: {
+          search_profile_id?: string | null
           content?: string
         }
       }

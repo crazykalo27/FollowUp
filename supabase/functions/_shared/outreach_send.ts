@@ -89,8 +89,9 @@ export async function sendOutreachMime(opts: {
   to: string
   subject: string
   body: string
+  resumeId?: string | null
 }): Promise<OutreachSendResult> {
-  const { admin, userId, to, subject, body } = opts
+  const { admin, userId, to, subject, body, resumeId } = opts
 
   let accessToken: string
   let from = 'me'
@@ -102,13 +103,13 @@ export async function sendOutreachMime(opts: {
     throw new Error('Gmail not connected')
   }
 
-  const { data: resume } = await admin
+  let resumeQuery = admin
     .from('resumes')
     .select('*')
     .eq('user_id', userId)
-    .order('uploaded_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const { data: resume } = resumeId
+    ? await resumeQuery.eq('id', resumeId).maybeSingle()
+    : await resumeQuery.order('uploaded_at', { ascending: false }).limit(1).maybeSingle()
 
   if (!resume) throw new Error('Upload a resume before sending')
 

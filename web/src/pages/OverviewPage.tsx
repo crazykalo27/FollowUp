@@ -5,6 +5,10 @@ import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
 import {
+  activeResumeName,
+  useSearchProfiles,
+} from '../lib/searchProfileContext'
+import {
   SEARCH_MODES,
   USER_SEARCH_DEPTHS,
   COMPANY_PEOPLE_TARGETS,
@@ -597,6 +601,8 @@ export function OverviewPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const orientation = useOrientation()
+  const searchProfiles = useSearchProfiles()
+  const activeResume = activeResumeName(searchProfiles.active)
   const [stats, setStats] = useState({
     resumes: 0,
     contactsFound: 0,
@@ -1270,6 +1276,20 @@ export function OverviewPage() {
               : 'Run a search to find companies and direct contacts, then review them.'}
         </p>
       </header>
+
+      {searchProfiles.active && (
+        <p className="search-active-profile">
+          Searching as{' '}
+          <span className="search-profile-chip" title="Active search profile">
+            {searchProfiles.active.name}
+          </span>
+          {activeResume ? (
+            <span> · {activeResume}</span>
+          ) : (
+            <span> · no resume yet</span>
+          )}
+        </p>
+      )}
 
       {!orientation.complete && !inOrientationSearch && (
         <div className="search-orient-coach">

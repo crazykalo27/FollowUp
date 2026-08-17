@@ -272,7 +272,7 @@ async function loadUserDetail(
   admin: ReturnType<typeof adminClient>,
   userId: string,
 ) {
-  const [{ data: profile }, { data: searchProfile }, { data: filterRow }, chat, runs] =
+  const [{ data: profile }, { data: searchProfile }, { data: filterRows }, chat, runs] =
     await Promise.all([
       admin
         .from('profiles')
@@ -283,14 +283,14 @@ async function loadUserDetail(
         .maybeSingle(),
       admin
         .from('search_profiles')
-        .select('profile, chat_summary, updated_at')
+        .select('id, name, profile, chat_summary, updated_at')
         .eq('user_id', userId)
+        .eq('is_active', true)
         .maybeSingle(),
       admin
         .from('search_filters')
-        .select('filters')
-        .eq('user_id', userId)
-        .maybeSingle(),
+        .select('filters, search_profile_id')
+        .eq('user_id', userId),
       admin
         .from('profile_chat_messages')
         .select('role, content, created_at')
@@ -306,6 +306,10 @@ async function loadUserDetail(
     ])
 
   const { data: authUser } = await admin.auth.admin.getUserById(userId)
+  const filterRow =
+    filterRows?.find((row) => row.search_profile_id === searchProfile?.id) ||
+    filterRows?.[0] ||
+    null
 
   return {
     ok: true,
@@ -323,6 +327,7 @@ async function loadUserDetail(
       ),
     },
     search_profile: searchProfile?.profile ?? null,
+    search_profile_name: searchProfile?.name ?? null,
     chat_summary: searchProfile?.chat_summary ?? null,
     chat: chat.data || [],
     searches: runs.data || [],

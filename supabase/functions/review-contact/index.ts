@@ -66,6 +66,7 @@ type PrefBundle = {
   dislikesDoc: string
   reasonCounts: Record<string, number>
   aiSummary: string | null
+  searchProfileId: string
 }
 
 function reasonLabels(reasons: string[]) {
@@ -99,17 +100,21 @@ function extractPickSignal(contact: {
 async function loadPreferenceBundle(
   admin: ReturnType<typeof adminClient>,
   userId: string,
+  searchProfileId?: string | null,
 ): Promise<{ pref: Record<string, unknown>; bundle: PrefBundle }> {
+  const { ensureActiveSearchProfile } = await import('../_shared/searchProfile.ts')
+  const spId =
+    searchProfileId || (await ensureActiveSearchProfile(admin, userId)).id
   let { data: pref } = await admin
     .from('preference_documents')
     .select('*')
-    .eq('user_id', userId)
+    .eq('search_profile_id', spId)
     .maybeSingle()
 
   if (!pref) {
     const { data: created } = await admin
       .from('preference_documents')
-      .insert({ user_id: userId })
+      .insert({ user_id: userId, search_profile_id: spId })
       .select('*')
       .single()
     pref = created
@@ -144,6 +149,7 @@ async function loadPreferenceBundle(
         ...((pref?.discard_reason_counts || {}) as Record<string, number>),
       },
       aiSummary: pref?.ai_summary || null,
+      searchProfileId: spId,
     },
   }
 }
@@ -158,16 +164,18 @@ async function savePreferenceBundle(
   bundle.likes.signal_feedback = bundle.likes.signal_feedback.slice(-40)
   bundle.dislikes.signal_feedback = bundle.dislikes.signal_feedback.slice(-40)
 
-  await admin.from('preference_documents').upsert({
-    user_id: userId,
-    likes: bundle.likes,
-    dislikes: bundle.dislikes,
-    likes_doc: bundle.likesDoc,
-    dislikes_doc: bundle.dislikesDoc,
-    discard_reason_counts: bundle.reasonCounts,
-    ai_summary: bundle.aiSummary,
-    updated_at: new Date().toISOString(),
-  })
+  await admin
+    .from('preference_documents')
+    .update({
+      likes: bundle.likes,
+      dislikes: bundle.dislikes,
+      likes_doc: bundle.likesDoc,
+      dislikes_doc: bundle.dislikesDoc,
+      discard_reason_counts: bundle.reasonCounts,
+      ai_summary: bundle.aiSummary,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('search_profile_id', bundle.searchProfileId)
 }
 
 async function savePreferencesAndSyncFilters(
@@ -177,7 +185,9 @@ async function savePreferencesAndSyncFilters(
 ) {
   await savePreferenceBundle(admin, userId, bundle)
   try {
-    await recommendFiltersForUser(admin, userId)
+    await recommendFiltersForUser(admin, userId, {
+      searchProfileId: bundle.searchProfileId,
+    })
   } catch {
     // preference save succeeded; filter sync is best-effort
   }
@@ -324,7 +334,7 @@ Deno.serve(async (req) => {
     const { data: contact, error: cErr } = await admin
       .from('contacts')
       .select(
-        'id, full_name, title, email, company_id, filter_match_reason, source_details, companies(id, name, domain, hiring_signal_title)',
+        'id, full_name, title, email, company_id, filter_match_reason, source_details, search_profile_id, companies(id, name, domain, hiring_signal_title)',
       )
       .eq('id', contactId)
       .eq('user_id', user.id)
@@ -396,7 +406,11 @@ Deno.serve(async (req) => {
     }
 
     if (companyAction === 'discard_all' || companyAction === 'favorite') {
-      const { bundle } = await loadPreferenceBundle(admin, user.id)
+      const { bundle } = await loadPreferenceBundle(
+        admin,
+        user.id,
+        (contact as { search_profile_id?: string | null }).search_profile_id,
+      )
 
       if (companyAction === 'discard_all') {
         await admin
@@ -551,7 +565,11 @@ Deno.serve(async (req) => {
       .eq('id', contactId)
       .eq('user_id', user.id)
 
-    const { bundle } = await loadPreferenceBundle(admin, user.id)
+    const { bundle } = await loadPreferenceBundle(
+      admin,
+      user.id,
+      (contact as { search_profile_id?: string | null }).search_profile_id,
+    )
 
     appendSignalFeedback(
       bundle,

@@ -30,8 +30,9 @@ Deno.serve(async (req) => {
     await admin.from('companies').delete().eq('user_id', uid)
     await admin.from('search_runs').delete().eq('user_id', uid)
     await admin.from('profile_chat_messages').delete().eq('user_id', uid)
-    await admin.from('search_profiles').delete().eq('user_id', uid)
+    await admin.from('search_filters').delete().eq('user_id', uid)
     await admin.from('preference_documents').delete().eq('user_id', uid)
+    await admin.from('search_profiles').delete().eq('user_id', uid)
     await admin.from('gmail_tokens').delete().eq('user_id', uid)
 
     // Resumes + storage objects
@@ -49,23 +50,34 @@ Deno.serve(async (req) => {
     }
     await admin.from('resumes').delete().eq('user_id', uid)
 
-    // Reset filters to defaults (hunter / verified off)
-    await admin.from('search_filters').delete().eq('user_id', uid)
+    const { data: created, error: profileErr } = await admin
+      .from('search_profiles')
+      .insert({
+        user_id: uid,
+        name: 'Search profile',
+        is_active: true,
+        profile: {},
+      })
+      .select('id')
+      .single()
+    if (profileErr || !created) {
+      throw new Error(profileErr?.message || 'Could not reset search profile')
+    }
+
     await admin.from('search_filters').insert({
       user_id: uid,
+      search_profile_id: created.id,
       filters: DEFAULT_SEARCH_FILTERS,
     })
 
-    await admin.from('preference_documents').upsert(
-      {
-        user_id: uid,
-        likes_doc: '',
-        dislikes_doc: '',
-        ai_summary: null,
-        discard_reason_counts: {},
-      },
-      { onConflict: 'user_id' },
-    )
+    await admin.from('preference_documents').insert({
+      user_id: uid,
+      search_profile_id: created.id,
+      likes_doc: '',
+      dislikes_doc: '',
+      ai_summary: null,
+      discard_reason_counts: {},
+    })
 
     // Reset profile / orientation (keep auth id)
     await admin
