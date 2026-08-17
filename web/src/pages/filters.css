@@ -13,6 +13,16 @@
   font-size: 1.75rem;
 }
 
+.filters-active-profile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.5rem;
+  margin: 0.65rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
 .filters-flow-rail {
   display: flex;
   align-items: center;

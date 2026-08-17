@@ -51,11 +51,15 @@ export async function loadSearchEmailSettings(
   client: SupabaseClient,
   userId: string,
 ): Promise<SearchEmailSettings> {
-  const { data } = await client
-    .from('search_filters')
-    .select('filters')
+  const { data: active } = await client
+    .from('search_profiles')
+    .select('id')
     .eq('user_id', userId)
+    .eq('is_active', true)
     .maybeSingle()
+  let q = client.from('search_filters').select('filters').eq('user_id', userId)
+  if (active?.id) q = q.eq('search_profile_id', active.id)
+  const { data } = await q.maybeSingle()
   return emailSettingsFromFilters(
     data?.filters as Record<string, unknown> | undefined,
   )
@@ -66,31 +70,40 @@ export async function saveSearchEmailSettings(
   userId: string,
   settings: SearchEmailSettings,
 ): Promise<{ error: string | null }> {
-  const { data: existing } = await client
+  const { data: rows } = await client
     .from('search_filters')
-    .select('filters')
+    .select('id, filters')
     .eq('user_id', userId)
-    .maybeSingle()
 
-  const prev = (existing?.filters || {}) as Record<string, unknown>
-  const filters = withoutLegacyRunLimits({
-    ...DEFAULT_FILTERS,
-    ...prev,
+  const patch = {
     enable_hunter: settings.enable_hunter,
     enable_apollo: settings.enable_apollo,
     enable_tomba: settings.enable_tomba,
     enable_smtp_verify: settings.enable_smtp_verify,
     require_verified_email: settings.require_verified_email,
     accept_accept_all: settings.accept_accept_all,
-  })
+  }
 
-  const { error } = await client.from('search_filters').upsert(
-    {
+  if (!rows?.length) {
+    const { error } = await client.from('search_filters').insert({
       user_id: userId,
-      filters,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' },
-  )
-  return { error: error?.message ?? null }
+      filters: withoutLegacyRunLimits({ ...DEFAULT_FILTERS, ...patch }),
+    })
+    return { error: error?.message ?? null }
+  }
+
+  for (const row of rows) {
+    const prev = (row.filters || {}) as Record<string, unknown>
+    const filters = withoutLegacyRunLimits({
+      ...DEFAULT_FILTERS,
+      ...prev,
+      ...patch,
+    })
+    const { error } = await client
+      .from('search_filters')
+      .update({ filters, updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+    if (error) return { error: error.message }
+  }
+  return { error: null }
 }

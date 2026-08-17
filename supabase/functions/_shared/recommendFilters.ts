@@ -6,6 +6,10 @@ import {
   preferProfileAlignedIncludes,
   scrubProfileByRemoveTerms,
 } from './peopleTitlePolicy.ts'
+import {
+  ensureActiveSearchProfile,
+  loadResumeForProfile,
+} from './searchProfile.ts'
 
 const FILTER_SYSTEM = `You set deterministic contact search filters for FollowUp.
 Return JSON only:
@@ -69,6 +73,7 @@ export type RecommendFilterOpts = {
   banTerms?: string[]
   /** Topics/titles the user asked to add this turn. */
   preferTerms?: string[]
+  searchProfileId?: string
 }
 
 /** AI writes search_filters from profile + resume + preference docs. */
@@ -77,32 +82,34 @@ export async function recommendFiltersForUser(
   userId: string,
   opts?: RecommendFilterOpts,
 ): Promise<Record<string, unknown> | null> {
-  const [{ data: resume }, { data: sp }, { data: pref }, { data: chat }] =
+  const spRow = opts?.searchProfileId
+    ? (
+        await admin
+          .from('search_profiles')
+          .select('id, profile, chat_summary, resume_id')
+          .eq('user_id', userId)
+          .eq('id', opts.searchProfileId)
+          .maybeSingle()
+      ).data
+    : await ensureActiveSearchProfile(admin, userId)
+  if (!spRow) return null
+
+  const [{ data: resume }, { data: pref }, { data: chat }] =
     await Promise.all([
-      admin
-        .from('resumes')
-        .select('extracted_text, file_name')
-        .eq('user_id', userId)
-        .order('uploaded_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      admin
-        .from('search_profiles')
-        .select('profile, chat_summary')
-        .eq('user_id', userId)
-        .maybeSingle(),
+      loadResumeForProfile(admin, userId, spRow.resume_id),
       admin
         .from('preference_documents')
         .select('likes_doc, dislikes_doc, ai_summary, discard_reason_counts')
-        .eq('user_id', userId)
+        .eq('search_profile_id', spRow.id)
         .maybeSingle(),
       admin
         .from('profile_chat_messages')
         .select('role, content')
-        .eq('user_id', userId)
+        .eq('search_profile_id', spRow.id)
         .order('created_at', { ascending: false })
         .limit(12),
     ])
+  const sp = { profile: spRow.profile, chat_summary: spRow.chat_summary }
 
   const chatBits = (chat || [])
     .reverse()
@@ -131,15 +138,14 @@ export async function recommendFiltersForUser(
     JSON.stringify(profile.outreach_targets || []) !==
       JSON.stringify(profileRaw.outreach_targets || [])
   ) {
-    await admin.from('search_profiles').upsert(
-      {
-        user_id: userId,
+    await admin
+      .from('search_profiles')
+      .update({
         profile,
         chat_summary: sp?.chat_summary || null,
         updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    )
+      })
+      .eq('id', spRow.id)
   }
 
   const raw = await openaiChat(
@@ -216,8 +222,8 @@ ${JSON.stringify(pref?.discard_reason_counts || {})}`,
 
   const { data: existingRow } = await admin
     .from('search_filters')
-    .select('filters')
-    .eq('user_id', userId)
+    .select('id, filters')
+    .eq('search_profile_id', spRow.id)
     .maybeSingle()
   const prev = (existingRow?.filters || {}) as Record<string, unknown>
 
@@ -244,14 +250,21 @@ ${JSON.stringify(pref?.discard_reason_counts || {})}`,
     ...preservedToggles,
   }
 
-  await admin.from('search_filters').upsert(
-    {
+  if (existingRow?.id) {
+    await admin
+      .from('search_filters')
+      .update({
+        filters: filtersToStore,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existingRow.id)
+  } else {
+    await admin.from('search_filters').insert({
       user_id: userId,
+      search_profile_id: spRow.id,
       filters: filtersToStore,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' },
-  )
+    })
+  }
 
   return { ...filters, ...preservedToggles }
 }

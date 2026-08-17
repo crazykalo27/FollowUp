@@ -86,18 +86,21 @@ export function RefinePage() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const [{ data: pref }, { data: sp }] = await Promise.all([
-        supabase
+      const { data: sp } = await supabase
+        .from('search_profiles')
+        .select('id, profile')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .maybeSingle()
+      let pref: { last_refine_steps?: string[] | null } | null = null
+      if (sp?.id) {
+        const { data } = await supabase
           .from('preference_documents')
           .select('last_refine_steps')
-          .eq('user_id', user.id)
-          .maybeSingle(),
-        supabase
-          .from('search_profiles')
-          .select('profile')
-          .eq('user_id', user.id)
-          .maybeSingle(),
-      ])
+          .eq('search_profile_id', sp.id)
+          .maybeSingle()
+        pref = data
+      }
       if (cancelled) return
       const loaded = (pref?.last_refine_steps as string[] | null) || []
       setSteps(loaded)

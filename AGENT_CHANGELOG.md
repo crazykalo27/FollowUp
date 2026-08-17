@@ -1,6 +1,7 @@
 # Agent change log
 
 - Admin kept counts: all-time keep decisions (not current Kept tab)
+- Multiple search profiles: named niches + resumes; switch active for search; tag contacts/drafts
 - Admin CRM: operator page for users, conversion, resumes, searches, emails sent, and profile chat
 - Discard reason: “Wrong position seniority” (downranks that title; tightens seniority filters)
 - Search: web finds people; Tomba is first email lookup (before OSINT guess / Hunter dump)

@@ -88,6 +88,7 @@ type UserDetail = {
     locations?: string[]
     seniority?: string
   } | null
+  search_profile_name?: string | null
   chat_summary: string | null
   chat: ChatMsg[]
   searches: SearchRun[]
@@ -380,6 +381,9 @@ export function AdminPage() {
             <>
               {detail.search_profile && (
                 <p className="small">
+                  {detail.search_profile_name
+                    ? `${detail.search_profile_name} · `
+                    : ''}
                   Roles:{' '}
                   {(detail.search_profile.roles || []).join(', ') || '—'}
                   {' · '}Industries:{' '}

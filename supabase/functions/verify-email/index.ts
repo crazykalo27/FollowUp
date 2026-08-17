@@ -9,6 +9,7 @@ import { verifyEmailLive } from '../_shared/email_verify.ts'
 import { buildEmailProvenance } from '../_shared/email_discovery.ts'
 import { getGmailAccessToken } from '../_shared/gmail_client.ts'
 import { emailSettingsFromFilters } from '../_shared/filterEmailSettings.ts'
+import { loadActiveSearchProfile } from '../_shared/searchProfile.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -19,7 +20,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const user = await requireUser(req)
+    const auth = await requireUser(req)
+    if (auth instanceof Response) return auth
+    const { user } = auth
     const admin = adminClient()
     const body = await req.json().catch(() => ({})) as {
       email?: string
@@ -32,11 +35,13 @@ Deno.serve(async (req) => {
       return errorResponse('email is required', 400)
     }
 
-    const { data: filterRow } = await admin
+    const active = await loadActiveSearchProfile(admin, user.id)
+    let filterQuery = admin
       .from('search_filters')
       .select('filters')
       .eq('user_id', user.id)
-      .maybeSingle()
+    if (active?.id) filterQuery = filterQuery.eq('search_profile_id', active.id)
+    const { data: filterRow } = await filterQuery.maybeSingle()
 
     const settings = emailSettingsFromFilters(
       filterRow?.filters as Record<string, unknown> | undefined,

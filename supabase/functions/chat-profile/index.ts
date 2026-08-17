@@ -12,6 +12,11 @@ import {
   ensureProfileAdditions,
   scrubProfileByRemoveTerms,
 } from '../_shared/peopleTitlePolicy.ts'
+import {
+  ensureActiveSearchProfile,
+  loadResumeForProfile,
+  type SearchProfileRow,
+} from '../_shared/searchProfile.ts'
 
 type Profile = {
   roles: string[]
@@ -312,48 +317,53 @@ function applyCompanySizeToTypes(profile: Profile): Profile {
 }
 
 async function loadState(admin: ReturnType<typeof adminClient>, userId: string) {
-  const [{ data: resume }, { data: history }, { data: sp }] = await Promise.all([
-    loadLatestResume(admin, userId),
+  const sp = await ensureActiveSearchProfile(admin, userId)
+  const [{ data: resume }, { data: history }] = await Promise.all([
+    loadResumeForProfile(admin, userId, sp.resume_id),
     admin
       .from('profile_chat_messages')
       .select('role, content')
       .eq('user_id', userId)
+      .eq('search_profile_id', sp.id)
       .order('created_at', { ascending: true })
       .limit(40),
-    admin
-      .from('search_profiles')
-      .select('profile')
-      .eq('user_id', userId)
-      .maybeSingle(),
   ])
 
   return {
+    sp,
     resume,
     history: history || [],
-    profile: mergeProfile(EMPTY_PROFILE, sp?.profile as Partial<Profile> | undefined),
+    profile: mergeProfile(EMPTY_PROFILE, sp.profile as Partial<Profile> | undefined),
   }
 }
 
-async function loadLatestResume(
+async function saveProfile(
   admin: ReturnType<typeof adminClient>,
   userId: string,
-  resumeId?: string,
+  sp: SearchProfileRow,
+  profile: Profile,
+  summary: string,
+  markComplete: boolean,
 ) {
-  if (resumeId) {
-    return admin
-      .from('resumes')
-      .select('id, extracted_text, file_name, uploaded_at')
-      .eq('user_id', userId)
-      .eq('id', resumeId)
-      .maybeSingle()
-  }
-  return admin
-    .from('resumes')
-    .select('id, extracted_text, file_name, uploaded_at')
+  await admin
+    .from('search_profiles')
+    .update({
+      profile,
+      chat_summary: summary,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', sp.id)
     .eq('user_id', userId)
-    .order('uploaded_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  if (markComplete) {
+    await admin
+      .from('profiles')
+      .update({
+        onboarding_complete: true,
+        orientation_step: 'filters',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId)
+  }
 }
 
 async function suggestRolesFromIndustries(
@@ -387,34 +397,6 @@ Return 4–8 job titles to search for in those industries.`,
   return Array.isArray(suggested?.roles)
     ? suggested.roles.filter((r: unknown) => typeof r === 'string' && r.trim())
     : []
-}
-
-async function saveProfile(
-  admin: ReturnType<typeof adminClient>,
-  userId: string,
-  profile: Profile,
-  summary: string,
-  markComplete: boolean,
-) {
-  await admin.from('search_profiles').upsert(
-    {
-      user_id: userId,
-      profile,
-      chat_summary: summary,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' },
-  )
-  if (markComplete) {
-    await admin
-      .from('profiles')
-      .update({
-        onboarding_complete: true,
-        orientation_step: 'filters',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', userId)
-  }
 }
 
 /** Product knowledge for Profile chat — keep factual and brief. */
@@ -460,12 +442,12 @@ function profileSearchChanged(before: Profile, after: Profile): boolean {
 
 async function loadFilters(
   admin: ReturnType<typeof adminClient>,
-  userId: string,
+  searchProfileId: string,
 ): Promise<Record<string, unknown> | null> {
   const { data } = await admin
     .from('search_filters')
     .select('filters')
-    .eq('user_id', userId)
+    .eq('search_profile_id', searchProfileId)
     .maybeSingle()
   return (data?.filters as Record<string, unknown> | null) || null
 }
@@ -504,18 +486,29 @@ Deno.serve(async (req) => {
 
     const admin = adminClient()
     const state = await loadState(admin, user.id)
+    const sp = state.sp
     const resumeId =
       typeof body.resume_id === 'string' ? body.resume_id.trim() : undefined
+    if (resumeId && !sp.resume_id) {
+      await admin
+        .from('search_profiles')
+        .update({
+          resume_id: resumeId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', sp.id)
+        .eq('user_id', user.id)
+      sp.resume_id = resumeId
+    }
     const resumeForChat = resumeId
-      ? (await loadLatestResume(admin, user.id, resumeId)).data ?? state.resume
+      ? (await loadResumeForProfile(admin, user.id, resumeId)) ?? state.resume
       : state.resume
     const resumeSnippet = (resumeForChat?.extracted_text || '').slice(0, 12000)
 
     if (action === 'bootstrap') {
-      const resumeRow = resumeId
-        ? await loadLatestResume(admin, user.id, resumeId)
-        : { data: state.resume }
-      const resume = resumeRow.data
+      const resume = resumeId
+        ? await loadResumeForProfile(admin, user.id, resumeId)
+        : state.resume
 
       if (state.history.length > 0) {
         const last = state.history[state.history.length - 1]
@@ -601,10 +594,11 @@ Rules:
 
       await admin.from('profile_chat_messages').insert({
         user_id: user.id,
+        search_profile_id: sp.id,
         role: 'assistant',
         content: safeReply,
       })
-      await saveProfile(admin, user.id, profile, safeReply, false)
+      await saveProfile(admin, user.id, sp, profile, safeReply, false)
 
       return jsonResponse({
         reply: safeReply,
@@ -642,6 +636,7 @@ Rules:
 
       await admin.from('profile_chat_messages').insert({
         user_id: user.id,
+        search_profile_id: sp.id,
         role: 'user',
         content: userContent,
       })
@@ -669,11 +664,14 @@ Rules:
 
       await admin.from('profile_chat_messages').insert({
         user_id: user.id,
+        search_profile_id: sp.id,
         role: 'assistant',
         content: reply,
       })
-      await saveProfile(admin, user.id, profile, reply, true)
-      const filters = await recommendFiltersForUser(admin, user.id)
+      await saveProfile(admin, user.id, sp, profile, reply, true)
+      const filters = await recommendFiltersForUser(admin, user.id, {
+        searchProfileId: sp.id,
+      })
 
       return jsonResponse({
         reply,
@@ -694,7 +692,7 @@ Rules:
 
     // ── Freeform coach (interview finished): app Q&A, profile Q&A, selective updates
     if (qIndex >= SERIES_DONE) {
-      const currentFilters = await loadFilters(admin, user.id)
+      const currentFilters = await loadFilters(admin, sp.id)
       const freeformPrompt = `You are FollowUp AI on the Profile page — a helpful product coach and search-profile editor.
 
 ${FOLLOWUP_APP_KNOWLEDGE}
@@ -810,16 +808,18 @@ Return JSON only:
 
       await admin.from('profile_chat_messages').insert({
         user_id: user.id,
+        search_profile_id: sp.id,
         role: 'assistant',
         content: reply,
       })
 
       if (intent !== 'inform' || profileSearchChanged(state.profile, profile)) {
-        await saveProfile(admin, user.id, profile, reply, false)
+        await saveProfile(admin, user.id, sp, profile, reply, false)
       }
 
       const filters = refreshFilters
         ? await recommendFiltersForUser(admin, user.id, {
+            searchProfileId: sp.id,
             banTerms: removeTerms,
             preferTerms: addTerms,
           })
@@ -927,6 +927,7 @@ Return JSON only:
 
       await admin.from('profile_chat_messages').insert({
         user_id: user.id,
+        search_profile_id: sp.id,
         role: 'assistant',
         content: reply,
       })
@@ -1016,10 +1017,12 @@ Return JSON only:
       role: 'assistant',
       content: reply,
     })
-    await saveProfile(admin, user.id, profile, reply, false)
+    await saveProfile(admin, user.id, sp, profile, reply, false)
 
     const filters = seriesComplete
-      ? await recommendFiltersForUser(admin, user.id)
+      ? await recommendFiltersForUser(admin, user.id, {
+          searchProfileId: sp.id,
+        })
       : null
 
     return jsonResponse({

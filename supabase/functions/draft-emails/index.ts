@@ -157,7 +157,7 @@ Deno.serve(async (req) => {
     let contactsQuery = admin
       .from('contacts')
       .select(
-        'id, full_name, first_name, title, email, filter_match_reason, company_id, application_context, source_details, companies(name, domain, hiring_signal_title, hiring_signal_url)',
+        'id, full_name, first_name, title, email, filter_match_reason, company_id, application_context, source_details, search_profile_id, companies(name, domain, hiring_signal_title, hiring_signal_url)',
       )
       .eq('user_id', user.id)
       .not('email', 'is', null)
@@ -185,8 +185,17 @@ Deno.serve(async (req) => {
     const { data: profileRow } = await admin
       .from('search_profiles')
       .select('profile')
-      .eq('user_id', user.id)
+      .eq('id', contacts[0]?.search_profile_id)
       .maybeSingle()
+    const fallbackProfile = profileRow
+      ? profileRow
+      : await admin
+          .from('search_profiles')
+          .select('profile')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .maybeSingle()
+          .then((r) => r.data)
 
     const { data: senderRow } = await admin
       .from('profiles')
@@ -212,12 +221,12 @@ Deno.serve(async (req) => {
       website_url: senderRow?.website_url,
     }
 
-    const profile = (profileRow?.profile || {}) as {
+    const profile = ((fallbackProfile?.profile || {}) as {
       roles?: string[]
       industries?: string[]
       employment_types?: string[]
       remote_preference?: string
-    }
+    })
 
     const subjectTemplate =
       senderRow?.email_subject_template?.trim() ||
