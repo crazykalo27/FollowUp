@@ -1,3 +1,7 @@
+## 2026-08-17 — Admin kept = all-time
+
+- Admin totals and per-user kept counts use `contact_decisions` with `decision=keep`, so deletes / Drafted / moves out of Kept do not lower the number.
+
 ## 2026-08-17 — Multiple search profiles and resumes
 
 - A user can keep several named search profiles (different niches), each with its own resume, filters, prefs, and profile chat.
