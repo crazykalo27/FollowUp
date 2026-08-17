@@ -1,9 +1,10 @@
 import { Navigate, Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { useOrientation } from '../lib/orientationContext'
 import { pathForStep, type AppPage } from '../lib/orientation'
 import { prefetchDrafts } from '../lib/draftsCache'
+import { invokeFunction } from '../lib/api'
 import { FollowUpLogo } from './FollowUpLogo'
 
 export function RequireAuth() {
@@ -27,12 +28,30 @@ export function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const orientation = useOrientation()
+  const [isAdmin, setIsAdmin] = useState(false)
 
-  // Warm drafts cache while the user is on other tabs so Drafts isn't empty on switch.
   useEffect(() => {
     if (!user) return
     void prefetchDrafts(user.id)
   }, [user, location.pathname])
+
+  useEffect(() => {
+    if (!user) {
+      setIsAdmin(false)
+      return
+    }
+    let cancelled = false
+    void invokeFunction('admin-crm', { view: 'whoami' })
+      .then(() => {
+        if (!cancelled) setIsAdmin(true)
+      })
+      .catch(() => {
+        if (!cancelled) setIsAdmin(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   if (orientation.loading) {
     return <div className="page-center muted">Loading…</div>
@@ -42,7 +61,8 @@ export function AppShell() {
   if (!orientation.complete) {
     const allowed = orientation.pathForCurrent
     const onWelcome = location.pathname.includes('/welcome')
-    if (!onWelcome) {
+    const onAdmin = location.pathname.includes('/admin')
+    if (!onWelcome && !onAdmin) {
       const page = pageFromNav(location.pathname)
       if (page && !orientation.canAccess(page)) {
         return <Navigate to={allowed} replace />
@@ -88,6 +108,9 @@ export function AppShell() {
               </NavLink>
             )
           })}
+          {isAdmin && (
+            <NavLink to="/app/admin">Admin</NavLink>
+          )}
         </nav>
         <div className="side-footer">
           <p className="muted small">{user?.email}</p>

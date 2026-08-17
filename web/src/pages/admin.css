@@ -1,0 +1,139 @@
+.admin-page {
+  max-width: 72rem;
+}
+
+.admin-page-header {
+  margin-bottom: 1.25rem;
+}
+
+.admin-page-header h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.75rem;
+}
+
+.admin-page-header .lede {
+  margin: 0 0 0.75rem;
+}
+
+.admin-funnel {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.admin-funnel strong {
+  font-family: var(--font-display);
+}
+
+.admin-features {
+  margin: 0;
+}
+
+.admin-search {
+  width: 100%;
+  max-width: 22rem;
+  margin-bottom: 0.85rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+  font: inherit;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.admin-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 0.4rem 0.55rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.admin-table td {
+  padding: 0.55rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.admin-table tbody tr {
+  cursor: pointer;
+}
+
+.admin-table tbody tr:hover,
+.admin-table tbody tr.on {
+  background: rgba(196, 240, 76, 0.06);
+}
+
+.admin-name {
+  font-weight: 600;
+}
+
+.admin-sub {
+  margin: 1rem 0 0.4rem;
+  font-size: 1rem;
+}
+
+.admin-summary {
+  font-size: 0.9rem;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.admin-chat {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: 28rem;
+  overflow-y: auto;
+}
+
+.admin-chat li {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.admin-chat li.user {
+  border-color: rgba(196, 240, 76, 0.22);
+}
+
+.admin-chat-role {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.admin-chat p {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+}
+
+.admin-runs {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
