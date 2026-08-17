@@ -19,6 +19,7 @@ export type DraftRow = {
   contacts: {
     full_name: string | null
     email: string | null
+    search_profile_name?: string | null
     companies: { name: string } | { name: string }[] | null
   } | null
 }
@@ -127,7 +128,7 @@ export async function prefetchDrafts(
         supabase
           .from('outreach_drafts')
           .select(
-            'id, contact_id, subject, body, status, sent_at, error_message, bounce_summary, contacts(full_name, email, companies(name))',
+            'id, contact_id, subject, body, status, sent_at, error_message, bounce_summary, contacts(full_name, email, search_profile_name, companies(name))',
           )
           .eq('user_id', userId)
           .order('created_at', { ascending: false }),

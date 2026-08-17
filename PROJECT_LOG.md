@@ -1,3 +1,10 @@
+## 2026-08-17 — Multiple search profiles and resumes
+
+- A user can keep several named search profiles (different niches), each with its own resume, filters, prefs, and profile chat.
+- Profile page: **Search profiles and resumes** manager — list, rename, switch active, add (upload resume), delete (keep at least one; contacts stay tagged).
+- Search / Filters show the active profile. Contact and draft cards show which profile that person is tied to.
+- Switching active changes the search terms the AI uses. Sending attaches that contact’s profile resume.
+
 ## 2026-08-17 — Admin CRM (usage across users)
 
 - New `/app/admin` page (nav only if your login is in `ADMIN_EMAILS`) with user counts, conversion funnel, resumes/searches/emails, provider toggles, and per-user profile chat.

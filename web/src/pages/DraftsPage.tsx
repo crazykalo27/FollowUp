@@ -757,6 +757,9 @@ export function DraftsPage() {
                   </span>
                   <span className="muted small">
                     {d.contacts?.full_name || d.contacts?.email}
+                    {d.contacts?.search_profile_name
+                      ? ` · ${d.contacts.search_profile_name}`
+                      : ''}
                     {d.status === 'sent'
                       ? ` · ${formatSentDate(d.sent_at)}`
                       : d.status === 'pending'
@@ -785,6 +788,16 @@ export function DraftsPage() {
                   <h2 className="drafts-editor-recipient">
                     {active.contacts?.full_name || 'Contact'}
                   </h2>
+                  {active.contacts?.search_profile_name && (
+                    <p className="drafts-editor-profile">
+                      <span
+                        className="search-profile-chip"
+                        title="Search profile"
+                      >
+                        {active.contacts.search_profile_name}
+                      </span>
+                    </p>
+                  )}
                   <p className="muted small drafts-editor-to">
                     {active.contacts?.email || 'No email on file'}
                     {active.status === 'sent'

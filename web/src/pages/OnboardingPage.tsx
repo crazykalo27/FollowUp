@@ -4,6 +4,9 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { invokeFunction } from '../lib/api'
 import { useOrientation } from '../lib/orientationContext'
+import { useSearchProfiles } from '../lib/searchProfileContext'
+import { attachResumeToProfile, resumeFileName } from '../lib/searchProfiles'
+import { SearchProfilesModal } from '../components/SearchProfilesModal'
 import { FollowUpLogo } from '../components/FollowUpLogo'
 import { ProfileCoachAvatar } from '../components/ProfileCoachAvatar'
 import type { SearchProfileData } from '../types/database'
@@ -43,6 +46,8 @@ export function OnboardingPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const orientation = useOrientation()
+  const searchProfiles = useSearchProfiles()
+  const [managerOpen, setManagerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [fileName, setFileName] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -56,6 +61,7 @@ export function OnboardingPage() {
   const [status, setStatus] = useState<string | null>(null)
   const chatLogRef = useRef<HTMLDivElement>(null)
   const bootstrapAttempted = useRef(false)
+  const lastProfileId = useRef<string | null>(null)
 
   async function bootstrapChat(resumeId?: string) {
     setBootstrapping(true)
@@ -90,28 +96,32 @@ export function OnboardingPage() {
   }
 
   useEffect(() => {
-    if (!user) return
+    if (!user || searchProfiles.loading) return
+    const active = searchProfiles.active
+    const activeId = active?.id || null
+    if (lastProfileId.current && lastProfileId.current !== activeId) {
+      bootstrapAttempted.current = false
+      setMessages([])
+      setProfile(null)
+      setSeriesComplete(false)
+    }
+    lastProfileId.current = activeId
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const [{ data: resume }, { data: chat }, { data: sp }, { data: prof }] =
+      const [{ data: chat }, { data: sp }, { data: prof }] =
         await Promise.all([
-          supabase
-            .from('resumes')
-            .select('file_name')
-            .eq('user_id', user.id)
-            .order('uploaded_at', { ascending: false })
-            .limit(1)
-            .maybeSingle(),
           supabase
             .from('profile_chat_messages')
             .select('role, content')
             .eq('user_id', user.id)
+            .eq('search_profile_id', activeId || '')
             .order('created_at', { ascending: true }),
           supabase
             .from('search_profiles')
-            .select('profile')
+            .select('profile, resume_id, resumes(file_name)')
             .eq('user_id', user.id)
+            .eq('is_active', true)
             .maybeSingle(),
           supabase
             .from('profiles')
@@ -122,7 +132,16 @@ export function OnboardingPage() {
 
       if (cancelled) return
 
-      if (resume) setFileName(resume.file_name)
+      const resumeName = (() => {
+        const r = sp?.resumes as
+          | { file_name: string }
+          | { file_name: string }[]
+          | null
+        if (!r) return active ? resumeFileName(active) : null
+        return Array.isArray(r) ? r[0]?.file_name : r.file_name
+      })()
+      if (resumeName) setFileName(resumeName)
+      else setFileName(null)
       if (sp?.profile) {
         const p = sp.profile as SearchProfileData
         const q = Number(p.orientation_q ?? 0)
@@ -147,7 +166,7 @@ export function OnboardingPage() {
       setMessages(loaded)
       setLoading(false)
 
-      if (resume && loaded.length === 0 && !bootstrapAttempted.current) {
+      if (resumeName && loaded.length === 0 && !bootstrapAttempted.current) {
         bootstrapAttempted.current = true
         await bootstrapChat()
       }
@@ -155,7 +174,7 @@ export function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [user])
+  }, [user, searchProfiles.loading, searchProfiles.active])
 
   useEffect(() => {
     const el = chatLogRef.current
@@ -185,6 +204,12 @@ export function OnboardingPage() {
         .single()
       if (error) throw error
 
+      const activeId = searchProfiles.active?.id
+      if (activeId && !searchProfiles.active?.resume_id) {
+        await attachResumeToProfile(activeId, row.id)
+        await searchProfiles.refresh()
+      }
+
       setFileName(file.name)
       const parsed = await invokeFunction<{ ok?: boolean; chars?: number }>(
         'parse-resume',
@@ -198,7 +223,15 @@ export function OnboardingPage() {
         setStatus('Scanning your resume…')
       }
 
-      await supabase.from('profile_chat_messages').delete().eq('user_id', user.id)
+      if (activeId) {
+        await supabase
+          .from('profile_chat_messages')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('search_profile_id', activeId)
+      } else {
+        await supabase.from('profile_chat_messages').delete().eq('user_id', user.id)
+      }
       setMessages([])
       setProfile(null)
       setReady(false)
@@ -331,23 +364,19 @@ export function OnboardingPage() {
             <span>FollowUp AI</span>
           </div>
           <div className="profile-guide-meta">
-            <span className="profile-resume-chip" title={fileName}>
-              {fileName}
+            <span
+              className="profile-resume-chip"
+              title={searchProfiles.active?.name || fileName || ''}
+            >
+              {searchProfiles.active?.name || fileName}
             </span>
-            <label className="upload">
-              <input
-                type="file"
-                accept=".pdf,.doc,.docx,.txt,application/pdf,text/plain"
-                disabled={uploading || bootstrapping}
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) void onUpload(f)
-                }}
-              />
-              <span>
-                {uploading || bootstrapping ? 'Working…' : 'Replace resume'}
-              </span>
-            </label>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setManagerOpen(true)}
+            >
+              Search profiles and resumes
+            </button>
           </div>
         </header>
         <div className="profile-chat-main" ref={chatLogRef}>
@@ -459,6 +488,15 @@ export function OnboardingPage() {
           {status && <p className="flash">{status}</p>}
         </footer>
       </div>
+      {managerOpen && (
+        <SearchProfilesModal
+          onClose={() => setManagerOpen(false)}
+          onSwitched={() => {
+            bootstrapAttempted.current = false
+            void searchProfiles.refresh()
+          }}
+        />
+      )}
     </div>
   )
 }

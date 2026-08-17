@@ -35,6 +35,8 @@ type ContactRow = {
   location: string | null
   sources: string[] | null
   review_status: string | null
+  search_profile_id?: string | null
+  search_profile_name?: string | null
   created_at?: string | null
   /** Latest keep (or restore) time for sort */
   kept_at?: string | null
@@ -253,9 +255,16 @@ function ContactDetail({
       className={`contact-detail${compact ? ' contact-detail-compact' : ''}`}
     >
       <header className="contact-detail-header">
-        <h2 className="contact-detail-name">
-          {contact.full_name || 'Unknown'}
-        </h2>
+        <div className="contact-detail-title-row">
+          <h2 className="contact-detail-name">
+            {contact.full_name || 'Unknown'}
+          </h2>
+          {contact.search_profile_name && (
+            <span className="search-profile-chip" title="Search profile">
+              {contact.search_profile_name}
+            </span>
+          )}
+        </div>
         {sources.length > 0 && (
           <div className="source-pills contact-detail-sources">
             {sources.map((s) => (
@@ -529,7 +538,7 @@ export function ContactsPage() {
         supabase
           .from('contacts')
           .select(
-            'id, company_id, full_name, title, email, location, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, created_at, source_details, application_context, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
+            'id, company_id, full_name, title, email, location, verification_status, filter_match_reason, discovery_source, linkedin_url, sources, review_status, created_at, source_details, application_context, search_profile_id, search_profile_name, companies(id, name, domain, hiring_signal_title, hiring_signal_url, user_flag)',
           )
           .eq('user_id', user.id)
           .order('created_at', { ascending: false }),

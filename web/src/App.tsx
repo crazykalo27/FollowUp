@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './lib/auth'
 import { OrientationProvider } from './lib/orientationContext'
+import { SearchProfileProvider } from './lib/searchProfileContext'
 import { AppShell, RequireAuth } from './components/AppShell'
 import { ProfileSetupGate } from './components/ProfileSetupGate'
 import { WelcomeSetupPage } from './pages/WelcomeSetupPage'
@@ -28,7 +29,9 @@ export default function App() {
                 path="/app"
                 element={
                   <OrientationProvider>
-                    <AppShell />
+                    <SearchProfileProvider>
+                      <AppShell />
+                    </SearchProfileProvider>
                   </OrientationProvider>
                 }
               >
