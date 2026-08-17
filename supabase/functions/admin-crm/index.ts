@@ -125,6 +125,7 @@ async function loadOverview(admin: ReturnType<typeof adminClient>) {
     resumes,
     runs,
     contacts,
+    decisions,
     drafts,
     gmail,
     filters,
@@ -153,8 +154,11 @@ async function loadOverview(admin: ReturnType<typeof adminClient>) {
     fetchAllRows<{ user_id: string }>((from, to) =>
       admin.from('search_runs').select('user_id').range(from, to),
     ),
-    fetchAllRows<{ user_id: string; review_status: string }>((from, to) =>
-      admin.from('contacts').select('user_id, review_status').range(from, to),
+    fetchAllRows<{ user_id: string }>((from, to) =>
+      admin.from('contacts').select('user_id').range(from, to),
+    ),
+    fetchAllRows<{ user_id: string; decision: string }>((from, to) =>
+      admin.from('contact_decisions').select('user_id, decision').range(from, to),
     ),
     fetchAllRows<{ user_id: string; status: string }>((from, to) =>
       admin.from('outreach_drafts').select('user_id, status').range(from, to),
@@ -187,8 +191,10 @@ async function loadOverview(admin: ReturnType<typeof adminClient>) {
   for (const r of runs) bump(searchBy, r.user_id)
   for (const r of contacts) {
     bump(contactBy, r.user_id)
-    if (r.review_status === 'kept') bump(keptBy, r.user_id)
-    if (r.review_status === 'discarded') bump(discardBy, r.user_id)
+  }
+  for (const r of decisions) {
+    if (r.decision === 'keep') bump(keptBy, r.user_id)
+    if (r.decision === 'discard') bump(discardBy, r.user_id)
   }
   for (const r of drafts) {
     bump(draftBy, r.user_id)

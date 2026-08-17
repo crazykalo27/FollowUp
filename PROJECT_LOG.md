@@ -1,3 +1,7 @@
+## 2026-08-17 — Admin kept = all-time
+
+- Admin totals and per-user kept counts use `contact_decisions` with `decision=keep`, so deletes / Drafted / moves out of Kept do not lower the number.
+
 ## 2026-08-17 — Admin CRM (usage across users)
 
 - New `/app/admin` page (nav only if your login is in `ADMIN_EMAILS`) with user counts, conversion funnel, resumes/searches/emails, provider toggles, and per-user profile chat.

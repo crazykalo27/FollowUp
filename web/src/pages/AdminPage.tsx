@@ -232,7 +232,7 @@ export function AdminPage() {
             {t.kept}
             <span className="search-stat-ratio"> / {t.contacts}</span>
           </strong>
-          <span>Kept / contacts</span>
+          <span>Kept / contacts (all-time)</span>
         </div>
         <div className="search-stat-chip">
           <strong>
