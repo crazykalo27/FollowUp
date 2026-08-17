@@ -97,7 +97,8 @@ export function OnboardingPage() {
 
   useEffect(() => {
     if (!user || searchProfiles.loading) return
-    const activeId = searchProfiles.active?.id || null
+    const active = searchProfiles.active
+    const activeId = active?.id || null
     if (lastProfileId.current && lastProfileId.current !== activeId) {
       bootstrapAttempted.current = false
       setMessages([])
@@ -114,10 +115,7 @@ export function OnboardingPage() {
             .from('profile_chat_messages')
             .select('role, content')
             .eq('user_id', user.id)
-            .eq(
-              'search_profile_id',
-              searchProfiles.active?.id || '',
-            )
+            .eq('search_profile_id', activeId || '')
             .order('created_at', { ascending: true }),
           supabase
             .from('search_profiles')
@@ -139,9 +137,7 @@ export function OnboardingPage() {
           | { file_name: string }
           | { file_name: string }[]
           | null
-        if (!r) return searchProfiles.active
-          ? resumeFileName(searchProfiles.active)
-          : null
+        if (!r) return active ? resumeFileName(active) : null
         return Array.isArray(r) ? r[0]?.file_name : r.file_name
       })()
       if (resumeName) setFileName(resumeName)
@@ -170,7 +166,7 @@ export function OnboardingPage() {
       setMessages(loaded)
       setLoading(false)
 
-      if (resume && loaded.length === 0 && !bootstrapAttempted.current) {
+      if (resumeName && loaded.length === 0 && !bootstrapAttempted.current) {
         bootstrapAttempted.current = true
         await bootstrapChat()
       }
@@ -178,7 +174,7 @@ export function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [user, searchProfiles.loading, searchProfiles.active?.id])
+  }, [user, searchProfiles.loading, searchProfiles.active])
 
   useEffect(() => {
     const el = chatLogRef.current

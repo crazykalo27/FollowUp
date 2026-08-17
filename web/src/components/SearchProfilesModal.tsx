@@ -11,7 +11,6 @@ import {
   resumeFileName,
 } from '../lib/searchProfiles'
 import { useSearchProfiles } from '../lib/searchProfileContext'
-import './admin.css'
 
 export function SearchProfilesModal({
   onClose,
