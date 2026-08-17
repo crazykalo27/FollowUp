@@ -60,6 +60,10 @@ where not exists (
   select 1 from public.search_profiles sp where sp.user_id = u.id
 );
 
+-- Allow multiple profiles per user before inserting extras
+alter table public.search_profiles
+  drop constraint if exists search_profiles_user_id_key;
+
 -- Extra resumes become extra (inactive) search profiles
 insert into public.search_profiles (user_id, name, is_active, resume_id)
 select
@@ -120,6 +124,10 @@ alter table public.preference_documents
 
 alter table public.preference_documents
   add primary key (id);
+
+-- Allow multiple filter rows per user (one per search profile)
+alter table public.search_filters
+  drop constraint if exists search_filters_user_id_key;
 
 -- Filters + prefs for extra profiles
 insert into public.search_filters (user_id, search_profile_id, filters)
@@ -184,10 +192,7 @@ where sp.user_id = sr.user_id
   and sp.is_active
   and sr.search_profile_id is null;
 
--- Uniqueness: many profiles per user, one active, one filters/prefs row per profile
-alter table public.search_profiles
-  drop constraint if exists search_profiles_user_id_key;
-
+-- Uniqueness: one active profile per user, one filters/prefs row per profile
 create unique index if not exists search_profiles_one_active_per_user
   on public.search_profiles (user_id)
   where is_active;
@@ -195,9 +200,6 @@ create unique index if not exists search_profiles_one_active_per_user
 create unique index if not exists search_profiles_resume_id_key
   on public.search_profiles (resume_id)
   where resume_id is not null;
-
-alter table public.search_filters
-  drop constraint if exists search_filters_user_id_key;
 
 create unique index if not exists search_filters_search_profile_id_key
   on public.search_filters (search_profile_id)
