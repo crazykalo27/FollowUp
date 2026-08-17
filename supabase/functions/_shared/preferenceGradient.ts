@@ -342,6 +342,11 @@ export function applyDecisionGradient(
         bump(next.include_titles, title, -lr * 0.55)
         bump(next.exclude_titles, title, lr * 0.45)
       }
+      if (reasons.has('wrong_position_seniority') && title) {
+        // Right company/role family, wrong level (junior/senior/director)
+        bump(next.include_titles, title, -lr * 0.55)
+        bump(next.exclude_titles, title, lr * 0.45)
+      }
       // wrong_company: do not treat as industry miss — company avoid is handled
       // via preference dislikes.companies / avoid flags in review-contact.
     }

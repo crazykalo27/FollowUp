@@ -30,6 +30,7 @@ Broader titles when aligned with profile. Recruiter / Talent Acquisition only as
 Preference docs describe feedback on contacts (what to seek or avoid) —
 NOT biographies of people. Use negative feedback to avoid bad match patterns; use positive feedback to reinforce good ones.
 If discard_reason_counts includes wrong_company, that means people were attached to the wrong employer (SERP noise) — reinforce tighter company targeting, not a different industry.
+If discard_reason_counts includes wrong_position_seniority, the person's level was wrong — tighten seniority (entry/mid/experienced) to the profile, do not swap industries.
 locations mirror profile.locations when present.
 exclude_titles: generic HR/People Ops/Staffing — do not blanket-exclude Recruiter if profile includes them.`
 
@@ -186,6 +187,8 @@ If recent chat asked to REMOVE something from the profile/search targets, do not
 Tune to whatever niches the user wants (technical, arts, anything) — follow ban_terms / prefer_terms and the rewritten profile, do not keep stale people titles.
 
 "Wrong company" discards mean the person did not actually work at the labeled employer — do not change industries for that; keep seeking the intended company more carefully.
+
+"Wrong position seniority" discards mean the contact's level was off — adjust seniority filters, not industry.
 
 Discard/keep reason counts:
 ${JSON.stringify(pref?.discard_reason_counts || {})}`,

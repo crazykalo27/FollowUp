@@ -1,5 +1,6 @@
 # Agent change log
 
+- Discard reason: “Wrong position seniority” (downranks that title; tightens seniority filters)
 - Search: web finds people; Tomba is first email lookup (before OSINT guess / Hunter dump)
 - Contacts: rename Archived → Drafted; drafting a contact moves them there automatically
 - Orientation chips: match current question (experience ≠ company size Large/Medium/Small)

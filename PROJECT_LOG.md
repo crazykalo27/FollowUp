@@ -1,3 +1,8 @@
+## 2026-08-17 — Discard: wrong position seniority
+
+- New discard chip: “Wrong position seniority” — person may fit the company/role family but not the level (junior/senior/director).
+- Downranks that title in people-to-find; filter regen tightens seniority rather than swapping industry.
+
 ## 2026-08-16 — Tomba email lookup before guessing
 
 - Web/LinkedIn search finds people. Tomba email-finder is the first lookup for that specific person (name + domain).
