@@ -1,3 +1,8 @@
+## 2026-08-17 — Admin CRM (usage across users)
+
+- New `/app/admin` page (nav only if your login is in `ADMIN_EMAILS`) with user counts, conversion funnel, resumes/searches/emails, provider toggles, and per-user profile chat.
+- Edge Function `admin-crm` reads with the service role; other accounts get 403. Set `ADMIN_EMAILS` to your Google login email and redeploy functions.
+
 ## 2026-08-17 — Discard: wrong position seniority
 
 - New discard chip: “Wrong position seniority” — person may fit the company/role family but not the level (junior/senior/director).

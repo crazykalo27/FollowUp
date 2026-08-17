@@ -12,6 +12,7 @@ import { ContactsPage } from './pages/ContactsPage'
 import { DraftsPage } from './pages/DraftsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { RefinePage } from './pages/RefinePage'
+import { AdminPage } from './pages/AdminPage'
 import './index.css'
 
 export default function App() {
@@ -39,6 +40,7 @@ export default function App() {
                 <Route path="contacts" element={<ContactsPage />} />
                 <Route path="drafts" element={<DraftsPage />} />
                 <Route path="settings" element={<SettingsPage />} />
+                <Route path="admin" element={<AdminPage />} />
               </Route>
             </Route>
           </Route>
