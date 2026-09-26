@@ -14,13 +14,14 @@ export function RequireAuth() {
   return <Outlet />
 }
 
-const NAV: { to: string; label: string; page: AppPage; end?: boolean }[] = [
-  { to: '/app/onboarding', label: 'Profile', page: 'profile' },
-  { to: '/app/filters', label: 'Filters', page: 'filters' },
-  { to: '/app/search', label: 'Search', page: 'search' },
-  { to: '/app/contacts', label: 'Contacts', page: 'contacts' },
-  { to: '/app/drafts', label: 'Drafts', page: 'drafts' },
-  { to: '/app/settings', label: 'Settings', page: 'settings' },
+const NAV: { to: string; label: string; lock?: AppPage; end?: boolean }[] = [
+  { to: '/app/onboarding', label: 'Profile', lock: 'profile' },
+  { to: '/app/filters', label: 'Filters', lock: 'filters' },
+  { to: '/app/search', label: 'Search', lock: 'search' },
+  { to: '/app/contacts', label: 'Contacts', lock: 'contacts' },
+  { to: '/app/drafts', label: 'Drafts', lock: 'drafts' },
+  { to: '/app/resume', label: 'Resume' },
+  { to: '/app/settings', label: 'Settings', lock: 'settings' },
 ]
 
 export function AppShell() {
@@ -89,7 +90,7 @@ export function AppShell() {
         </button>
         <nav className="side-nav">
           {NAV.map((item) => {
-            const unlocked = orientation.canAccess(item.page)
+            const unlocked = !item.lock || orientation.canAccess(item.lock)
             if (!unlocked) {
               return (
                 <span

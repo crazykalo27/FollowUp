@@ -14,6 +14,8 @@ import { DraftsPage } from './pages/DraftsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { RefinePage } from './pages/RefinePage'
 import { AdminPage } from './pages/AdminPage'
+import { ResumePage } from './pages/ResumePage'
+import { ResumeDevPreview } from './pages/ResumeDevPreview'
 import './index.css'
 
 export default function App() {
@@ -22,6 +24,8 @@ export default function App() {
       <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          {import.meta.env.DEV && <Route path="/dev/resume" element={<ResumeDevPreview />} />}
+          {import.meta.env.DEV && <Route path="/dev/resume/:resumeId" element={<ResumeDevPreview />} />}
           <Route element={<RequireAuth />}>
             <Route path="/app/welcome" element={<WelcomeSetupPage />} />
             <Route element={<ProfileSetupGate />}>
@@ -42,6 +46,8 @@ export default function App() {
                 <Route path="refine" element={<RefinePage />} />
                 <Route path="contacts" element={<ContactsPage />} />
                 <Route path="drafts" element={<DraftsPage />} />
+                <Route path="resume" element={<ResumePage />} />
+                <Route path="resume/:resumeId" element={<ResumePage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="admin" element={<AdminPage />} />
               </Route>

@@ -1,3 +1,9 @@
+## 2026-09-26 — Resume studio inside FollowUp
+
+- Sidebar **Resume** opens the master-resume studio in FollowUp’s own layout: library, tailored resumes, and an application tracker.
+- Keeps the same capabilities: every content type, priorities, tags, upload/parse, coach, bullet suggestions, tailor-to-posting, honest wording alignment, templates and theme, undo, critique, Word/PDF export, and the free-plan daily resume limit.
+- Structured pages live in a per-user vault (`resume_vault` when that table exists). Uploaded search-profile files stay on the existing `resumes` table.
+
 ## 2026-08-17 — Admin kept = all-time
 
 - Admin totals and per-user kept counts use `contact_decisions` with `decision=keep`, so deletes / Drafted / moves out of Kept do not lower the number.
