@@ -349,6 +349,22 @@ export interface Database {
           updated_at?: string
         }
       }
+      resume_vault: {
+        Row: {
+          user_id: string
+          data: Json
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          data?: Json
+          updated_at?: string
+        }
+        Update: {
+          data?: Json
+          updated_at?: string
+        }
+      }
       profile_chat_messages: {
         Row: {
           id: string
