@@ -91,10 +91,8 @@ function EditorBody({
   onReplaceItems: (items: ContentItem[]) => void
   onBack: () => void
 }) {
-  const [past, setPast] = useState<Resume[]>([])
-  const [resume, setResume] = useState(initial)
-  const [future, setFuture] = useState<Resume[]>([])
-  const resumeRef = useRef(resume)
+  const [history, setHistory] = useState({ past: [] as Resume[], present: initial, future: [] as Resume[] })
+  const resume = history.present
   const [tab, setTab] = useState<'library' | 'outline' | 'job' | 'stats'>('library')
   const [inspector, setInspector] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -110,15 +108,12 @@ function EditorBody({
   saveRef.current = onSave
 
   function commitFrom(current: Resume, next: Resume) {
-    resumeRef.current = next
-    setPast((prev) => [...prev, current].slice(-80))
-    setResume(next)
-    setFuture([])
+    if (next === current) return
+    setHistory((h) => ({ past: [...h.past, h.present].slice(-80), present: next, future: [] }))
   }
 
   function paint(next: Resume) {
-    resumeRef.current = next
-    setResume(next)
+    setHistory((h) => ({ ...h, present: next }))
   }
 
   useEffect(() => {
@@ -143,24 +138,18 @@ function EditorBody({
   })
 
   function undo() {
-    setPast((prev) => {
-      if (prev.length === 0) return prev
-      const previous = prev[prev.length - 1]
-      setFuture((f) => [resumeRef.current, ...f])
-      resumeRef.current = previous
-      setResume(previous)
-      return prev.slice(0, -1)
+    setHistory((h) => {
+      if (h.past.length === 0) return h
+      const previous = h.past[h.past.length - 1]
+      return { past: h.past.slice(0, -1), present: previous, future: [h.present, ...h.future] }
     })
   }
 
   function redo() {
-    setFuture((prev) => {
-      if (prev.length === 0) return prev
-      const [next, ...rest] = prev
-      setPast((p) => [...p, resumeRef.current])
-      resumeRef.current = next
-      setResume(next)
-      return rest
+    setHistory((h) => {
+      if (h.future.length === 0) return h
+      const [next, ...rest] = h.future
+      return { past: [...h.past, h.present], present: next, future: rest }
     })
   }
 
@@ -196,8 +185,8 @@ function EditorBody({
         >
           {TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
         </select>
-        <button type="button" className="btn btn-sm" onClick={undo} disabled={past.length === 0}>Undo</button>
-        <button type="button" className="btn btn-sm" onClick={redo} disabled={future.length === 0}>Redo</button>
+        <button type="button" className="btn btn-sm" onClick={undo} disabled={history.past.length === 0}>Undo</button>
+        <button type="button" className="btn btn-sm" onClick={redo} disabled={history.future.length === 0}>Redo</button>
         <button type="button" className="btn btn-sm" onClick={() => setInspector((open) => !open)}>Style</button>
         <button type="button" className="btn btn-sm" onClick={() => setScoreOpen(true)}>Score</button>
         <button type="button" className="btn btn-sm" onClick={() => setExportOpen(true)}>Export</button>
